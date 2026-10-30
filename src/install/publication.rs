@@ -227,6 +227,72 @@ impl Root {
         entry.parent.sync_all()?;
         Ok(Some(PublishedDirectory { entry }))
     }
+    /// Publish a symlink without interpreting its target or replacing an entry.
+    /// macOS O_SYMLINK anchors the link inode itself, including dangling links.
+    #[cfg(target_os = "macos")]
+    pub fn publish_symlink(&self, relative: &Path, target: &Path) -> Result<PublishedFile> {
+        let target = CString::new(target.as_os_str().as_bytes())?;
+        let (parent, name) = self.parent(relative)?;
+        // SAFETY: both names are NUL-terminated and parent owns its descriptor.
+        // symlinkat creates the leaf exclusively and does not traverse target.
+        if unsafe { libc::symlinkat(target.as_ptr(), parent.as_raw_fd(), name.as_ptr()) } != 0 {
+            return Err(io::Error::last_os_error())
+                .context("cannot publish symlink without overwriting");
+        }
+        let opened = (|| -> Result<Arc<File>> {
+            // SAFETY: O_SYMLINK opens the symlink itself (Darwin open(2)), not
+            // its target. Parent/name remain valid throughout the call.
+            let fd = unsafe {
+                libc::openat(
+                    parent.as_raw_fd(),
+                    name.as_ptr(),
+                    libc::O_RDONLY | libc::O_SYMLINK | libc::O_CLOEXEC,
+                )
+            };
+            if fd < 0 {
+                return Err(io::Error::last_os_error().into());
+            }
+            // SAFETY: fd is a new owned descriptor returned by openat.
+            let file = Arc::new(unsafe { File::from_raw_fd(fd) });
+            ensure!(
+                file.metadata()?.file_type().is_symlink(),
+                "publication entry is no longer a symlink"
+            );
+            Ok(file)
+        })();
+        let file = match opened {
+            Ok(file) => file,
+            Err(error) => {
+                // SAFETY: remove only the leaf created by this operation. The
+                // caller exclusively manages this directory; targets are not followed.
+                unsafe {
+                    libc::unlinkat(parent.as_raw_fd(), name.as_ptr(), 0);
+                }
+                return Err(error);
+            }
+        };
+        let metadata = match file.metadata() {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                // SAFETY: this is our newly created symlink leaf.
+                unsafe {
+                    libc::unlinkat(parent.as_raw_fd(), name.as_ptr(), 0);
+                }
+                return Err(error.into());
+            }
+        };
+        let published = PublishedFile {
+            parent,
+            name,
+            device: metadata.dev(),
+            inode: metadata.ino(),
+            retained: false,
+            directory: false,
+            _anchor: file,
+        };
+        published.parent.sync_all()?;
+        Ok(published)
+    }
     fn parent(&self, path: &Path) -> Result<(File, CString)> {
         ensure!(
             !path.as_os_str().is_empty()

@@ -297,3 +297,79 @@ fn directory_creation_rejects_symlinks_files_and_missing_parents() {
     drop(directory);
     assert!(!temp.path().join("empty").exists());
 }
+
+#[test]
+#[cfg(target_os = "macos")]
+fn symlink_publication_preserves_absolute_relative_and_dangling_targets() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = Root::open(temp.path()).unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let target = outside.path().join("target");
+    fs::write(&target, b"preserve").unwrap();
+    for (name, target) in [
+        ("absolute", target.as_path()),
+        ("relative", Path::new("../relative target")),
+        ("dangling", Path::new("missing")),
+    ] {
+        let receipt = root.publish_symlink(Path::new(name), target).unwrap();
+        assert_eq!(fs::read_link(temp.path().join(name)).unwrap(), target);
+        receipt.rollback().unwrap();
+        assert!(fs::symlink_metadata(temp.path().join(name)).is_err());
+    }
+    assert_eq!(fs::read(target).unwrap(), b"preserve");
+    root.publish_symlink(Path::new("kept"), Path::new("missing"))
+        .unwrap()
+        .persist();
+    assert_eq!(
+        fs::read_link(temp.path().join("kept")).unwrap(),
+        Path::new("missing")
+    );
+}
+
+#[test]
+#[cfg(target_os = "macos")]
+fn symlink_collisions_and_linked_parents_never_overwrite_or_escape() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = Root::open(temp.path()).unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    fs::write(temp.path().join("file"), b"keep").unwrap();
+    fs::create_dir(temp.path().join("directory")).unwrap();
+    symlink("missing", temp.path().join("link")).unwrap();
+    symlink(outside.path(), temp.path().join("parent")).unwrap();
+    for path in ["file", "directory", "link", "parent/escape", "../escape"] {
+        assert!(
+            root.publish_symlink(Path::new(path), Path::new("target"))
+                .is_err()
+        );
+    }
+    assert_eq!(fs::read(temp.path().join("file")).unwrap(), b"keep");
+    assert_eq!(
+        fs::read_link(temp.path().join("link")).unwrap(),
+        Path::new("missing")
+    );
+    assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
+}
+
+#[test]
+#[cfg(target_os = "macos")]
+fn symlink_receipt_rejects_hardlinking_and_preserves_replacement_nodes() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = Root::open(temp.path()).unwrap();
+    let receipt = root
+        .publish_symlink(Path::new("link"), Path::new("missing"))
+        .unwrap();
+    assert!(root.publish_hardlink(Path::new("alias"), &receipt).is_err());
+    fs::rename(temp.path().join("link"), temp.path().join("old-link")).unwrap();
+    fs::write(temp.path().join("link"), b"replacement").unwrap();
+    assert!(receipt.rollback().is_err());
+    assert_eq!(fs::read(temp.path().join("link")).unwrap(), b"replacement");
+    assert_eq!(
+        fs::read_link(temp.path().join("old-link")).unwrap(),
+        Path::new("missing")
+    );
+    let receipt = root
+        .publish_symlink(Path::new("temporary"), Path::new("missing"))
+        .unwrap();
+    drop(receipt);
+    assert!(fs::symlink_metadata(temp.path().join("temporary")).is_err());
+}

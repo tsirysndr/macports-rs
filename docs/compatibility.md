@@ -1133,7 +1133,7 @@ identity before unlinking, and uses the held parent even if its original path
 has been renamed. Persisting a receipt retains the file after coordination.
 The caller must exclusively manage the destination directories throughout these
 operations. These primitives do not supply crash recovery,
-symlink payload publication, archive ownership/flags/timestamps, or a
+archive ownership/flags/timestamps, or a
 registry transaction coordinator, and are not wired to CLI install yet. Tests
 cover publication/retention, failed streams, collisions, path escapes, replacement
 inodes, and renamed-parent rollback without altering external symlink targets.
@@ -1161,3 +1161,14 @@ and explicit rollback reports the failure. Tests cover exact modes, shared
 directories, nested file/directory rollback, collision handling, and preserving
 nonempty or replaced directories. Exclusive directory management remains required;
 these operations do not provide a durable activation journal.
+
+
+On macOS, `Root::publish_symlink` publishes link targets verbatim with symlinkat,
+then opens the link inode itself using Darwin O_SYMLINK. Absolute, relative, and
+dangling targets are supported without resolving them. The returned receipt holds
+the link inode alive and uses the same identity-checked rollback as regular files;
+retaining the receipt preserves the link. Existing destinations are never replaced,
+and hard-link publication refuses a symlink receipt as its source. Tests verify
+target preservation, collisions, linked-parent rejection, rollback, replacement
+protection, and that external targets remain untouched. This macOS primitive is
+still separate from the pending activation coordinator and durable recovery path.
