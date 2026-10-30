@@ -82,7 +82,7 @@ impl StateFile {
         };
         Ok(Some(Self { file, lock_status }))
     }
-    fn lines(&mut self) -> Result<Vec<String>> {
+    pub(crate) fn lines(&mut self) -> Result<Vec<String>> {
         self.file.seek(SeekFrom::Start(0))?;
         BufReader::new(&mut self.file)
             .lines()
@@ -146,6 +146,10 @@ impl StateFile {
         &mut self,
         requested: &BTreeMap<String, String>,
     ) -> Result<(bool, BTreeMap<String, String>)> {
+        let (found, old) = self.variants()?;
+        Ok((!found || old == *requested, old))
+    }
+    pub fn variants(&mut self) -> Result<(bool, BTreeMap<String, String>)> {
         let mut old = BTreeMap::new();
         let mut targets = false;
         for line in self.lines()? {
@@ -156,6 +160,6 @@ impl StateFile {
             }
             targets |= line.contains("target: ");
         }
-        Ok(((!targets && old.is_empty()) || old == *requested, old))
+        Ok((targets || !old.is_empty(), old))
     }
 }

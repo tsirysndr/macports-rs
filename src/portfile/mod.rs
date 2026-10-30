@@ -7,6 +7,7 @@ mod binaries;
 mod build_defaults;
 mod build_phase;
 mod build_settings;
+mod build_state;
 mod command_exec;
 mod command_options;
 mod commands;
@@ -75,6 +76,8 @@ pub struct Evaluation {
 #[derive(Default)]
 struct State {
     groups: PortGroups,
+    build_states: BTreeMap<String, crate::build::state::StateFile>,
+    next_build_state: u64,
     creation_mask: Option<u32>,
     system_executor: Option<system::Executor>,
     loaded_groups: Vec<LoadedGroup>,
@@ -189,6 +192,7 @@ fn open(
     commands::install(&mut interp, id);
     utilities::install(&mut interp, id);
     workpath::install(&mut interp, id);
+    build_state::install(&mut interp, id);
     paths::install(&mut interp, id);
     creation_mask::install(&mut interp, id);
     traverse::install(&mut interp, id);

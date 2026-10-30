@@ -595,7 +595,14 @@ version/checksum/target/variant records while holding an exclusive `flock`.
 It supports nonblocking acquisition, waiting, duplicate suppression, v1 timestamp
 and v2 checksum checks, and recorded-variant comparison. Unsupported filesystem
 locking is exposed to the caller, matching upstream's permitted fallback.
-State invalidation/cleanup and phase-scheduler integration are not yet connected.
+Execution-enabled sessions can take ownership of a locked file through
+`Session::attach_build_state`. The resulting handle supports `check_statefile`,
+`write_statefile`, `get_statefile_value`, `check_statefile_variants`, and `close`.
+Output variables use the caller's scope; closing the handle or dropping the
+session releases the lock. State class patterns currently use Rust regex syntax,
+so Tcl-specific advanced expressions remain a compatibility gap. Automatic
+`open_statefile` policy, invalidation/cleanup, and phase scheduling are not yet
+connected.
 Native `file join`, `dirname`, `tail`, `extension`, `rootname`, `split`,
 `pathtype`, and `separator` construct and inspect Unix paths without filesystem
 access. These follow the current MacPorts-bundled Tcl 9 lexical rules, including
