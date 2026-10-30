@@ -12,11 +12,22 @@ use std::{
 fn setup(root: &Path) -> (Session, PathBuf) {
     let stage = root.join("stage");
     fs::create_dir(&stage).unwrap();
+    let share = root.join("share/install");
+    fs::create_dir_all(&share).unwrap();
+    for name in ["prefix.mtree", "macosx.mtree"] {
+        fs::write(share.join(name), "/set type=dir mode=0755\n.\n..\n").unwrap();
+    }
     let source = "name app; version 1; destroot {}";
     fs::write(root.join("Portfile"), source).unwrap();
     let vars = BTreeMap::from([
         ("destroot".into(), stage.to_str().unwrap().into()),
         ("prefix".into(), "/opt/local".into()),
+        (
+            "portsharepath".into(),
+            root.join("share").to_str().unwrap().into(),
+        ),
+        ("os.platform".into(), "darwin".into()),
+        ("destroot.umask".into(), "0022".into()),
         ("applications_dir".into(), "/Applications/MacPorts".into()),
         ("frameworks_dir".into(), "/Library/Frameworks".into()),
         ("destroot.delete_la_files".into(), "no".into()),
@@ -100,9 +111,7 @@ fn empty_stage_failure_restores_mask_and_does_not_record_completion() {
     let temp = tempfile::tempdir().unwrap();
     let (mut s, stage) = setup(temp.path());
     put(&stage, "opt/local/share/info/dir", "stray only");
-    // The host supplies preparation until native destroot_start is implemented.
-    s.invoke("proc", &["portdestroot::destroot_start", "args", ""])
-        .unwrap();
+    s.invoke("umask", &["0027"]).unwrap();
     let item = s.scalar("org.macports.destroot").unwrap();
     assert!(
         s.run_prepared_target(&item, false)
@@ -122,9 +131,8 @@ fn empty_stage_failure_restores_mask_and_does_not_record_completion() {
 fn prepared_target_records_completion_only_after_native_finish() {
     let temp = tempfile::tempdir().unwrap();
     let (mut s, stage) = setup(temp.path());
-    put(&stage, "opt/local/bin/app", "payload");
-    s.invoke("proc", &["portdestroot::destroot_start", "args", ""])
-        .unwrap();
+    fs::write(temp.path().join("payload"), "payload").unwrap();
+    s.invoke("destroot", &["file mkdir ${destroot}${prefix}/bin; file rename [file join $portpath payload] ${destroot}${prefix}/bin/app"]).unwrap();
     let item = s.scalar("org.macports.destroot").unwrap();
     assert_eq!(
         s.run_prepared_target(&item, false).unwrap(),
@@ -134,6 +142,11 @@ fn prepared_target_records_completion_only_after_native_finish() {
         s.run_prepared_target(&item, false).unwrap(),
         TargetOutcome::AlreadyCompleted
     );
+    assert_eq!(
+        fs::read_to_string(stage.join("opt/local/bin/app")).unwrap(),
+        "payload"
+    );
+    assert_eq!(s.invoke("umask", &["0077"]).unwrap(), "0077");
 }
 #[test]
 fn missing_mask_or_metadata_session_cannot_begin_cleanup() {
@@ -178,4 +191,58 @@ fn sparse_workaround_is_best_effort_and_preserves_original_file() {
     assert_eq!(&bytes[..5], b"begin");
     assert!(bytes[5..].iter().all(|byte| *byte == 0));
     assert_eq!(fs::read_dir(work).unwrap().count(), 0);
+}
+
+#[test]
+fn native_start_cleans_only_when_requested_and_saves_the_mask() {
+    let temp = tempfile::tempdir().unwrap();
+    let (mut s, stage) = setup(temp.path());
+    put(&stage, "obsolete/file", "old");
+    s.invoke("destroot.clean", &["yes"]).unwrap();
+    s.invoke("portdestroot::destroot_start", &[]).unwrap();
+    assert!(!stage.join("obsolete").exists());
+    assert!(stage.join("opt/local").is_dir());
+    assert!(stage.join("Applications/MacPorts").is_dir());
+    assert_eq!(s.scalar("portdestroot::oldmask").unwrap(), "0077");
+    assert_eq!(s.invoke("umask", &["0022"]).unwrap(), "0022");
+}
+
+#[test]
+fn startup_failure_restores_mask_and_requested_services_fail_before_cleanup() {
+    let temp = tempfile::tempdir().unwrap();
+    let (mut s, stage) = setup(temp.path());
+    fs::remove_file(temp.path().join("share/install/prefix.mtree")).unwrap();
+    assert!(s.invoke("portdestroot::destroot_start", &[]).is_err());
+    assert_eq!(s.invoke("umask", &["0077"]).unwrap(), "0077");
+    put(&stage, "preserve", "payload");
+    s.invoke("startupitem.create", &["yes"]).unwrap();
+    s.invoke("destroot.clean", &["yes"]).unwrap();
+    let error = s.invoke("portdestroot::destroot_start", &[]).unwrap_err();
+    assert!(error.to_string().contains("startup item generation"));
+    assert_eq!(
+        fs::read_to_string(stage.join("preserve")).unwrap(),
+        "payload"
+    );
+}
+
+#[test]
+fn failing_pre_destroot_hook_restores_mask_without_recording_completion() {
+    let temp = tempfile::tempdir().unwrap();
+    let (mut s, _) = setup(temp.path());
+    s.invoke("pre-destroot", &["error {deliberate staging hook failure}"])
+        .unwrap();
+    let item = s.scalar("org.macports.destroot").unwrap();
+    assert!(
+        s.run_prepared_target(&item, false)
+            .unwrap_err()
+            .to_string()
+            .contains("deliberate staging hook failure")
+    );
+    assert_eq!(s.invoke("umask", &["0077"]).unwrap(), "0077");
+    let mut state = StateFile::open(
+        &temp.path().join("build/new/app/work/.macports.app.state"),
+        None,
+    )
+    .unwrap();
+    assert!(!state.contains("target", "org.macports.destroot").unwrap());
 }

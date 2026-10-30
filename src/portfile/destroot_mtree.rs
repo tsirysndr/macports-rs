@@ -7,12 +7,12 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-impl Session {
+impl StageContext<'_> {
     /// Populate an already prepared, private destroot using installed MacPorts
     /// directory specifications. Cleanup, mask setup, and startup items belong
     /// to the surrounding destroot_start lifecycle.
     pub fn prepare_destroot_hierarchy(&mut self) -> Result<()> {
-        check_supported(&mut self.interp, self.id)?;
+        check_supported(self.interp, self.id)?;
         ensure!(
             self.interp
                 .context::<State>(self.id)
@@ -83,4 +83,15 @@ fn stage_path(root: &Path, value: &str) -> Result<PathBuf> {
         }
     }
     Ok(path)
+}
+
+impl Session {
+    /// Prepare the non-root staging hierarchy without an external mtree process.
+    pub fn prepare_destroot_hierarchy(&mut self) -> Result<()> {
+        StageContext {
+            interp: &mut self.interp,
+            id: self.id,
+        }
+        .prepare_destroot_hierarchy()
+    }
 }

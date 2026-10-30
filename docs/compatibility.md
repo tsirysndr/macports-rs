@@ -487,9 +487,9 @@ Custom staging blocks can delegate through `do-destroot`. The host must provide
 `system_options(clonebin_path)` (empty disables wrappers); its temporary PATH
 prefix is restored on success and failure. Tests stage an executable into a
 temporary prefix with live logs. Native non-root destroot finish now performs
-staging cleanup and restores the saved mask. The native hierarchy helper is described below; destroot startup orchestration,
-privilege transitions, startup items, and privileged ownership conversion remain
-unfinished.
+staging cleanup and restores the saved mask. Native non-root startup now prepares the hierarchy and mask for ports without
+startup items. Privilege transitions, startup-item generation, and privileged
+ownership conversion remain unfinished.
 
 The CLI captures and restores its inherited creation mask at the start of
 `main`, before starting runtimes or concurrent work. New Portfile sessions inherit
@@ -500,7 +500,8 @@ after fork, and newly prepared command directories receive the same permissions;
 existing directories retain theirs. The Rust process's global umask is never
 changed during evaluation or execution. Library hosts without a startup capture
 must supply the initial mask explicitly. Destroot finish restores the saved mask on both success and failure; native
-destroot startup still needs to save and set that mask.
+destroot startup saves and sets the configured staging mask. Prepared-target
+execution also restores the mask when a staging hook or body fails before finish.
 
 `porttest::test_main` runs configured test commands when `test.run` is true,
 using the inherited build command/directory and the default `test` target.
@@ -977,8 +978,8 @@ cleanup, keepdir/pruning and empty-stage checks, man-page compression, and layou
 warnings for non-root execution. On macOS it also attempts the sparse-file
 workaround using SEEK_HOLE and native clonefile into a private temporary directory;
 errors are ignored as upstream treats this workaround as best effort. The saved
-`portdestroot::oldmask` must be initialized by the host until destroot startup is
-implemented. The session mask is restored on failures as well as success. Tests
+`portdestroot::oldmask` is saved by native startup; callers invoking finish
+directly must initialize it themselves. The session mask is restored on failures as well as success. Tests
 verify that the prepared-target runtime records completion only after finish
 succeeds. Privileged finish fails before cleanup because build-account ownership
 conversion and the privilege worker are still missing; ordinary CLI installation
@@ -994,7 +995,13 @@ and ownership attributes from MacPorts' templates. Existing extra files remain
 untouched; directory modes are updated. Non-root staging retains caller ownership.
 Symlinks in hierarchy entries are rejected rather than followed. The caller must
 provide a private, already-created destroot and an initialized creation mask.
-This is a host API, not yet the complete `destroot_start` callback: cleanup, mask
-saving, startup items, and privileged ownership still need integration. General
+The native `portdestroot::destroot_start` callback uses this helper after optional
+cleanup (`destroot.clean` exactly `yes`) and staging-mask setup. It checks root
+requirements and unsupported startup-item requests before cleanup. Ports without
+startup items, or with an explicitly disabled single item, can complete the
+non-root staging lifecycle. Requested service generation and multi-item lists
+fail explicitly until launchd support exists. The default staging mask comes
+from `system_options(destroot_umask)`; the host must supply it or an explicit
+`destroot.umask`. Startup errors restore the prior mask. General
 mtree file/link/checksum specifications, escaped filenames, and wildcard entries
 are explicitly rejected rather than silently interpreted as directory templates.

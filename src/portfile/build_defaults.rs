@@ -67,6 +67,7 @@ pub(super) fn initialize(interp: &mut Interp, id: ContextID) -> MoltResult {
         ("test.dir", "${build.dir}"),
         ("test.cmd", "${build.cmd}"),
         ("destroot.asroot", "no"),
+        ("destroot.umask", "$system_options(destroot_umask)"),
         ("destroot.target", "install"),
         ("destroot.pre_args", "[portdestroot::destroot_getargs]"),
         ("destroot.post_args", "${destroot.destdir}"),

@@ -87,6 +87,8 @@ impl Session {
         }
         // Read each callback list when its turn arrives: earlier callbacks can
         // modify later lists, just as in the upstream interpreter.
+        let staging_mask = (name == "org.macports.destroot")
+            .then(|| self.interp.context::<State>(self.id).creation_mask);
         let body_result = (|| -> Result<()> {
             self.target_callbacks(&item, "prerun", &name)?;
             if manage_developer {
@@ -105,8 +107,15 @@ impl Session {
             // unsupported operation must not leak target environment state.
             self.interp.unset_element("env", "DEVELOPER_DIR");
         }
-        body_result?;
-        self.target_callbacks(&item, "postrun", &name)?;
+        let finished = body_result.and_then(|()| self.target_callbacks(&item, "postrun", &name));
+        if finished.is_err()
+            && let Some(mask) = staging_mask
+        {
+            // Failure skips finish; restore directly even when an unsupported
+            // callback has poisoned further interpreter commands.
+            self.interp.context::<State>(self.id).creation_mask = mask;
+        }
+        finished?;
         let stateful = ditems::field(&mut self.interp, self.id, &item, "state")
             .map_err(failure)?
             .as_str()
