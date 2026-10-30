@@ -1507,3 +1507,13 @@ ignored, malformed tokens produce warnings without discarding valid choices,
 and missing files are ignored. The parser preserves upstream literal variant
 names and split-token behavior. Indexed-only previews do not yet load global
 configuration, and install execution remains unavailable.
+
+Local install previews now use the retained-session planner and a consistent
+read-only registry snapshot for provider resolution. Active dependencies and
+filesystem providers can satisfy runtime edges without fallback index entries or
+Portfiles; explicitly requested fallbacks are still evaluated and ordered before
+dependents. Provider checks use each session's live prefix/environment. Resolver
+contexts share an immutable active-name set rather than rereading all registry
+entries for every port. Missing providers remain planned dependencies. Indexed
+previews retain pending provider checks, and no archive fetch or installation is
+performed by these previews.

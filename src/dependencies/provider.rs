@@ -6,6 +6,7 @@ use std::{
     collections::{BTreeMap, HashSet},
     fs,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -46,7 +47,7 @@ impl Search {
 }
 pub struct Resolver<'a> {
     registry: Option<&'a Registry>,
-    active: HashSet<String>,
+    active: Arc<HashSet<String>>,
     search: Search,
 }
 /// Provider evidence for dependency planning. A registration fallback name is
@@ -89,15 +90,33 @@ impl<'a> Resolver<'a> {
             .map(Registry::entries)
             .transpose()?
             .unwrap_or_default();
-        Ok(Self {
+        Ok(Self::from_entries(registry, search, &entries))
+    }
+    pub(crate) fn from_entries(
+        registry: Option<&'a Registry>,
+        search: Search,
+        entries: &[crate::registry::Entry],
+    ) -> Self {
+        Self {
             registry,
-            active: entries
-                .into_iter()
-                .filter(|e| e.active)
-                .map(|e| e.name.to_ascii_lowercase())
-                .collect(),
             search,
-        })
+            active: Arc::new(
+                entries
+                    .iter()
+                    .filter(|entry| entry.active)
+                    .map(|entry| entry.name.to_ascii_lowercase())
+                    .collect(),
+            ),
+        }
+    }
+    /// Share the immutable registry snapshot while using another Portfile's
+    /// search context. Avoid rescanning all installed ports for every dependency.
+    pub(crate) fn with_search(&self, search: Search) -> Self {
+        Self {
+            registry: self.registry,
+            active: self.active.clone(),
+            search,
+        }
     }
     /// Active fallback ports take priority. Otherwise return the owner of the
     /// probed path, None for an unregistered system provider, or the fallback port

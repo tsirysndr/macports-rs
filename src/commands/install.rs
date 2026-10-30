@@ -24,7 +24,12 @@ pub(super) fn run(
     root: Option<&Path>,
 ) -> Result<()> {
     let mut specs = query::specifications(index, &args.ports)?;
-    let entries = registry::read(registry_file)?;
+    let registry = registry::Registry::open(registry_file)?;
+    let entries = registry
+        .as_ref()
+        .map(registry::Registry::entries)
+        .transpose()?
+        .unwrap_or_default();
     let local = if let Some(root) = root {
         let mut available = root.join("_resources/port1.0/group").try_exists()?;
         for spec in &specs {
@@ -79,20 +84,19 @@ pub(super) fn run(
             for spec in &mut specs {
                 context.variants.apply(spec);
             }
-            install::plan_evaluated(index, &specs, &entries, |port, spec| {
-                Ok(crate::portfile::open_from_tree_with_environment(
+            install::plan_sessions(index, &specs, registry.as_ref(), |port, spec| {
+                crate::portfile::open_from_tree_with_environment(
                     root,
                     port,
                     &context.variables,
                     spec,
                     &context.environment,
-                )?
-                .into_metadata())
+                )
             })
         })
         .transpose()?;
     let items = if let Some(evaluated) = &evaluated {
-        evaluated.items().collect()
+        evaluated.plan.items().collect()
     } else {
         install::plan(index, &specs, &entries)?
     };

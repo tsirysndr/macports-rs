@@ -15,7 +15,7 @@ impl Fixture {
             ));
         }
         std::fs::write(dir.path().join("PortIndex"), index).unwrap();
-        Connection::open(dir.path().join("registry.db")).unwrap().execute_batch("CREATE TABLE ports(id INTEGER PRIMARY KEY,name TEXT,version TEXT,revision INTEGER,variants TEXT,state TEXT);").unwrap();
+        Connection::open(dir.path().join("registry.db")).unwrap().execute_batch("CREATE TABLE ports(id INTEGER PRIMARY KEY,name TEXT,version TEXT,revision INTEGER,variants TEXT,state TEXT); CREATE TABLE files(id INTEGER,path TEXT,actual_path TEXT,active INTEGER);").unwrap();
         Self { dir }
     }
     fn run(&self, args: &[&str]) -> Output {
@@ -589,4 +589,70 @@ fn local_install_applies_configured_variants_to_roots_and_dependencies() {
         stdout(f.run(&["-qy", "install", "app", "-ssl", "base", "+docs"])),
         "install  base @2_0+docs+ssl (requested)\ninstall  app @2_0 (requested)\n"
     );
+}
+
+#[test]
+fn local_preview_skips_available_providers_without_loading_fallback_portfiles() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = Fixture::new(&[
+        ("app", "version 1 portdir net/app"),
+        ("fallback", "version 1 portdir net/fallback"),
+    ]);
+    let home = f.dir.path().join("home");
+    std::fs::create_dir_all(home.join(".macports")).unwrap();
+    std::fs::create_dir_all(home.join("prefix/bin")).unwrap();
+    std::fs::write(home.join(".macports/macports.conf"), "prefix ~/prefix\n").unwrap();
+    std::fs::write(home.join("prefix/provided"), b"present").unwrap();
+    let tool = home.join("prefix/bin/fixture-tool");
+    std::fs::write(&tool, b"never executed").unwrap();
+    std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
+    portfile(
+        &f,
+        "app",
+        "set env(PATH) [file join $prefix bin]; depends_run path:provided:fallback bin:fixture-tool:absent-from-index",
+    );
+    assert_eq!(
+        stdout(f.run(&["-qy", "install", "app"])),
+        "install  app @2_0 (requested)\n"
+    );
+    // An explicit request still requires its source even if a provider exists.
+    let output = f.run(&["-qy", "install", "app", "fallback"]);
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    portfile(&f, "fallback", "");
+    assert_eq!(
+        stdout(f.run(&["-qy", "install", "app", "fallback"])),
+        "install  fallback @2_0 (requested)\ninstall  app @2_0 (requested)\n"
+    );
+    std::fs::remove_file(home.join("prefix/provided")).unwrap();
+    assert_eq!(
+        stdout(f.run(&["-qy", "install", "app"])),
+        "install  fallback @2_0 (dependency)\ninstall  app @2_0 (requested)\n"
+    );
+}
+
+#[test]
+fn local_preview_accepts_active_dependencies_without_fallback_index_metadata() {
+    let f = Fixture::new(&[("app", "version 1 portdir net/app")]);
+    portfile(
+        &f,
+        "app",
+        "depends_run port:already-installed bin:missing-tool:active-fallback",
+    );
+    let db = Connection::open(f.dir.path().join("registry.db")).unwrap();
+    db.execute_batch("INSERT INTO ports VALUES(1,'already-installed','9',0,'','installed'); INSERT INTO ports VALUES(2,'active-fallback','8',0,'','installed');").unwrap();
+    let before = std::fs::read(f.dir.path().join("registry.db")).unwrap();
+    assert_eq!(
+        stdout(f.run(&["-qy", "install", "app"])),
+        "install  app @2_0 (requested)\n"
+    );
+    assert_eq!(
+        std::fs::read(f.dir.path().join("registry.db")).unwrap(),
+        before
+    );
+    db.execute("UPDATE ports SET state='imaged' WHERE id=2", [])
+        .unwrap();
+    let output = f.run(&["-qy", "install", "app"]);
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
 }

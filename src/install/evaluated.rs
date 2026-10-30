@@ -128,7 +128,11 @@ pub fn plan_sessions(
                     port.name
                 );
             }
-            resolvers.insert(port.name.clone(), Resolver::new(registry, search)?);
+            let resolver = match resolvers.values().next() {
+                Some(previous) => previous.with_search(search),
+                None => Resolver::from_entries(registry, search, &installed),
+            };
+            resolvers.insert(port.name.clone(), resolver);
             let metadata = session.metadata().clone();
             sessions.entry(port.name.clone()).or_insert(session);
             Ok(metadata)
