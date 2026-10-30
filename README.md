@@ -218,12 +218,20 @@ platform, architectures, and local installation timestamps. Version filters
 match a plain version or the complete version/revision/variant string.
 
 Registry queries support names, globs, `all`, `installed`, `active`, `inactive`,
-`requested`, and `unrequested`. Combine selectors with `not` (or `!`), `and`,
+`requested`, `unrequested`, `leaves`, and `rleaves`. Combine selectors with `not` (or `!`), `and`,
 and `or`, in that precedence order; parentheses override precedence and adjacent
 expressions form a union. Set operations preserve distinct installed images.
 Complements and globs use the installed registry, including ports removed from
 the catalog. Nesting is limited to 128 levels. Field/path selectors still require
 catalog queries; registry mutations remain unimplemented.
+
+`port installed leaves` selects unrequested images with no registered dependents.
+`port installed rleaves` also includes unrequested images whose dependents are
+not needed by any requested port. Both account for active and inactive images;
+dependency cycles terminate. These selectors compose with logical expressions
+and version filters, and also work with `outdated`. Dependency data is loaded
+once, only when needed, within the same read snapshot as installed images.
+They are query selectors only: no ports are removed.
 
 `port contents curl` lists the active image's registered filesystem paths; if no
 active image matches, a single inactive image is used. When several inactive

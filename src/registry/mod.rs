@@ -1,6 +1,7 @@
 //! Read-only access to the MacPorts SQLite registry; never initializes or migrates it.
 pub mod dependents;
 pub mod expression;
+mod leaves;
 pub mod path;
 mod selection;
 mod version;

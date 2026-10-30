@@ -1,5 +1,5 @@
 //! Boolean selection over installed image identities, preserving distinct versions.
-use super::{Entry, specifications};
+use super::{Entry, Registry, leaves::Leaves, specifications};
 use crate::{query::Matcher, spec::is_modifier};
 use anyhow::{Result, bail, ensure};
 use std::collections::BTreeSet;
@@ -14,6 +14,7 @@ pub fn select<'a>(
     entries: &'a [Entry],
     tokens: &[String],
     missing: Missing,
+    registry: Option<&Registry>,
 ) -> Result<Vec<&'a Entry>> {
     if tokens.is_empty() {
         return Ok(entries.iter().collect());
@@ -24,6 +25,8 @@ pub fn select<'a>(
         cursor: 0,
         depth: 0,
         missing,
+        registry,
+        leaves: None,
     };
     let selected = parser.sequence()?;
     ensure!(
@@ -39,6 +42,8 @@ struct Expression<'a> {
     cursor: usize,
     depth: usize,
     missing: Missing,
+    registry: Option<&'a Registry>,
+    leaves: Option<Leaves>,
 }
 impl Expression<'_> {
     fn peek(&self) -> Option<&str> {
@@ -111,8 +116,18 @@ impl Expression<'_> {
         let spec = &specs[0];
         let pseudo = matches!(
             spec.name.as_str(),
-            "all" | "installed" | "active" | "inactive" | "requested" | "unrequested"
+            "all"
+                | "installed"
+                | "active"
+                | "inactive"
+                | "requested"
+                | "unrequested"
+                | "leaves"
+                | "rleaves"
         );
+        if matches!(spec.name.as_str(), "leaves" | "rleaves") && self.leaves.is_none() {
+            self.leaves = Some(Leaves::read(self.registry, self.entries)?);
+        }
         let glob = spec.name.contains(['*', '?', '[', ']']);
         let matcher = Matcher::new(&spec.name, !glob, false, false)?;
         let version = spec.composite_version();
@@ -127,6 +142,11 @@ impl Expression<'_> {
                     "inactive" => !entry.active,
                     "requested" => entry.requested,
                     "unrequested" => !entry.requested,
+                    "leaves" | "rleaves" => self
+                        .leaves
+                        .as_ref()
+                        .unwrap()
+                        .matches(entry, spec.name == "rleaves"),
                     _ => matcher.matches(&entry.name),
                 };
                 name_matches

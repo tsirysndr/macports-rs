@@ -21,12 +21,21 @@ pub(super) fn run<'a>(
     verbose: bool,
     load_index: impl FnOnce() -> Result<&'a Index>,
 ) -> Result<()> {
-    let entries = registry::read(path)?;
-    let selected: Vec<_> =
-        registry::expression::select(&entries, &args.ports, registry::expression::Missing::Empty)?
-            .into_iter()
-            .filter(|entry| entry.active)
-            .collect();
+    let registry = registry::Registry::open(path)?;
+    let entries = registry
+        .as_ref()
+        .map(registry::Registry::entries)
+        .transpose()?
+        .unwrap_or_default();
+    let selected: Vec<_> = registry::expression::select(
+        &entries,
+        &args.ports,
+        registry::expression::Missing::Empty,
+        registry.as_ref(),
+    )?
+    .into_iter()
+    .filter(|entry| entry.active)
+    .collect();
     if selected.is_empty() {
         if !quiet {
             writeln!(

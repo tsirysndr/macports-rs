@@ -16,9 +16,18 @@ pub(super) fn run(
     quiet: bool,
     verbose: bool,
 ) -> Result<()> {
-    let entries = registry::read(path)?;
-    let selected =
-        registry::expression::select(&entries, &args.ports, registry::expression::Missing::Error)?;
+    let registry = registry::Registry::open(path)?;
+    let entries = registry
+        .as_ref()
+        .map(registry::Registry::entries)
+        .transpose()?
+        .unwrap_or_default();
+    let selected = registry::expression::select(
+        &entries,
+        &args.ports,
+        registry::expression::Missing::Error,
+        registry.as_ref(),
+    )?;
     let lines = selected
         .into_iter()
         .map(|entry| render(entry, verbose))

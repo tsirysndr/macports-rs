@@ -636,6 +636,13 @@ fn registry_dependent_walk_handles_deep_graphs_iteratively() {
         .unwrap();
     assert_eq!(count, 4999);
     assert_eq!(deepest, 4999);
+    drop(graph);
+    drop(registry);
+    Connection::open(&f.path)
+        .unwrap()
+        .execute("UPDATE ports SET requested=1 WHERE id=5000", [])
+        .unwrap();
+    assert_eq!(stdout(f.run(&["-q", "installed", "rleaves"])), "");
 }
 
 fn outdated_fixture(records: &[(&str, &str)]) -> Fixture {
@@ -1141,4 +1148,87 @@ fn location_chains_with_registry_commands_and_stops_on_errors() {
     let result = f.run(&["location", "missing", ";", "installed", "pkg2"]);
     assert!(!result.status.success());
     assert!(result.stdout.is_empty());
+}
+
+#[test]
+fn leaf_selectors_distinguish_direct_and_recursive_orphans() {
+    let f = dependent_fixture(&[
+        ("app", &["lib"]),
+        ("lib", &["base"]),
+        ("base", &[]),
+        ("orphan", &["unused"]),
+        ("unused", &[]),
+    ]);
+    Connection::open(&f.path)
+        .unwrap()
+        .execute("UPDATE ports SET requested=1 WHERE name='app'", [])
+        .unwrap();
+    assert_eq!(
+        stdout(f.run(&["-q", "installed", "leaves"])),
+        "  orphan @1_0 (active)\n"
+    );
+    assert_eq!(
+        stdout(f.run(&["-q", "installed", "rleaves"])),
+        "  orphan @1_0 (active)\n  unused @1_0 (active)\n"
+    );
+    assert_eq!(
+        stdout(f.run(&["-q", "installed", "rleaves", "and", "not", "leaves"])),
+        "  unused @1_0 (active)\n"
+    );
+    assert_eq!(stdout(f.run(&["-q", "installed", "leaves@99"])), "");
+}
+#[test]
+fn recursive_leaves_handle_cycles_and_requested_inactive_images() {
+    let f = dependent_fixture(&[
+        ("app", &["LIB"]),
+        ("lib", &["base"]),
+        ("base", &["lib"]),
+        ("cycle1", &["cycle2"]),
+        ("cycle2", &["cycle1"]),
+    ]);
+    Connection::open(&f.path)
+        .unwrap()
+        .execute(
+            "UPDATE ports SET requested=1,state='imaged' WHERE name='app'",
+            [],
+        )
+        .unwrap();
+    assert_eq!(stdout(f.run(&["-q", "installed", "leaves"])), "");
+    assert_eq!(
+        stdout(f.run(&["-q", "installed", "rleaves"])),
+        "  cycle1 @1_0 (active)\n  cycle2 @1_0 (active)\n"
+    );
+}
+#[test]
+fn leaf_selection_preserves_unrequested_images_of_requested_names() {
+    let f = dependent_fixture(&[("app", &[]), ("app", &[])]);
+    let db = Connection::open(&f.path).unwrap();
+    db.create_collation("VERSION", |a, b| a.cmp(b)).unwrap();
+    db.execute_batch("UPDATE ports SET requested=1 WHERE id=1; UPDATE ports SET version='2',state='imaged' WHERE id=2;").unwrap();
+    for selector in ["leaves", "rleaves"] {
+        assert_eq!(
+            stdout(f.run(&["-q", "installed", selector])),
+            "  app @2_0\n"
+        );
+    }
+}
+#[test]
+fn leaf_queries_load_dependencies_only_when_needed() {
+    let f = Fixture::new();
+    assert!(f.run(&["installed", "active"]).status.success());
+    let result = f.run(&["installed", "active", "or", "leaves"]);
+    assert!(!result.status.success());
+    assert!(result.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&result.stderr).contains("cannot read registry dependencies"));
+}
+#[test]
+fn outdated_accepts_leaf_expressions_and_excludes_requested_ports() {
+    let f = outdated_fixture(&[("curl", "version 99"), ("pkg2", "version 99")]);
+    Connection::open(&f.path)
+        .unwrap()
+        .execute_batch("CREATE TABLE dependencies(id INTEGER,name TEXT);")
+        .unwrap();
+    let output = stdout(f.run(&["-q", "outdated", "leaves", "or", "rleaves"]));
+    assert!(output.contains("pkg2"));
+    assert!(!output.contains("curl"));
 }
