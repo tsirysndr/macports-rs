@@ -15,6 +15,7 @@ fn command(directory: &Path, script: &str) -> Command {
         args: vec!["-c".into(), script.into()],
         directory: directory.into(),
         environment: BTreeMap::new(),
+        clear_environment: false,
     }
 }
 #[tokio::test]

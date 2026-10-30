@@ -1,5 +1,5 @@
-use super::{Command, Phase, log::Log};
-use anyhow::{Context, Result, ensure};
+use super::{Command, Phase, ProcessResult, log::Log};
+use anyhow::{Context, Result};
 use std::process::Stdio;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 
@@ -25,8 +25,12 @@ pub(super) async fn run(
     phase: Phase,
     prefix: &str,
     output: &mut (impl AsyncWrite + Unpin),
-) -> Result<()> {
-    let mut child = tokio::process::Command::new(&command.program)
+) -> Result<ProcessResult> {
+    let mut builder = tokio::process::Command::new(&command.program);
+    if command.clear_environment {
+        builder.env_clear();
+    }
+    let mut child = builder
         .args(&command.args)
         .current_dir(&command.directory)
         .envs(&command.environment)
@@ -43,19 +47,15 @@ pub(super) async fn run(
                 command.program.to_string_lossy()
             )
         })?;
-    let mut group = ProcessGroup { pid: child.id() };
+    let pid = child.id().expect("spawned child has a PID");
+    let mut group = ProcessGroup { pid: Some(pid) };
     let stdout = child.stdout.take().expect("piped stdout");
     let stderr = child.stderr.take().expect("piped stderr");
     let result = tokio::try_join!(pump(stdout, stderr, output, prefix), child.wait());
     match result {
         Ok(((), status)) => {
             group.pid = None;
-            ensure!(
-                status.success(),
-                "{} {port} failed: {status}",
-                phase.label()
-            );
-            Ok(())
+            Ok(ProcessResult { pid, status })
         }
         Err(error) => {
             drop(group);
