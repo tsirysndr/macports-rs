@@ -19,6 +19,19 @@ pub struct Resolver<'a> {
     active: HashSet<String>,
     search: Search,
 }
+/// Provider evidence for dependency planning. A registration fallback name is
+/// not evidence that its port is installed.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Resolution {
+    ActivePort(String),
+    System(PathBuf),
+    Missing(String),
+}
+impl Resolution {
+    pub fn is_satisfied(&self) -> bool {
+        !matches!(self, Self::Missing(_))
+    }
+}
 impl<'a> Resolver<'a> {
     /// Resolve the live runtime dependency lists for registry registration.
     /// Build/test dependencies are excluded; system providers have no registry
@@ -60,9 +73,18 @@ impl<'a> Resolver<'a> {
     /// probed path, None for an unregistered system provider, or the fallback port
     /// when no provider exists. This resolves registration names, not installation.
     pub fn resolve(&self, specification: &str) -> Result<Option<String>> {
+        Ok(match self.probe(specification)? {
+            Resolution::ActivePort(name) | Resolution::Missing(name) => Some(name),
+            Resolution::System(_) => None,
+        })
+    }
+    /// Preserve whether an active port, an unregistered filesystem entry, or no
+    /// provider satisfied the dependency. Filesystem evidence is a live snapshot;
+    /// callers must recheck it before acting on a long-lived installation plan.
+    pub fn probe(&self, specification: &str) -> Result<Resolution> {
         let dependency = Dependency::parse(specification)?;
         if self.active.contains(&dependency.name.to_ascii_lowercase()) {
-            return Ok(Some(dependency.name));
+            return Ok(Resolution::ActivePort(dependency.name));
         }
         let mut parts = specification.split(':');
         let kind = parts.next().unwrap_or_default();
@@ -127,7 +149,7 @@ impl<'a> Resolver<'a> {
                 };
                 (filename, directories, false)
             }
-            _ => return Ok(Some(dependency.name)),
+            _ => return Ok(Resolution::Missing(dependency.name)),
         };
         for directory in directories {
             if !directory.is_dir() {
@@ -142,15 +164,19 @@ impl<'a> Resolver<'a> {
             return match self.registry {
                 Some(registry) => {
                     let normalized = path::normalize(&full)?;
-                    registry.owner(
+                    let owner = registry.owner(
                         normalized.to_str().context("provider path is not UTF-8")?,
                         path::case_sensitive(&full),
-                    )
+                    )?;
+                    Ok(match owner {
+                        Some(name) => Resolution::ActivePort(name),
+                        None => Resolution::System(full),
+                    })
                 }
-                None => Ok(None),
+                None => Ok(Resolution::System(full)),
             };
         }
-        Ok(Some(dependency.name))
+        Ok(Resolution::Missing(dependency.name))
     }
 }
 fn is_executable(path: &Path) -> bool {

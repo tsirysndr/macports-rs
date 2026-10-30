@@ -4,7 +4,7 @@ pub use evaluated::{EvaluatedPlan, plan_evaluated};
 mod plan;
 pub mod signature;
 mod variants;
-pub use plan::{Action, Item, plan};
+pub use plan::{Action, Item, plan, plan_with_providers};
 
 pub mod archive;
 

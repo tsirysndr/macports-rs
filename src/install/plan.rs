@@ -46,6 +46,34 @@ pub(super) fn plan_with<'a>(
     specs: &[PortSpec],
     installed: &[Entry],
 ) -> Result<Vec<Item<'a>>> {
+    plan_providers(lookup, select, specs, installed, |_| Ok(None))
+}
+
+/// Plan using current provider evidence. Use entries and a resolver from the same
+/// registry snapshot. This still requires evaluated/default variant metadata;
+/// it does not initialize PortSystem or execute hooks.
+pub fn plan_with_providers<'a>(
+    index: &'a Index,
+    specs: &[PortSpec],
+    installed: &[Entry],
+    resolver: &dependencies::provider::Resolver<'_>,
+) -> Result<Vec<Item<'a>>> {
+    plan_providers(
+        |name| query::lookup(index, name),
+        variants::defaults,
+        specs,
+        installed,
+        |dependency| Ok(Some(resolver.probe(dependency)?.is_satisfied())),
+    )
+}
+
+fn plan_providers<'a>(
+    lookup: impl Fn(&str) -> Result<&'a Port>,
+    select: impl Fn(&Port, Option<&PortSpec>) -> Result<variants::Selection>,
+    specs: &[PortSpec],
+    installed: &[Entry],
+    mut provider: impl FnMut(&str) -> Result<Option<bool>>,
+) -> Result<Vec<Item<'a>>> {
     let mut images: HashMap<String, Vec<&Entry>> = HashMap::new();
     for entry in installed {
         images
@@ -72,6 +100,10 @@ pub(super) fn plan_with<'a>(
         Enter(&'a Port),
         Leave(Item<'a>),
     }
+    let explicit: HashSet<_> = requested
+        .keys()
+        .map(|name| name.to_ascii_lowercase())
+        .collect();
     let mut stack = Vec::new();
     for spec in specs.iter().rev() {
         stack.push(Event::Enter(lookup(&spec.name)?));
@@ -184,19 +216,30 @@ pub(super) fn plan_with<'a>(
                 for field in ["depends_lib", "depends_run"] {
                     for dependency in dependencies::in_field(port, field)? {
                         let components: Vec<_> = dependency.specification.split(':').collect();
-                        match components.as_slice() {
-                            ["port", name] if !name.is_empty() && !name.contains('/') => (),
+                        let probe_required = match components.as_slice() {
+                            ["port", name] if !name.is_empty() && !name.contains('/') => false,
                             ["bin" | "lib" | "path", probe, name]
                                 if !probe.is_empty() && !name.is_empty() =>
                             {
-                                item.provider_fallbacks
-                                    .push(dependency.specification.clone());
+                                true
                             }
                             _ => anyhow::bail!(
                                 "{}: unsupported provider dependency {}",
                                 port.name,
                                 dependency.specification
                             ),
+                        };
+                        let provided = provider(&dependency.specification).with_context(|| {
+                            format!("{}: {field} {}", port.name, dependency.specification)
+                        })?;
+                        if provided == Some(true)
+                            && !explicit.contains(&dependency.name.to_ascii_lowercase())
+                        {
+                            continue;
+                        }
+                        if probe_required && provided.is_none() {
+                            item.provider_fallbacks
+                                .push(dependency.specification.clone());
                         }
                         let target = lookup(&dependency.name).with_context(|| {
                             format!("{}: {field} {}", port.name, dependency.specification)

@@ -183,3 +183,73 @@ fn runtime_registration_dependencies_use_live_lists_and_omit_system_providers() 
         ["first", "third"]
     );
 }
+
+#[test]
+fn provider_evidence_distinguishes_missing_fallback_from_system_and_active_ports() {
+    use port_rs::dependencies::provider::Resolution;
+    let root = tempfile::tempdir().unwrap();
+    let resolver = Resolver::new(None, search(root.path())).unwrap();
+    let missing = resolver.probe("path:provided:fallback").unwrap();
+    assert_eq!(missing, Resolution::Missing("fallback".into()));
+    assert!(!missing.is_satisfied());
+    fs::write(root.path().join("provided"), b"system").unwrap();
+    let present = resolver.probe("path:provided:fallback").unwrap();
+    assert_eq!(present, Resolution::System(root.path().join("provided")));
+    assert!(present.is_satisfied());
+    let database = tempfile::tempdir().unwrap();
+    let dbpath = database.path().join("registry.db");
+    let mut writer = Writer::create(&dbpath).unwrap();
+    register(&mut writer, "fallback", None);
+    let registry = Registry::open(Some(&dbpath)).unwrap().unwrap();
+    let resolver = Resolver::new(Some(&registry), search(root.path())).unwrap();
+    let active = resolver.probe("path:provided:fallback").unwrap();
+    assert_eq!(active, Resolution::ActivePort("fallback".into()));
+    assert!(active.is_satisfied());
+}
+
+#[test]
+fn planning_skips_satisfied_providers_but_preserves_explicit_requests_and_missing_fallbacks() {
+    use port_rs::{index::Index, install, spec::PortSpec};
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join("provided"), b"system").unwrap();
+    let resolver = Resolver::new(None, search(root.path())).unwrap();
+    let index_text = |fallback: bool| {
+        let app = "name app version 1 revision 0 depends_run path:provided:fallback";
+        let mut text = format!("app {}\n{app}\n", app.len() + 1);
+        if fallback {
+            let body = "name fallback version 1 revision 0";
+            text.push_str(&format!("fallback {}\n{body}\n", body.len() + 1));
+        }
+        Index::parse(&text).unwrap()
+    };
+    let index = index_text(false);
+    // A satisfied provider doesn't even require the fallback in the index.
+    let plan =
+        install::plan_with_providers(&index, &[PortSpec::named("app")], &[], &resolver).unwrap();
+    assert_eq!(plan.len(), 1);
+    assert!(plan[0].provider_fallbacks.is_empty());
+    let index = index_text(true);
+    let plan = install::plan_with_providers(
+        &index,
+        &[PortSpec::named("app"), PortSpec::named("fallback")],
+        &[],
+        &resolver,
+    )
+    .unwrap();
+    assert_eq!(
+        plan.iter()
+            .map(|item| item.port.name.as_str())
+            .collect::<Vec<_>>(),
+        ["fallback", "app"]
+    );
+    fs::remove_file(root.path().join("provided")).unwrap();
+    let plan =
+        install::plan_with_providers(&index, &[PortSpec::named("app")], &[], &resolver).unwrap();
+    assert_eq!(
+        plan.iter()
+            .map(|item| item.port.name.as_str())
+            .collect::<Vec<_>>(),
+        ["fallback", "app"]
+    );
+    assert!(plan.iter().all(|item| item.provider_fallbacks.is_empty()));
+}

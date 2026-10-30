@@ -1402,3 +1402,16 @@ without adding build/test dependencies. Tests cover probe semantics, active fall
 priority, alternate registered owners, system providers, environment paths, and
 runtime list changes. This resolves registration names; it does not itself install
 missing providers or authorize skipping dependency-plan checks.
+
+Provider probes now return explicit evidence: an active registered port, an
+unregistered system path, or a missing fallback port. The existing registration-name
+API preserves its behavior, while planning can distinguish a missing fallback from
+an installed provider. `install::plan_with_providers` uses this evidence to skip
+satisfied dependency edges without requiring their fallback ports in the index.
+Missing providers remain dependency-first installation steps, with their provider
+checks marked resolved. Explicitly requested fallback ports are still traversed
+and ordered before dependents. The original preview planner remains conservative.
+Tests cover changing provider evidence, satisfied providers absent from the index,
+explicit fallback requests, missing-provider scheduling, and existing indexed/local
+preview behavior. Provider evidence must be refreshed before applying long-lived
+plans; live Portfile initialization and CLI lifecycle wiring remain separate.
