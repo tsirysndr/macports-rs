@@ -67,7 +67,7 @@ pub fn plan_with_providers<'a>(
     )
 }
 
-fn plan_providers<'a>(
+pub(super) fn plan_providers<'a>(
     lookup: impl Fn(&str) -> Result<&'a Port>,
     select: impl Fn(&Port, Option<&PortSpec>) -> Result<variants::Selection>,
     specs: &[PortSpec],

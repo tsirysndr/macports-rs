@@ -1415,3 +1415,15 @@ Tests cover changing provider evidence, satisfied providers absent from the inde
 explicit fallback requests, missing-provider scheduling, and existing indexed/local
 preview behavior. Provider evidence must be refreshed before applying long-lived
 plans; live Portfile initialization and CLI lifecycle wiring remain separate.
+
+`plan_evaluated_with_providers` extends provider-aware planning to evaluated
+Portfiles. Satisfied provider dependencies do not require fallback index entries or
+fallback Portfile evaluation. Explicitly requested fallback roots still run with
+their own selected variants; missing providers inherit dependency inputs and remain
+ordered before dependents. Each dependency specification's provider decision is
+shared between closure evaluation and final graph construction, avoiding a graph
+that requires metadata deliberately skipped earlier. Tests cover skipped sources,
+explicit variant overrides, missing-provider inheritance, and consistent decisions
+when filesystem evidence changes during evaluation. The original conservative
+preview API remains unchanged, and provider evidence must be refreshed before
+executing a long-lived plan.

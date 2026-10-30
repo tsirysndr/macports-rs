@@ -253,3 +253,113 @@ fn planning_skips_satisfied_providers_but_preserves_explicit_requests_and_missin
     );
     assert!(plan.iter().all(|item| item.provider_fallbacks.is_empty()));
 }
+
+#[test]
+fn evaluated_planning_avoids_satisfied_fallback_sources_and_preserves_explicit_inputs() {
+    use port_rs::{index::Index, install, portfile, spec::PortSpec};
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join("provided"), b"system").unwrap();
+    let resolver = Resolver::new(None, search(root.path())).unwrap();
+    let mut text = String::new();
+    for name in ["app", "fallback"] {
+        let body = format!("name {name} version 1 revision 0");
+        text.push_str(&format!("{name} {}\n{body}\n", body.len() + 1));
+    }
+    let index = Index::parse(&text).unwrap();
+    let mut spec = PortSpec::named("app");
+    spec.parse_modifier("+ssl").unwrap();
+    for explicit in [false, true] {
+        let mut specs = vec![spec.clone()];
+        if explicit {
+            let mut fallback = PortSpec::named("fallback");
+            fallback.parse_modifier("-ssl").unwrap();
+            specs.push(fallback);
+        }
+        let mut loaded = Vec::new();
+        let plan =
+            install::plan_evaluated_with_providers(&index, &specs, &[], &resolver, |port, spec| {
+                loaded.push(port.name.clone());
+                let dependency = if port.name == "app" {
+                    "depends_run path:provided:fallback"
+                } else {
+                    ""
+                };
+                portfile::evaluate(
+                    &format!(
+                        "name {}; version 1; revision 0; epoch 0; variant ssl {{}}; {dependency}",
+                        port.name
+                    ),
+                    &BTreeMap::new(),
+                    spec,
+                )
+            })
+            .unwrap();
+        let items: Vec<_> = plan.items().collect();
+        assert!(items.iter().all(|item| item.provider_fallbacks.is_empty()));
+        if explicit {
+            assert_eq!(loaded, ["app", "fallback"]);
+            assert_eq!(
+                items
+                    .iter()
+                    .map(|item| item.port.name.as_str())
+                    .collect::<Vec<_>>(),
+                ["fallback", "app"]
+            );
+            assert_eq!(items[0].variants, "");
+            assert_eq!(items[1].variants, "+ssl");
+        } else {
+            assert_eq!(loaded, ["app"]);
+            assert_eq!(items.len(), 1);
+        }
+    }
+    fs::remove_file(root.path().join("provided")).unwrap();
+    let mut loaded = Vec::new();
+    let plan =
+        install::plan_evaluated_with_providers(&index, &[spec], &[], &resolver, |port, spec| {
+            loaded.push(port.name.clone());
+            let dependency = if port.name == "app" {
+                "depends_run path:provided:fallback"
+            } else {
+                ""
+            };
+            portfile::evaluate(
+                &format!(
+                    "name {}; version 1; revision 0; epoch 0; variant ssl {{}}; {dependency}",
+                    port.name
+                ),
+                &BTreeMap::new(),
+                spec,
+            )
+        })
+        .unwrap();
+    assert_eq!(loaded, ["app", "fallback"]);
+    assert!(
+        plan.items()
+            .all(|item| item.provider_fallbacks.is_empty() && item.variants == "+ssl")
+    );
+}
+
+#[test]
+fn evaluated_closure_and_final_graph_share_the_same_provider_decisions() {
+    use port_rs::{index::Index, install, portfile, spec::PortSpec};
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join("provided"), b"system").unwrap();
+    let resolver = Resolver::new(None, search(root.path())).unwrap();
+    let mut text = String::new();
+    for name in ["first", "second"] {
+        let body = format!("name {name} version 1 revision 0");
+        text.push_str(&format!("{name} {}\n{body}\n", body.len() + 1));
+    }
+    let index = Index::parse(&text).unwrap();
+    let plan = install::plan_evaluated_with_providers(&index, &[PortSpec::named("first"), PortSpec::named("second")], &[], &resolver, |port, spec| {
+        if port.name == "second" { fs::remove_file(root.path().join("provided")).unwrap(); }
+        portfile::evaluate(&format!("name {}; version 1; revision 0; epoch 0; depends_run path:provided:absent-from-index", port.name), &BTreeMap::new(), spec)
+    }).unwrap();
+    assert_eq!(plan.items().count(), 2);
+    assert!(
+        !resolver
+            .probe("path:provided:absent-from-index")
+            .unwrap()
+            .is_satisfied()
+    );
+}

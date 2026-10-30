@@ -9,7 +9,7 @@ use crate::{
     spec::PortSpec,
 };
 use anyhow::{Context, Result, ensure};
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
 pub struct EvaluatedPlan {
     evaluations: BTreeMap<String, Evaluation>,
@@ -48,6 +48,29 @@ pub fn plan_evaluated(
     index: &Index,
     specs: &[PortSpec],
     installed: &[Entry],
+    load: impl FnMut(&Port, &PortSpec) -> Result<Evaluation>,
+) -> Result<EvaluatedPlan> {
+    plan_inner(index, specs, installed, None, load)
+}
+
+/// Evaluate only the dependency closure not already satisfied by provider
+/// evidence. Explicit roots still take precedence. The resolver and installed
+/// entries must describe the same registry snapshot.
+pub fn plan_evaluated_with_providers(
+    index: &Index,
+    specs: &[PortSpec],
+    installed: &[Entry],
+    resolver: &dependencies::provider::Resolver<'_>,
+    load: impl FnMut(&Port, &PortSpec) -> Result<Evaluation>,
+) -> Result<EvaluatedPlan> {
+    plan_inner(index, specs, installed, Some(resolver), load)
+}
+
+fn plan_inner(
+    index: &Index,
+    specs: &[PortSpec],
+    installed: &[Entry],
+    resolver: Option<&dependencies::provider::Resolver<'_>>,
     mut load: impl FnMut(&Port, &PortSpec) -> Result<Evaluation>,
 ) -> Result<EvaluatedPlan> {
     let mut images: HashMap<String, Vec<&Entry>> = HashMap::new();
@@ -72,6 +95,8 @@ pub fn plan_evaluated(
         pending.push_back((spec, None::<String>));
     }
     let mut evaluated: BTreeMap<String, Evaluation> = BTreeMap::new();
+    let explicit: HashSet<_> = roots.keys().map(|name| name.to_ascii_lowercase()).collect();
+    let mut providers = HashMap::new();
     let mut contexts: HashMap<String, Vec<PortSpec>> = HashMap::new();
     while let Some((spec, parent)) = pending.pop_front() {
         let seen = contexts.entry(spec.name.clone()).or_default();
@@ -109,6 +134,22 @@ pub fn plan_evaluated(
         for field in ["depends_lib", "depends_run"] {
             for dependency in dependencies::in_field(&value.port, field)? {
                 let context = format!("{}: {field} {}", spec.name, dependency.specification);
+                if let Some(resolver) = resolver {
+                    let satisfied = match providers.get(&dependency.specification) {
+                        Some(value) => *value,
+                        None => {
+                            let value = resolver
+                                .probe(&dependency.specification)
+                                .with_context(|| context.clone())?
+                                .is_satisfied();
+                            providers.insert(dependency.specification.clone(), value);
+                            value
+                        }
+                    };
+                    if satisfied && !explicit.contains(&dependency.name.to_ascii_lowercase()) {
+                        continue;
+                    }
+                }
                 let target =
                     query::lookup(index, &dependency.name).with_context(|| context.clone())?;
                 let inherited = roots.get(&target.name).cloned().unwrap_or_else(|| {
@@ -121,7 +162,7 @@ pub fn plan_evaluated(
             }
         }
     }
-    let items = plan::plan_with(
+    let items = plan::plan_providers(
         |name| {
             let canonical = &query::lookup(index, name)?.name;
             evaluated
@@ -137,6 +178,17 @@ pub fn plan_evaluated(
         },
         specs,
         installed,
+        |dependency| {
+            if resolver.is_some() {
+                Ok(Some(
+                    *providers
+                        .get(dependency)
+                        .context("missing evaluated provider decision")?,
+                ))
+            } else {
+                Ok(None)
+            }
+        },
     )?;
     let steps = items
         .into_iter()
