@@ -1386,3 +1386,19 @@ Registry registration stores an unknown/empty actual C++ runtime as SQL NULL,
 matching MacPorts' metadata-discovery queries. The explicit archive value `none`
 remains a string and means no C++ runtime was found. A registry test verifies that
 these two states remain distinct.
+
+`dependencies::provider::Resolver` implements native registration-provider lookup
+following upstream `_get_dep_port`: an active fallback port takes precedence;
+otherwise bin/lib/path probes select a filesystem entry, whose active registry owner
+becomes the dependency. Unregistered system providers return no port name; missing
+providers retain the fallback. Binary probes use PATH order and executable access;
+path probes resolve relative to the prefix; library probes preserve upstream
+framework/library ordering and versioned filenames. Matches are literal and use
+lstat semantics, including dangling links for non-executable path/lib probes.
+The resolver caches active names from a consistent registry snapshot and normalizes
+matched parent paths before ownership lookup. Its `runtime_dependencies` helper
+reads live depends_lib/depends_run, omits system providers, and deduplicates names
+without adding build/test dependencies. Tests cover probe semantics, active fallback
+priority, alternate registered owners, system providers, environment paths, and
+runtime list changes. This resolves registration names; it does not itself install
+missing providers or authorize skipping dependency-plan checks.

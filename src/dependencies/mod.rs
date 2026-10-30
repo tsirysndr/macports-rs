@@ -1,6 +1,7 @@
 //! Read-only dependency inspection from PortIndex metadata.
 //! These fallback port names do not account for installed bin/lib/path providers.
 mod graph;
+pub mod provider;
 mod render;
 mod reverse;
 
