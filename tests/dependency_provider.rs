@@ -420,3 +420,106 @@ fn session_search_reads_live_environment_without_host_fallback() {
         Some("required".into())
     );
 }
+
+#[test]
+fn session_planner_uses_each_ports_context_and_retains_live_procedures() {
+    use port_rs::{
+        index::Index,
+        install,
+        portfile::{PortGroups, Session},
+        spec::PortSpec,
+    };
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir(root.path().join("present")).unwrap();
+    fs::write(root.path().join("present/provider"), b"provided").unwrap();
+    let mut text = String::new();
+    for name in ["first", "second", "fallback"] {
+        let body = format!("name {name} version 1 revision 0");
+        text.push_str(&format!("{name} {}\n{body}\n", body.len() + 1));
+    }
+    let index = Index::parse(&text).unwrap();
+    let mut loaded = Vec::new();
+    let mut result = install::plan_sessions(&index, &[PortSpec::named("first"), PortSpec::named("second")], None, |port, spec| {
+        loaded.push(port.name.clone());
+        let prefix = root.path().join(if port.name == "first" { "present" } else { "absent" });
+        let variables = BTreeMap::from([
+            ("prefix".into(), prefix.to_str().unwrap().into()),
+            ("frameworks_dir".into(), root.path().to_str().unwrap().into()),
+            ("os.platform".into(), "darwin".into()),
+        ]);
+        let dependency = if port.name == "fallback" { "" } else { "depends_run path:provider:fallback" };
+        Session::open(&format!("name {}; version 1; revision 0; {dependency}; proc retained {{}} {{return ready}}", port.name), &variables, spec, PortGroups::default())
+    }).unwrap();
+    assert_eq!(loaded, ["first", "second", "fallback"]);
+    let items: Vec<_> = result.plan.items().collect();
+    assert_eq!(
+        items
+            .iter()
+            .map(|i| i.port.name.as_str())
+            .collect::<Vec<_>>(),
+        ["first", "fallback", "second"]
+    );
+    assert!(items.iter().all(|i| i.provider_fallbacks.is_empty()));
+    assert_eq!(
+        result
+            .sessions
+            .get_mut("first")
+            .unwrap()
+            .invoke("retained", &[])
+            .unwrap(),
+        "ready"
+    );
+}
+
+#[test]
+fn session_planner_rejects_shared_metadata_with_conflicting_search_contexts() {
+    use port_rs::{
+        index::Index,
+        install,
+        portfile::{PortGroups, Session},
+        spec::PortSpec,
+    };
+    let mut text = String::new();
+    for name in ["first", "second", "shared"] {
+        let body = format!("name {name} version 1 revision 0");
+        text.push_str(&format!("{name} {}\n{body}\n", body.len() + 1));
+    }
+    let index = Index::parse(&text).unwrap();
+    let mut first = PortSpec::named("first");
+    first.parse_modifier("+ssl").unwrap();
+    let second = PortSpec::named("second");
+    let result = install::plan_sessions(&index, &[first, second], None, |port, spec| {
+        let variables = BTreeMap::from([
+            (
+                "prefix".into(),
+                if spec.variants.is_empty() {
+                    "/one"
+                } else {
+                    "/two"
+                }
+                .into(),
+            ),
+            ("frameworks_dir".into(), "/frameworks".into()),
+            ("os.platform".into(), "darwin".into()),
+        ]);
+        let dependency = if port.name == "shared" {
+            ""
+        } else {
+            "depends_run port:shared"
+        };
+        Session::open(
+            &format!("name {}; version 1; revision 0; {dependency}", port.name),
+            &variables,
+            spec,
+            PortGroups::default(),
+        )
+    });
+    let error = match result {
+        Ok(_) => panic!("conflicting search contexts accepted"),
+        Err(error) => format!("{error:#}"),
+    };
+    assert!(
+        error.contains("conflicting provider search contexts"),
+        "{error}"
+    );
+}

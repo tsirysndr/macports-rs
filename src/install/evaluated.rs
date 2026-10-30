@@ -50,7 +50,7 @@ pub fn plan_evaluated(
     installed: &[Entry],
     load: impl FnMut(&Port, &PortSpec) -> Result<Evaluation>,
 ) -> Result<EvaluatedPlan> {
-    plan_inner(index, specs, installed, None, load)
+    plan_inner(index, specs, installed, |_, _| Ok(None), load)
 }
 
 /// Evaluate only the dependency closure not already satisfied by provider
@@ -63,14 +63,85 @@ pub fn plan_evaluated_with_providers(
     resolver: &dependencies::provider::Resolver<'_>,
     load: impl FnMut(&Port, &PortSpec) -> Result<Evaluation>,
 ) -> Result<EvaluatedPlan> {
-    plan_inner(index, specs, installed, Some(resolver), load)
+    let mut decisions = HashMap::new();
+    plan_inner(
+        index,
+        specs,
+        installed,
+        |_, dependency| {
+            if let Some(value) = decisions.get(dependency) {
+                return Ok(Some(*value));
+            }
+            let value = resolver.probe(dependency)?.is_satisfied();
+            decisions.insert(dependency.to_owned(), value);
+            Ok(Some(value))
+        },
+        load,
+    )
+}
+
+/// Dependency order and retained interpreters for subsequent target execution.
+pub struct SessionPlan {
+    pub plan: EvaluatedPlan,
+    pub sessions: BTreeMap<String, crate::portfile::Session>,
+}
+
+/// Plan using each loaded session's provider search context. The caller must
+/// initialize the context before returning the session; target hooks are not run.
+/// Decisions are cached per dependent port and reused for final graph ordering.
+pub fn plan_sessions(
+    index: &Index,
+    specs: &[PortSpec],
+    registry: Option<&crate::registry::Registry>,
+    mut load: impl FnMut(&Port, &PortSpec) -> Result<crate::portfile::Session>,
+) -> Result<SessionPlan> {
+    use dependencies::provider::{Resolver, Search};
+    use std::cell::RefCell;
+    let installed = registry
+        .map(crate::registry::Registry::entries)
+        .transpose()?
+        .unwrap_or_default();
+    let resolvers = RefCell::new(HashMap::new());
+    let mut contexts = HashMap::new();
+    let mut sessions = BTreeMap::new();
+    let plan = plan_inner(
+        index,
+        specs,
+        &installed,
+        |port, dependency| {
+            let resolvers = resolvers.borrow();
+            let resolver: &Resolver<'_> = resolvers
+                .get(&port.name)
+                .context("missing session provider context")?;
+            Ok(Some(resolver.probe(dependency)?.is_satisfied()))
+        },
+        |port, spec| {
+            let mut session = load(port, spec)?;
+            let search = Search::from_session(&mut session)?;
+            let mut resolvers = resolvers.borrow_mut();
+            // Different inherited inputs may evaluate a shared port repeatedly.
+            // Metadata equality alone cannot prove identical provider context.
+            if let Some(previous) = contexts.insert(port.name.clone(), search.clone()) {
+                ensure!(
+                    previous == search,
+                    "{}: conflicting provider search contexts from multiple dependency paths",
+                    port.name
+                );
+            }
+            resolvers.insert(port.name.clone(), Resolver::new(registry, search)?);
+            let metadata = session.metadata().clone();
+            sessions.entry(port.name.clone()).or_insert(session);
+            Ok(metadata)
+        },
+    )?;
+    Ok(SessionPlan { plan, sessions })
 }
 
 fn plan_inner(
     index: &Index,
     specs: &[PortSpec],
     installed: &[Entry],
-    resolver: Option<&dependencies::provider::Resolver<'_>>,
+    mut probe: impl FnMut(&Port, &str) -> Result<Option<bool>>,
     mut load: impl FnMut(&Port, &PortSpec) -> Result<Evaluation>,
 ) -> Result<EvaluatedPlan> {
     let mut images: HashMap<String, Vec<&Entry>> = HashMap::new();
@@ -134,21 +205,20 @@ fn plan_inner(
         for field in ["depends_lib", "depends_run"] {
             for dependency in dependencies::in_field(&value.port, field)? {
                 let context = format!("{}: {field} {}", spec.name, dependency.specification);
-                if let Some(resolver) = resolver {
-                    let satisfied = match providers.get(&dependency.specification) {
-                        Some(value) => *value,
-                        None => {
-                            let value = resolver
-                                .probe(&dependency.specification)
-                                .with_context(|| context.clone())?
-                                .is_satisfied();
-                            providers.insert(dependency.specification.clone(), value);
-                            value
-                        }
-                    };
-                    if satisfied && !explicit.contains(&dependency.name.to_ascii_lowercase()) {
-                        continue;
+                let key = (value.port.name.clone(), dependency.specification.clone());
+                let satisfied = match providers.get(&key) {
+                    Some(value) => *value,
+                    None => {
+                        let result = probe(&value.port, &dependency.specification)
+                            .with_context(|| context.clone())?;
+                        providers.insert(key, result);
+                        result
                     }
+                };
+                if satisfied == Some(true)
+                    && !explicit.contains(&dependency.name.to_ascii_lowercase())
+                {
+                    continue;
                 }
                 let target =
                     query::lookup(index, &dependency.name).with_context(|| context.clone())?;
@@ -178,16 +248,11 @@ fn plan_inner(
         },
         specs,
         installed,
-        |dependency| {
-            if resolver.is_some() {
-                Ok(Some(
-                    *providers
-                        .get(dependency)
-                        .context("missing evaluated provider decision")?,
-                ))
-            } else {
-                Ok(None)
-            }
+        |port, dependency| {
+            providers
+                .get(&(port.name.clone(), dependency.to_owned()))
+                .copied()
+                .context("missing evaluated provider decision")
         },
     )?;
     let steps = items

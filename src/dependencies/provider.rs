@@ -8,6 +8,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Search {
     pub prefix: PathBuf,
     pub frameworks_dir: PathBuf,

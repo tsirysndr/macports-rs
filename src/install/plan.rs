@@ -46,7 +46,7 @@ pub(super) fn plan_with<'a>(
     specs: &[PortSpec],
     installed: &[Entry],
 ) -> Result<Vec<Item<'a>>> {
-    plan_providers(lookup, select, specs, installed, |_| Ok(None))
+    plan_providers(lookup, select, specs, installed, |_, _| Ok(None))
 }
 
 /// Plan using current provider evidence. Use entries and a resolver from the same
@@ -63,7 +63,7 @@ pub fn plan_with_providers<'a>(
         variants::defaults,
         specs,
         installed,
-        |dependency| Ok(Some(resolver.probe(dependency)?.is_satisfied())),
+        |_, dependency| Ok(Some(resolver.probe(dependency)?.is_satisfied())),
     )
 }
 
@@ -72,7 +72,7 @@ pub(super) fn plan_providers<'a>(
     select: impl Fn(&Port, Option<&PortSpec>) -> Result<variants::Selection>,
     specs: &[PortSpec],
     installed: &[Entry],
-    mut provider: impl FnMut(&str) -> Result<Option<bool>>,
+    mut provider: impl FnMut(&Port, &str) -> Result<Option<bool>>,
 ) -> Result<Vec<Item<'a>>> {
     let mut images: HashMap<String, Vec<&Entry>> = HashMap::new();
     for entry in installed {
@@ -229,9 +229,10 @@ pub(super) fn plan_providers<'a>(
                                 dependency.specification
                             ),
                         };
-                        let provided = provider(&dependency.specification).with_context(|| {
-                            format!("{}: {field} {}", port.name, dependency.specification)
-                        })?;
+                        let provided =
+                            provider(port, &dependency.specification).with_context(|| {
+                                format!("{}: {field} {}", port.name, dependency.specification)
+                            })?;
                         if provided == Some(true)
                             && !explicit.contains(&dependency.name.to_ascii_lowercase())
                         {

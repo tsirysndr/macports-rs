@@ -1432,3 +1432,12 @@ explicit variant overrides, missing-provider inheritance, and consistent decisio
 when filesystem evidence changes during evaluation. The original conservative
 preview API remains unchanged, and provider evidence must be refreshed before
 executing a long-lived plan.
+
+`install::plan_sessions` builds the evaluated dependency closure using each
+Portfile session's search context and one consistent registry snapshot. Provider
+decisions are scoped to the dependent port, so identical dependency specifications
+can resolve differently under different prefixes. The resulting `SessionPlan`
+retains interpreters for later target execution. Repeated evaluations of a shared
+port must agree on both metadata and search context. The CLI's preliminary local
+preview still uses conservative planning until runtime environment initialization
+is wired; this API requires the loader to supply that context explicitly.

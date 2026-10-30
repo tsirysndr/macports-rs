@@ -80,7 +80,7 @@ pub struct Hook {
     pub phase: String,
     pub body: String,
 }
-#[derive(PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Evaluation {
     pub groups: Vec<LoadedGroup>,
     pub port: Port,
