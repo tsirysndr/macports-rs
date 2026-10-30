@@ -13,6 +13,7 @@ use std::fs;
 use std::time::Instant;
 mod list_ops;
 mod string_map;
+mod string_match;
 pub use list_ops::{cmd_lrange, cmd_split};
 
 /// # append *varName* ?*value* ...?
@@ -1064,7 +1065,7 @@ pub fn cmd_string(interp: &mut Interp, context_id: ContextID, argv: &[Value]) ->
     interp.call_subcommand(context_id, argv, 1, &STRING_SUBCOMMANDS)
 }
 
-const STRING_SUBCOMMANDS: [Subcommand; 5] = [
+const STRING_SUBCOMMANDS: [Subcommand; 6] = [
     Subcommand("cat", cmd_string_cat),
     Subcommand("compare", cmd_string_compare),
     Subcommand("equal", cmd_string_equal),
@@ -1073,6 +1074,7 @@ const STRING_SUBCOMMANDS: [Subcommand; 5] = [
     // Subcommand("last", cmd_string_todo),
     Subcommand("length", cmd_string_length),
     Subcommand("map", string_map::command),
+    Subcommand("match", string_match::command),
     // Subcommand("range", cmd_string_todo),
     // Subcommand("replace", cmd_string_todo),
     // Subcommand("repeat", cmd_string_todo),

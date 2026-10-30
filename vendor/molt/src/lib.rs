@@ -31,6 +31,7 @@ mod commands;
 pub mod dict;
 mod eval_ptr;
 mod expr;
+pub mod glob;
 pub mod interp;
 mod list;
 mod tokenizer;

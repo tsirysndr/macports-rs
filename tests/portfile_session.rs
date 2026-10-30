@@ -308,3 +308,19 @@ fn empty_explicit_environment_is_an_array_and_does_not_enable_execution() {
         .is_err()
     );
 }
+
+#[test]
+fn native_string_match_selects_portfile_dependencies() {
+    let session = open(
+        r#"
+        name app; version 1
+        set platform Darwin
+        if {[string match -nocase dar* $platform]} {depends_run port:darwin-helper}
+        if {[string match {app[0-9]} app2]} {depends_run-append port:numbered-helper}
+    "#,
+    );
+    assert_eq!(
+        session.metadata().port.get("depends_run"),
+        "port:darwin-helper port:numbered-helper"
+    );
+}

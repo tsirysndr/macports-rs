@@ -1525,3 +1525,11 @@ an empty installation for preview purposes; neither it nor its parent directorie
 are created. Corrupt configured databases produce errors rather than falling
 back to another installation. Indexed-only previews and other registry commands
 still use their existing registry-selection path.
+
+The native interpreter now implements `string match ?-nocase? pattern string`,
+including Unicode characters, reversed ranges, escaping, abbreviated -nocase,
+and Tcl's early-match handling of malformed character classes. CLI query glob
+matching shares the same implementation. Matching uses iterative star retries
+without recursive branching or per-match allocation. Tests include recorded Tcl
+query cases, adversarial star patterns, and Portfile dependency selection; no Tcl
+runtime is used by the tests or application.
