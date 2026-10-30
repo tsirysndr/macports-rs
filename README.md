@@ -132,7 +132,8 @@ lengths, nested/escaped list values, CLI output, concurrent-transfer limits,
 checksums, cache validation, retries, mirrors, truncated/oversized responses,
 unsafe paths, symlinks, temporary-file cleanup, and exact RGB progress output.
 CLI tests run with an empty `PATH` to detect accidental subprocess dependencies.
-CI runs formatting, lint, tests, and a release build on macOS and Linux.
+CI runs formatting, lint, tests, and a release build exclusively on native macOS
+Apple Silicon (`aarch64-apple-darwin`) and Intel (`x86_64-apple-darwin`) runners.
 
 Cached and explicitly configured index queries do not initialize Tokio or reqwest. The benchmark reports
 index parsing and in-memory search separately using 50,000 synthetic ports.
