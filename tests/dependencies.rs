@@ -285,3 +285,115 @@ fn explicit_index_mode_uses_available_metadata_for_qualified_specs() {
         "  leaf\n"
     );
 }
+
+#[test]
+fn reverse_selectors_follow_every_phase_and_deduplicate_diamonds() {
+    let fixture = Fixture::new(&[
+        ("base", ""),
+        ("a", "depends_fetch port:base depends_test port:base"),
+        ("b", "depends_extract bin:tool:base"),
+        ("c", "depends_patch lib:library:base"),
+        (
+            "d",
+            "depends_build {path:lib/base.pc:base port:bin/base:base}",
+        ),
+        ("e", "depends_lib port:base"),
+        ("f", "depends_run port:base"),
+        ("g", "depends_test port:base"),
+        (
+            "top",
+            "depends_lib {port:a port:b port:c port:d port:e port:f port:g}",
+        ),
+    ]);
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "echo", "rdepends:BASE"])),
+        "a\nb\nc\nd\ne\nf\ng\ntop\n"
+    );
+}
+
+#[test]
+fn reverse_selectors_use_exact_names_and_allow_missing_targets() {
+    let fixture = Fixture::new(&[
+        ("user", "depends_lib port:missing"),
+        ("other", "depends_lib port:missing-extra"),
+    ]);
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "echo", "rdepends:missing"])),
+        "user\n"
+    );
+    for selector in ["rdepends:absent", "rdepends:miss.*", "rdepends:*"] {
+        assert_eq!(stdout(&fixture.run(&["-q", "echo", selector])), "");
+    }
+}
+
+#[test]
+fn reverse_selectors_terminate_cycles_and_include_reached_roots() {
+    let fixture = Fixture::new(&[
+        ("a", "depends_lib port:b"),
+        ("b", "depends_lib port:a"),
+        ("self", "depends_lib port:self"),
+    ]);
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "echo", "rdepends:a"])),
+        "a\nb\n"
+    );
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "echo", "rdepends:self"])),
+        "self\n"
+    );
+}
+
+#[test]
+fn reverse_selectors_compose_with_expressions_and_modifiers() {
+    let fixture = Fixture::new(&[
+        ("a", "depends_lib port:base"),
+        ("b", "depends_lib port:a"),
+        ("c", "depends_lib port:elsewhere"),
+    ]);
+    assert_eq!(
+        stdout(&fixture.run(&[
+            "-q",
+            "echo",
+            "(",
+            "rdepends:base",
+            "or",
+            "rdepends:elsewhere",
+            ")",
+            "and",
+            "not",
+            "b"
+        ])),
+        "a\nc\n"
+    );
+    let output = stdout(&fixture.run(&["echo", "rdepends:base", "@2", "+ssl"]));
+    assert_eq!(output.lines().count(), 2);
+    assert!(output.lines().all(|line| line.contains("@2+ssl")));
+}
+
+#[test]
+fn reverse_selectors_fail_on_malformed_index_dependencies_without_partial_output() {
+    let fixture = Fixture::new(&[("a", "depends_lib {\"unterminated}")]);
+    let output = fixture.run(&["echo", "a", "rdepends:a"]);
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("a: depends_lib"));
+}
+
+#[test]
+fn reverse_selectors_handle_deep_graphs_iteratively() {
+    let records: Vec<_> = (0..5000)
+        .map(|i| {
+            (
+                format!("node{i}"),
+                format!("depends_lib port:node{}", i + 1),
+            )
+        })
+        .collect();
+    let borrowed: Vec<_> = records
+        .iter()
+        .map(|(name, fields)| (name.as_str(), fields.as_str()))
+        .collect();
+    let fixture = Fixture::new(&borrowed);
+    let output = stdout(&fixture.run(&["-q", "echo", "rdepends:node5000"]));
+    assert_eq!(output.lines().count(), 5000);
+}

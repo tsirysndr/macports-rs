@@ -29,6 +29,7 @@ cargo build --release --locked
 ./target/release/port -q info --index --version curl
 ./target/release/port deps --index curl
 ./target/release/port rdeps --index --no-build --no-test curl
+./target/release/port echo rdepends:zlib and category:net
 ./target/release/port -q echo category:net
 ./target/release/port -q echo '(' category:net or zlib ')' and not 'name:ish$'
 ./target/release/port echo curl@8.0_1 +ssl -universal build.jobs=8
@@ -73,7 +74,8 @@ unimplemented; removing the platform cache file triggers a fresh download.
 | Registry queries, `sync`, `selfupdate` | Not implemented |
 | Port specifications | Attached/separate `@version`, `+variant`, `-variant`, and `key=value`; canonical echo rendering |
 | Logical expressions | `and`, `or`, `not`, `!`, parentheses, and implicit union; preserves input order |
-| Registry/dependency selectors, current directory, Portfile URLs | Not implemented |
+| `rdepends:<port>` | Indexed transitive reverse dependencies; exact, case-insensitive port names |
+| Registry selectors, `depof`/`rdepof`, current directory, Portfile URLs | Not implemented |
 | Command chaining, interactive mode | Not implemented |
 
 Place command flags before the first port expression. Field selectors use
@@ -119,6 +121,13 @@ reachable ports before printing and uses an explicit stack for deep graphs.
 As in `info --index`, version/variant overrides do not change indexed dependency
 metadata. These commands list fallback ports; they do not check whether a
 `bin:`, `lib:`, or `path:` requirement is already satisfied on the machine.
+
+`rdepends:zlib` selects all indexed ports that transitively depend on `zlib`,
+across all seven dependency phases. It matches an exact port name rather than a
+regex and composes with logical expressions and modifiers. Reverse edges are
+built once per expression, and cycles terminate without duplicates. A cyclic
+path can include the named port itself. Unlike `dependentof`/`rdependentof`, this
+selector does not inspect the installed-port registry.
 
 Search regexes currently use Rust regex semantics, which differ from Tcl's
 advanced regular expressions. Glob behavior, dictionary sorting, description

@@ -2,9 +2,11 @@
 //! These fallback port names do not account for installed bin/lib/path providers.
 mod graph;
 mod render;
+mod reverse;
 
 pub use graph::Graph;
 pub use render::{OutputOptions, direct, recursive};
+pub use reverse::ReverseIndex;
 
 use crate::{fields, index::Port, tcl_list};
 use anyhow::{Context, Result, ensure};

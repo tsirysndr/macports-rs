@@ -1,4 +1,5 @@
 use crate::{
+    dependencies::ReverseIndex,
     index::{Index, Port},
     spec::{PortSpec, is_modifier},
 };
@@ -57,6 +58,7 @@ pub fn specifications(index: &Index, tokens: &[String]) -> Result<Vec<PortSpec>>
         tokens,
         cursor: 0,
         depth: 0,
+        reverse: None,
     };
     let ports = parser.sequence()?;
     ensure!(
@@ -108,6 +110,7 @@ struct Expression<'a> {
     tokens: &'a [String],
     cursor: usize,
     depth: usize,
+    reverse: Option<ReverseIndex>,
 }
 impl Expression<'_> {
     fn peek(&self) -> Option<&str> {
@@ -187,35 +190,49 @@ impl Expression<'_> {
         let mut modifiers = PortSpec::default();
         let mut selected;
         if let Some((field, pattern)) = token.split_once(':') {
-            let fields = if field == "depends" {
-                vec![
-                    "depends_fetch",
-                    "depends_extract",
-                    "depends_patch",
-                    "depends_build",
-                    "depends_lib",
-                    "depends_run",
-                    "depends_test",
-                ]
+            if field == "rdepends" {
+                if self.reverse.is_none() {
+                    self.reverse = Some(ReverseIndex::build(self.index)?);
+                }
+                selected = self
+                    .reverse
+                    .as_ref()
+                    .unwrap()
+                    .recursive(pattern)
+                    .into_iter()
+                    .map(PortSpec::named)
+                    .collect();
             } else {
-                vec![
-                    field_name(field)
-                        .ok_or_else(|| anyhow::anyhow!("selector {field}: is not implemented"))?,
-                ]
-            };
-            let matcher = Matcher::new(pattern, false, true, false)?;
-            selected = self
-                .index
-                .ports
-                .values()
-                .filter(|p| {
-                    fields.iter().any(|f| {
-                        // An absent field is distinct from a present empty value.
-                        p.fields.get(*f).is_some_and(|v| matcher.matches(v))
+                let fields =
+                    if field == "depends" {
+                        vec![
+                            "depends_fetch",
+                            "depends_extract",
+                            "depends_patch",
+                            "depends_build",
+                            "depends_lib",
+                            "depends_run",
+                            "depends_test",
+                        ]
+                    } else {
+                        vec![field_name(field).ok_or_else(|| {
+                            anyhow::anyhow!("selector {field}: is not implemented")
+                        })?]
+                    };
+                let matcher = Matcher::new(pattern, false, true, false)?;
+                selected = self
+                    .index
+                    .ports
+                    .values()
+                    .filter(|p| {
+                        fields.iter().any(|f| {
+                            // An absent field is distinct from a present empty value.
+                            p.fields.get(*f).is_some_and(|v| matcher.matches(v))
+                        })
                     })
-                })
-                .map(|p| PortSpec::named(&p.name))
-                .collect::<Vec<_>>();
+                    .map(|p| PortSpec::named(&p.name))
+                    .collect::<Vec<_>>();
+            }
         } else {
             let (name, version) = token
                 .split_once('@')
