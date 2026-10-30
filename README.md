@@ -73,7 +73,8 @@ unimplemented; removing the platform cache file triggers a fresh download.
 | `deps --index`, `rdeps --index` | Direct/recursive indexed dependencies, build/test filters, full trees, cycle handling |
 | `variants --index` | Sorted variant details, defaults/requested markers, descriptions, conflicts, and requirements |
 | Index data | Serialized Tcl list data is parsed in Rust; no Tcl code is evaluated |
-| `install`, `upgrade`, `uninstall`, activation | Not implemented; fail explicitly before filesystem changes |
+| `install` | `-y` / `--dry-run` previews indexed binary dependencies; actual installation is blocked |
+| `upgrade`, `uninstall`, activation | Not implemented; fail explicitly before filesystem changes |
 | `installed` | Read-only SQLite registry, names/globs, version filters, active/inactive and requested/unrequested selectors |
 | `contents` | Registered file lists, active-image preference, version selection, quiet and size/unit output |
 | `location` | Recorded image paths, explicit version selection, ambiguity errors, and quiet output |
@@ -334,6 +335,30 @@ shows newer installed versions with `>` and `!`; quiet mode suppresses notices
 but retains comparison rows. C++ standard-library mismatch checks and custom
 configuration discovery are not implemented yet. This command only reports
 available metadata; it does not evaluate Portfiles or perform upgrades.
+
+## Installation planning
+
+`port -y install curl` (or `port install --dry-run curl`) previews a binary
+installation plan using the index and the read-only registry. It supports
+multiple roots and indexed expressions, deduplicates shared dependencies, and
+orders `depends_lib`/`depends_run` ports before their dependents. Build and test
+dependencies are excluded from this binary-only preview. Rows distinguish new
+installs, matching inactive images needing activation, and already-active images.
+Explicit roots remain marked requested even when another root depends on them.
+
+This is a preliminary plan, not an installer: archive availability, signatures,
+platform compatibility, and activation hooks have not been checked. Non-default
+variants, port options, provider dependencies (`bin:`, `lib:`, `path:`), replaced
+ports, and conflicting active images fail explicitly. Missing default-variant
+metadata also fails instead of guessing. Only the indexed version is supported.
+Cycles and missing dependencies are rejected before any plan is printed.
+
+Use `--index-file PATH` and `--registry-file PATH` for an entirely local preview.
+Without an explicit index, normal index initialization can populate the metadata
+cache. Planning never downloads package archives, writes the registry, or installs
+files. Ordinary `port install` remains blocked before index/registry access until
+archive verification, extraction, activation, and registry transactions are ready.
+`-y` currently applies only to `install`; other actions reject it.
 
 ## Download engine and progress
 

@@ -15,3 +15,5 @@ pub mod theme;
 mod order;
 
 pub mod registry;
+
+pub mod install;

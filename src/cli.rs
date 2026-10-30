@@ -23,6 +23,9 @@ pub(crate) struct Cli {
     /// Include full dependency specifications in metadata output
     #[arg(short, long, global = true)]
     pub(crate) verbose: bool,
+    /// Preview install operations without modifying the registry or installing files
+    #[arg(short = 'y', long, global = true)]
+    pub(crate) dry_run: bool,
     #[command(subcommand)]
     pub(crate) command: Command,
 }
@@ -71,7 +74,16 @@ impl Cli {
                 args[action + 1] = actions::expand(name)?.into();
             }
         }
-        Ok(Self::parse_from(args))
+        let mut cli = Self::parse_from(args);
+        if let Command::Install(install) = &mut cli.command {
+            install.dry_run = cli.dry_run;
+        } else {
+            anyhow::ensure!(
+                !cli.dry_run,
+                "-y/--dry-run is currently supported only for install"
+            );
+        }
+        Ok(cli)
     }
 }
 

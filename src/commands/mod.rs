@@ -5,6 +5,7 @@ mod dependents;
 mod download;
 mod info;
 mod inspect;
+mod install;
 mod installed;
 mod location;
 mod outdated;
@@ -24,6 +25,8 @@ use std::{
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Preview a binary installation plan with -y (installation not yet implemented)
+    Install(install::Install),
     /// Show the recorded location of an installed port image
     Location(location::Location),
     /// Report disk space used by active ports
@@ -104,6 +107,12 @@ impl Session {
                 args[0]
             );
         }
+        if let Command::Install(args) = &command {
+            ensure!(
+                args.dry_run,
+                r#"command "install" execution is not implemented yet; use -y install to preview an indexed binary installation plan; no Tcl or MacPorts fallback is used"#
+            );
+        }
         if let Command::Variants(options) = &command {
             ensure!(
                 options.index,
@@ -160,6 +169,9 @@ impl Session {
             // Offline index queries never initialize an async runtime or HTTP client.
             let index = self.index(index_file, quiet)?;
             match command {
+                Command::Install(args) => {
+                    install::run(&mut out, index, registry_file, args, quiet)?
+                }
                 Command::List { ports } => {
                     let ports = if ports.is_empty() {
                         vec!["all".into()]
