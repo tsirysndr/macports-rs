@@ -243,3 +243,152 @@ fn per_item_create_does_not_change_the_global_default_type() {
             .is_file()
     );
 }
+
+fn generated_session(root: &Path) -> Session {
+    let mut s = session(root);
+    s.invoke("unset", &["startupitem.custom_file"]).unwrap();
+    s.invoke("startupitem.create", &["yes"]).unwrap();
+    s.invoke(
+        "startupitem.executable",
+        &["/opt/local/bin/server", "--title", "a<&\"b"],
+    )
+    .unwrap();
+    s
+}
+#[cfg(target_os = "macos")]
+fn plist_json(path: &Path) -> serde_json::Value {
+    let output = std::process::Command::new("/usr/bin/plutil")
+        .args(["-convert", "json", "-o", "-"])
+        .arg(path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).unwrap()
+}
+#[test]
+#[cfg(target_os = "macos")]
+fn generates_valid_launchd_arguments_and_optional_fields() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut s = generated_session(temp.path());
+    for (key, value) in [
+        ("user", "service"),
+        ("group", "staff"),
+        ("logfile", "/tmp/out&log"),
+        ("netchange", "yes"),
+        ("logevents", "yes"),
+        ("debug", "yes"),
+    ] {
+        s.invoke("set", &[&format!("startupitem.{key}"), value])
+            .unwrap();
+    }
+    s.invoke("portstartupitem::startupitem_create", &[])
+        .unwrap();
+    let path = temp
+        .path()
+        .join("stage/opt/local/etc/LaunchDaemons/org.macports.app/org.macports.app.plist");
+    let json = plist_json(&path);
+    assert_eq!(
+        json["ProgramArguments"],
+        serde_json::json!([
+            "/opt/local/bin/daemondo",
+            "--label=app",
+            "--start-cmd",
+            "/opt/local/bin/server",
+            "--title",
+            "a<&\"b",
+            ";",
+            "--restart-netchange",
+            "--verbosity=1",
+            "--pid=exec"
+        ])
+    );
+    assert_eq!(json["Disabled"], true);
+    assert_eq!(json["KeepAlive"], true);
+    assert_eq!(json["Debug"], true);
+    assert_eq!(json["UserName"], "service");
+    assert_eq!(json["GroupName"], "staff");
+    assert_eq!(json["StandardOutPath"], "/tmp/out&log");
+    assert_eq!(json["StandardErrorPath"], "/tmp/out&log");
+    assert_eq!(
+        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o644
+    );
+    // Re-running generation replaces contents, but retains the existing mode.
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
+    s.invoke("startupitem.debug", &["no"]).unwrap();
+    s.invoke("portstartupitem::startupitem_create", &[])
+        .unwrap();
+    assert!(plist_json(&path).get("Debug").is_none());
+    assert_eq!(
+        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o640
+    );
+}
+#[test]
+#[cfg(target_os = "macos")]
+fn pidfile_modes_translate_and_default_run_directory_is_kept_once() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut s = generated_session(temp.path());
+    let path = temp
+        .path()
+        .join("stage/opt/local/etc/LaunchDaemons/org.macports.app/org.macports.app.plist");
+    for (style, flag) in [
+        ("auto", "--pid=fileauto"),
+        ("clean", "--pid=fileclean"),
+        ("manual", "--pid=exec"),
+        ("none", "--pid=none"),
+    ] {
+        s.invoke("startupitem.pidfile", &[style]).unwrap();
+        s.invoke("portstartupitem::startupitem_create", &[])
+            .unwrap();
+        let json = plist_json(&path);
+        let args = json["ProgramArguments"].as_array().unwrap();
+        assert!(args.contains(&serde_json::json!(flag)));
+        if style != "none" {
+            assert_eq!(args.last().unwrap(), "/opt/local/var/run/app.pid");
+        }
+    }
+    let keeps = s.scalar("destroot.keepdirs").unwrap();
+    assert_eq!(s.invoke("llength", &[&keeps]).unwrap(), "1");
+    s.invoke("startupitem.pidfile", &["manual", "/tmp/custom pid"])
+        .unwrap();
+    s.invoke("portstartupitem::startupitem_create", &[])
+        .unwrap();
+    assert_eq!(
+        plist_json(&path)["ProgramArguments"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap(),
+        "/tmp/custom pid"
+    );
+}
+#[test]
+fn invalid_xml_and_wrapper_requests_do_not_write_partial_plists() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut s = generated_session(temp.path());
+    s.invoke(
+        "startupitem.executable",
+        &["/bin/server", "bad\u{1}argument"],
+    )
+    .unwrap();
+    assert!(
+        s.invoke("portstartupitem::startupitem_create", &[])
+            .is_err()
+    );
+    assert_eq!(fs::read_dir(temp.path().join("stage")).unwrap().count(), 0);
+    s.invoke("startupitem.executable", &["/bin/server"])
+        .unwrap();
+    s.invoke("startupitem.start", &["echo custom"]).unwrap();
+    assert!(
+        s.invoke("portstartupitem::startupitem_create", &[])
+            .unwrap_err()
+            .to_string()
+            .contains("startup item generation")
+    );
+    assert_eq!(fs::read_dir(temp.path().join("stage")).unwrap().count(), 0);
+}

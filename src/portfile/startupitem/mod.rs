@@ -1,10 +1,11 @@
-//! Native staging of port-supplied launchd property lists.
+//! Native generation and staging of launchd property lists.
 use super::*;
+mod plist;
 use anyhow::{Context, bail};
 use molt::MoltResult;
 use std::{
     fs, io,
-    os::unix::fs::{OpenOptionsExt, symlink},
+    os::unix::fs::{OpenOptionsExt, PermissionsExt, symlink},
     path::{Path, PathBuf},
 };
 
@@ -20,6 +21,20 @@ pub(super) fn install(interp: &mut Interp, id: ContextID) {
         "startupitem.plist",
         "startupitem.location",
         "startupitem.install",
+        "startupitem.executable",
+        "startupitem.init",
+        "startupitem.start",
+        "startupitem.stop",
+        "startupitem.restart",
+        "startupitem.user",
+        "startupitem.group",
+        "startupitem.logfile",
+        "startupitem.logfile.stderr",
+        "startupitem.netchange",
+        "startupitem.logevents",
+        "startupitem.daemondo.verbosity",
+        "startupitem.pidfile",
+        "startupitem.debug",
     ] {
         commands::register(interp, id, key);
     }
@@ -41,8 +56,12 @@ fn component(name: &str) -> Result<()> {
     );
     Ok(())
 }
-struct Custom {
-    source: PathBuf,
+enum Source {
+    Custom(PathBuf),
+    Generated(plist::Generated),
+}
+struct Item {
+    source: Source,
     unique: String,
     plist: String,
     location: String,
@@ -57,7 +76,7 @@ fn attribute(interp: &mut Interp, attrs: &Attributes, key: &str) -> Result<Optio
 fn attr_text(interp: &mut Interp, attrs: &Attributes, key: &str, default: &str) -> Result<String> {
     Ok(attribute(interp, attrs, key)?.map_or_else(|| default.into(), |value| value.to_string()))
 }
-fn plan(interp: &mut Interp, id: ContextID) -> Result<Vec<Custom>> {
+fn plan(interp: &mut Interp, id: ContextID) -> Result<Vec<Item>> {
     let raw = text(interp, "startupitems", "")?;
     let groups = if raw.is_empty() {
         vec![Attributes::new()]
@@ -99,7 +118,7 @@ fn plan(interp: &mut Interp, id: ContextID) -> Result<Vec<Custom>> {
     }
     Ok(items)
 }
-fn plan_item(interp: &mut Interp, id: ContextID, attrs: &Attributes) -> Result<Option<Custom>> {
+fn plan_item(interp: &mut Interp, id: ContextID, attrs: &Attributes) -> Result<Option<Item>> {
     let enabled = attribute(interp, attrs, "create")?
         .map(|v| v.as_bool().map_err(failure))
         .transpose()?
@@ -120,7 +139,14 @@ fn plan_item(interp: &mut Interp, id: ContextID, attrs: &Attributes) -> Result<O
         }
     }
     if custom.is_empty() {
-        return unsupported(interp, id);
+        let executable = attr_text(interp, attrs, "executable", "")?;
+        let mut wrapper = executable.is_empty();
+        for key in ["init", "start", "stop", "restart"] {
+            wrapper |= !attr_text(interp, attrs, key, "")?.is_empty();
+        }
+        if wrapper {
+            return unsupported(interp, id);
+        }
     }
     let kind = match kind {
         Some(kind) => kind.to_string(),
@@ -155,14 +181,19 @@ fn plan_item(interp: &mut Interp, id: ContextID, attrs: &Attributes) -> Result<O
         matches!(location.as_str(), "LaunchAgents" | "LaunchDaemons"),
         "unsupported launchd location {location}"
     );
-    let source = PathBuf::from(custom);
-    ensure!(
-        fs::symlink_metadata(&source)
-            .with_context(|| format!("cannot read custom plist {}", source.display()))?
-            .is_file(),
-        "custom plist must be a regular file"
-    );
-    Ok(Some(Custom {
+    let source = if custom.is_empty() {
+        Source::Generated(plist::generate(interp, attrs, &name, &unique)?)
+    } else {
+        let source = PathBuf::from(custom);
+        ensure!(
+            fs::symlink_metadata(&source)
+                .with_context(|| format!("cannot read custom plist {}", source.display()))?
+                .is_file(),
+            "custom plist must be a regular file"
+        );
+        Source::Custom(source)
+    };
+    Ok(Some(Item {
         source,
         unique,
         plist,
@@ -207,6 +238,8 @@ fn create(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
                 let destination = directory.join(&item.plist);
                 // file copy without -force must not overwrite existing entries.
                 match fs::symlink_metadata(&destination) {
+                    Ok(metadata)
+                        if matches!(item.source, Source::Generated(_)) && metadata.is_file() => {}
                     Ok(_) => bail!(
                         "custom plist destination already exists: {}",
                         destination.display()
@@ -219,7 +252,31 @@ fn create(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
                     .creation_mask
                     .context("creation mask is not initialized")?;
                 crate::build::directories::create_all(&directory, Some(mask))?;
-                copy(&item.source, &destination)?;
+                match &item.source {
+                    Source::Custom(source) => copy(source, &destination)?,
+                    Source::Generated(generated) => {
+                        write_generated(&destination, &generated.xml, mask)?;
+                        if generated.keep_run {
+                            let directory = format!("{}{}/var/run", root.display(), prefix);
+                            let value = interp.scalar("destroot.keepdirs").map_err(failure)?;
+                            let mut keeps = value.as_list().map_err(failure)?.to_vec();
+                            if !keeps.iter().any(|value| value.as_str() == directory) {
+                                keeps.push(directory.into());
+                                interp
+                                    .set_scalar("destroot.keepdirs", Value::from(keeps))
+                                    .map_err(failure)?;
+                            }
+                        }
+                        for warning in &generated.warnings {
+                            interp
+                                .context::<State>(id)
+                                .progress
+                                .clone()
+                                .unwrap_or_else(|| crate::progress::Progress::new(false))
+                                .message(&format!("Error: {warning}"));
+                        }
+                    }
+                }
                 let link = directory.parent().unwrap().join(&item.plist);
                 let target = format!("{relative}/{}", item.plist);
                 // Non-root MacPorts places the link in prefix/etc, even when the
@@ -256,5 +313,36 @@ fn replace_link(link: &Path, target: &Path) -> Result<()> {
     let replacement = temp.path().join("link");
     symlink(target, &replacement)?;
     fs::rename(&replacement, link)?;
+    Ok(())
+}
+
+fn write_generated(destination: &Path, xml: &str, mask: u32) -> Result<()> {
+    use std::io::Write;
+    match fs::symlink_metadata(destination) {
+        Ok(metadata) => {
+            ensure!(metadata.is_file(), "generated plist must be a regular file");
+            let mut output = fs::OpenOptions::new()
+                .write(true)
+                .custom_flags(libc::O_NOFOLLOW)
+                .open(destination)?;
+            ensure!(
+                output.metadata()?.is_file(),
+                "generated plist must be a regular file"
+            );
+            // Match open-with-truncation semantics: retain ownership, mode,
+            // and hard links, and respect write permission on existing files.
+            output.set_len(0)?;
+            output.write_all(xml.as_bytes())?;
+            return Ok(());
+        }
+        Err(err) if err.kind() == io::ErrorKind::NotFound => (),
+        Err(err) => return Err(err.into()),
+    }
+    let mut temporary = tempfile::NamedTempFile::new_in(destination.parent().unwrap())?;
+    temporary.write_all(xml.as_bytes())?;
+    temporary
+        .as_file()
+        .set_permissions(fs::Permissions::from_mode(0o644 & !mask))?;
+    temporary.persist_noclobber(destination)?;
     Ok(())
 }

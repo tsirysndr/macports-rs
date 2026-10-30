@@ -270,3 +270,26 @@ fn custom_startup_plist_passes_the_complete_native_staging_lifecycle() {
     );
     assert_eq!(s.invoke("umask", &["0077"]).unwrap(), "0077");
 }
+
+#[test]
+fn generated_launchd_plist_and_pid_directory_survive_native_finish() {
+    let temp = tempfile::tempdir().unwrap();
+    let (mut s, stage) = setup(temp.path());
+    s.invoke("startupitem.type", &["launchd"]).unwrap();
+    s.invoke("startupitem.create", &["yes"]).unwrap();
+    s.invoke("startupitem.executable", &["/opt/local/bin/app"])
+        .unwrap();
+    s.invoke("startupitem.pidfile", &["auto"]).unwrap();
+    let item = s.scalar("org.macports.destroot").unwrap();
+    assert_eq!(
+        s.run_prepared_target(&item, false).unwrap(),
+        TargetOutcome::Completed
+    );
+    assert!(
+        stage
+            .join("opt/local/etc/LaunchDaemons/org.macports.app/org.macports.app.plist")
+            .is_file()
+    );
+    assert!(stage.join("opt/local/var/run/.turd_app").is_file());
+    assert_eq!(s.invoke("umask", &["0077"]).unwrap(), "0077");
+}

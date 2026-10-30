@@ -488,7 +488,7 @@ Custom staging blocks can delegate through `do-destroot`. The host must provide
 prefix is restored on success and failure. Tests stage an executable into a
 temporary prefix with live logs. Native non-root destroot finish now performs
 staging cleanup and restores the saved mask. Native non-root startup now prepares the hierarchy and mask for ports without
-startup items and for ports supplying custom launchd plists. Privilege transitions, startup-item generation, and privileged
+startup items and for supported custom or executable-based launchd services. Privilege transitions, startup wrapper scripts, and privileged
 ownership conversion remain unfinished.
 
 The CLI captures and restores its inherited creation mask at the start of
@@ -999,8 +999,8 @@ The native `portdestroot::destroot_start` callback uses this helper after option
 cleanup (`destroot.clean` exactly `yes`) and staging-mask setup. It checks root
 requirements and unsupported startup-item requests before cleanup. Ports without
 startup items, with an explicitly disabled single item, or with a supported
-custom launchd plist can complete the non-root staging lifecycle. Requested plist and wrapper generation still fails explicitly; port-supplied
-custom plists are supported for single and multiple startup items. The default staging mask comes
+custom launchd plist can complete the non-root staging lifecycle. Executable-based generated plists and port-supplied custom plists are supported
+for single and multiple startup items; wrapper scripts still fail explicitly. The default staging mask comes
 from `system_options(destroot_umask)`; the host must supply it or an explicit
 `destroot.umask`. Startup errors restore the prior mask. General
 mtree file/link/checksum specifications, escaped filenames, and wildcard entries
@@ -1017,7 +1017,7 @@ when `startupitem.install` is enabled. Existing links are replaced without
 following their targets. No service is loaded and no external command is run.
 A disabled type skips staging. When type is omitted, creation must be enabled
 and the host supplies `system_options(startupitem_type)` for type selection.
-Generated plists/wrappers and privileged placement still fail explicitly. Custom source symlinks, path components containing slashes or
+Generated wrapper scripts and privileged placement still fail explicitly. Custom source symlinks, path components containing slashes or
 parent references, and symlinked hierarchy directories are rejected. Tests cover
 metadata preservation, names, link replacement, disabled items, collision handling,
 and custom-plist staging through the complete native non-root destroot lifecycle.
@@ -1034,3 +1034,19 @@ item is staged, so an invalid later definition does not leave an earlier plist
 behind. Filesystem copy/link failures can still leave a partially staged batch;
 no completion state is recorded on failure. Tests cover inheritance, mixed
 LaunchAgents/LaunchDaemons, repeated names, disabled items, and invalid batches.
+
+
+Executable-based startup items now generate launchd XML natively when no init,
+start, stop, or restart wrapper code is requested. The plist launches daemondo
+with the executable's Tcl argument list and supports network-change restarts,
+event verbosity, PID styles (none/auto/clean/manual), user/group, stdout/stderr
+paths, and debug settings. Disabled and KeepAlive match upstream defaults.
+Default PID paths add the staged run directory to `destroot.keepdirs` once.
+Upstream diagnostics for unknown PID styles or excess PID arguments remain
+non-fatal. Global verbosity and stderr defaults follow upstream multi-item
+inheritance. XML text is escaped and forbidden XML characters fail before writes.
+New generated files use mode 0644 subject to the session mask; existing regular
+files are truncated in place, retaining mode, ownership, and hard links. Existing
+symlinks are rejected. Tests parse generated XML using macOS plutil, check exact
+argument arrays and optional fields, and run generation through native destroot
+finish, including its keepdir marker. Generation never starts the service.
