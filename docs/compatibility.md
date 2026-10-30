@@ -477,17 +477,19 @@ tool and language options, pkg-config paths, canonical architecture flags, and
 universal or march/mtune settings. Custom configure blocks can delegate through
 `do-configure`. Failures stop subsequent commands, retain live logs, and restore
 the session environment. Callers must still initialize the compiler options;
-compiler discovery, option dependency traces, configure initialization/finish
-hooks, and full CLI phase scheduling remain unfinished.
+compiler discovery, option dependency traces, privileged ccache initialization,
+SDK whitelist defaults, and full CLI phase scheduling remain unfinished. Native
+configure start/finish callbacks are described below.
 
 `portdestroot::destroot_main` executes the inherited build command with the
 default `install` target and `DESTDIR=${destroot}`, honoring Portfile overrides.
 Custom staging blocks can delegate through `do-destroot`. The host must provide
 `system_options(clonebin_path)` (empty disables wrappers); its temporary PATH
 prefix is restored on success and failure. Tests stage an executable into a
-temporary prefix with live logs. This is command execution only: destroot start
-and finish hooks, mtree preparation, privilege transitions, the mask lifecycle, startup items,
-ownership adjustments, and staging cleanup are not implemented yet.
+temporary prefix with live logs. Native non-root destroot finish now performs
+staging cleanup and restores the saved mask. Destroot startup, mtree preparation,
+privilege transitions, startup items, and privileged ownership conversion remain
+unfinished.
 
 The CLI captures and restores its inherited creation mask at the start of
 `main`, before starting runtimes or concurrent work. New Portfile sessions inherit
@@ -497,8 +499,8 @@ and symbolic modes and returns the previous mask. Each child applies the mask
 after fork, and newly prepared command directories receive the same permissions;
 existing directories retain theirs. The Rust process's global umask is never
 changed during evaluation or execution. Library hosts without a startup capture
-must supply the initial mask explicitly. Destroot start/finish integration is
-still pending.
+must supply the initial mask explicitly. Destroot finish restores the saved mask on both success and failure; native
+destroot startup still needs to save and set that mask.
 
 `porttest::test_main` runs configured test commands when `test.run` is true,
 using the inherited build command/directory and the default `test` target.
@@ -932,8 +934,8 @@ symlinks. Absolute symlink targets are checked inside the staging root. Link
 recognition precedes deletion so traversal order cannot leave recognized aliases
 behind. Rewrites preserve inode, hardlinks, owner/group, and permissions and
 support non-UTF-8 content. This helper assumes ownership preparation is complete;
-it does not yet perform the remaining destroot finish operations or record phase
-completion. The full destroot startup/finish callbacks remain unfinished.
+it does not independently record phase completion. The native non-root finish
+callback composes it with the other cleanup steps.
 
 `Session::check_destroot_layout` implements destroot finish's advisory layout
 check. It reports all violations, including hidden entries, while accepting the
@@ -942,8 +944,8 @@ LaunchAgents, LaunchDaemons, and StartupItems. The exact `yes` override skips
 inspection and emits the upstream notice. Prefix ancestors and the prefix itself
 follow directory symlinks as upstream glob does; permitted subtrees are not
 recursively checked. Non-UTF-8 filenames fail explicitly. An empty or absent
-stage is not a layout violation by itself: the separate empty-stage guard still
-needs to be connected in destroot finish. The report does not authorize
+stage is not a layout violation by itself: destroot finish runs the separate
+empty-stage guard before this check. The report does not authorize
 activation or mark staging complete.
 
 `Session::prune_destroot_directories` implements keepdir markers, post-order
@@ -954,9 +956,8 @@ paths already inside it remain there. Path normalization follows the lexical
 rules in [Tcllib fileutil](https://github.com/tcltk/tcllib/blob/master/modules/fileutil/fileutil.tcl),
 with component-based containment and rejection of existing outward directory
 symlinks instead of permitting escapes. Pruning never recursively deletes
-nonempty directories or follows descendant directory links. This helper still
-needs to be connected with ownership, libtool cleanup, compression, and layout
-checks in the complete destroot finish callback.
+nonempty directories or follows descendant directory links. The native non-root
+finish callback runs this after libtool cleanup and before compression.
 
 `Session::compress_destroot_manpages` normalizes plain, gzip, and bzip2 pages in
 physical man/cat section directories into level-9 gzip with no filename or time
@@ -968,5 +969,17 @@ existing bundled bzip2 decoder; no compression executable is required. Compresse
 bytes need not match the system gzip implementation. Relative and staged absolute
 links are updated after pages, including repeated passes for link chains; name
 collisions fail without replacing the colliding link. Descendant directory links
-are skipped and an outward-resolving prefix is rejected. This helper still needs
-to be connected into the complete destroot finish callback.
+are skipped and an outward-resolving prefix is rejected. The native non-root
+finish callback runs this before the layout check.
+
+`portdestroot::destroot_finish` now composes stray index-file removal, libtool
+cleanup, keepdir/pruning and empty-stage checks, man-page compression, and layout
+warnings for non-root execution. On macOS it also attempts the sparse-file
+workaround using SEEK_HOLE and native clonefile into a private temporary directory;
+errors are ignored as upstream treats this workaround as best effort. The saved
+`portdestroot::oldmask` must be initialized by the host until destroot startup is
+implemented. The session mask is restored on failures as well as success. Tests
+verify that the prepared-target runtime records completion only after finish
+succeeds. Privileged finish fails before cleanup because build-account ownership
+conversion and the privilege worker are still missing; ordinary CLI installation
+remains unavailable.

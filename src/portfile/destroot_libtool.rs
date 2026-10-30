@@ -12,11 +12,11 @@ pub struct LibtoolCleanup {
     pub removed: usize,
     pub rewritten: usize,
 }
-impl Session {
+impl StageContext<'_> {
     /// Clean staged libtool archives after ownership preparation. This does not
     /// run the remaining destroot_finish steps or mark the target complete.
     pub fn clean_destroot_libtool(&mut self) -> Result<LibtoolCleanup> {
-        check_supported(&mut self.interp, self.id)?;
+        check_supported(self.interp, self.id)?;
         ensure!(
             self.interp
                 .context::<State>(self.id)
@@ -146,4 +146,15 @@ fn rewrite(path: &Path, bytes: &[u8]) -> Result<()> {
     result?;
     restored?;
     Ok(())
+}
+
+impl Session {
+    /// Run the destroot libtool step on this execution-enabled session.
+    pub fn clean_destroot_libtool(&mut self) -> Result<LibtoolCleanup> {
+        StageContext {
+            interp: &mut self.interp,
+            id: self.id,
+        }
+        .clean_destroot_libtool()
+    }
 }

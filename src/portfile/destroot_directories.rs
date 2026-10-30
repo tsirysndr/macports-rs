@@ -13,11 +13,11 @@ pub struct DestrootDirectories {
     pub created_markers: usize,
     pub removed_directories: usize,
 }
-impl Session {
+impl StageContext<'_> {
     /// Apply the keepdirs/pruning portion of destroot_finish after file cleanup.
     /// This does not perform ownership, compression, or target-state updates.
     pub fn prune_destroot_directories(&mut self) -> Result<DestrootDirectories> {
-        check_supported(&mut self.interp, self.id)?;
+        check_supported(self.interp, self.id)?;
         ensure!(
             self.interp
                 .context::<State>(self.id)
@@ -132,4 +132,15 @@ fn jailed(root: &Path, input: &Path) -> Result<PathBuf> {
         input.display()
     );
     Ok(path)
+}
+
+impl Session {
+    /// Run the destroot directories step on this execution-enabled session.
+    pub fn prune_destroot_directories(&mut self) -> Result<DestrootDirectories> {
+        StageContext {
+            interp: &mut self.interp,
+            id: self.id,
+        }
+        .prune_destroot_directories()
+    }
 }

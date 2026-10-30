@@ -16,11 +16,11 @@ pub struct ManpageCompression {
     pub compressed: usize,
     pub relinked: usize,
 }
-impl Session {
+impl StageContext<'_> {
     /// Compress/recompress staged man pages and repair their symlinks. The host
     /// still owns the remaining destroot lifecycle and target-state recording.
     pub fn compress_destroot_manpages(&mut self) -> Result<ManpageCompression> {
-        check_supported(&mut self.interp, self.id)?;
+        check_supported(self.interp, self.id)?;
         ensure!(
             self.interp
                 .context::<State>(self.id)
@@ -215,4 +215,15 @@ fn relink(root: &Path, path: &Path) -> Result<bool> {
         }
     }
     Ok(true)
+}
+
+impl Session {
+    /// Run the destroot manpages step on this execution-enabled session.
+    pub fn compress_destroot_manpages(&mut self) -> Result<ManpageCompression> {
+        StageContext {
+            interp: &mut self.interp,
+            id: self.id,
+        }
+        .compress_destroot_manpages()
+    }
 }

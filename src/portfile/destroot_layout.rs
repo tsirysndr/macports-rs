@@ -9,12 +9,12 @@ pub struct DestrootLayout {
     pub violations: Vec<String>,
     pub override_enabled: bool,
 }
-impl Session {
+impl StageContext<'_> {
     /// Inspect staged layout and emit upstream's advisory warnings. This is
     /// not an activation authorization or a replacement for destroot_finish.
     /// In particular, an absent/empty stage is checked elsewhere in finish.
     pub fn check_destroot_layout(&mut self) -> Result<DestrootLayout> {
-        check_supported(&mut self.interp, self.id)?;
+        check_supported(self.interp, self.id)?;
         ensure!(
             self.interp
                 .context::<State>(self.id)
@@ -140,4 +140,15 @@ fn children(directory: &Path) -> Result<Vec<String>> {
         .collect::<io::Result<Vec<_>>>()?;
     names.sort();
     Ok(names)
+}
+
+impl Session {
+    /// Run the destroot layout step on this execution-enabled session.
+    pub fn check_destroot_layout(&mut self) -> Result<DestrootLayout> {
+        StageContext {
+            interp: &mut self.interp,
+            id: self.id,
+        }
+        .check_destroot_layout()
+    }
 }
