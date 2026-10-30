@@ -485,6 +485,58 @@ pub fn cmd_global(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResu
     molt_ok!()
 }
 
+/// Link scalar variables or whole arrays to a caller or absolute scope.
+/// Array-element aliases require additional scope support and fail explicitly.
+pub fn cmd_upvar(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
+    use std::convert::TryFrom;
+    check_args(
+        1,
+        argv,
+        3,
+        0,
+        "?level? otherVar localVar ?otherVar localVar ...?",
+    )?;
+    let explicit = argv[1].as_str().starts_with('#') || argv[1].as_int().is_ok();
+    let start = if explicit { 2 } else { 1 };
+    if !(argv.len() - start).is_multiple_of(2) || argv.len() == start {
+        return molt_err!(
+            "wrong # args: should be \"upvar ?level? otherVar localVar ?otherVar localVar ...?\""
+        );
+    }
+    let current = interp.scope_level();
+    let level = if explicit {
+        let text = argv[1].as_str();
+        if let Some(absolute) = text.strip_prefix('#') {
+            absolute
+                .parse::<usize>()
+                .ok()
+                .filter(|level| *level <= current)
+        } else {
+            usize::try_from(argv[1].as_int()?)
+                .ok()
+                .and_then(|relative| current.checked_sub(relative))
+        }
+    } else {
+        current.checked_sub(1)
+    };
+    let level = level.ok_or_else(|| {
+        Exception::molt_err(Value::from(format!(
+            "bad level {}",
+            if explicit { argv[1].as_str() } else { "1" }
+        )))
+    })?;
+    for pair in argv[start..].as_chunks::<2>().0 {
+        if pair
+            .iter()
+            .any(|name| name.as_str().contains('(') && name.as_str().ends_with(')'))
+        {
+            return molt_err!("upvar array-element aliases are not implemented");
+        }
+        interp.upvar_named(level, pair[0].as_str(), pair[1].as_str())?;
+    }
+    molt_ok!()
+}
+
 #[derive(Eq, PartialEq, Debug)]
 enum IfWants {
     Expr,

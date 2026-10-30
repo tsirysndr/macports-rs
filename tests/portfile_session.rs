@@ -183,3 +183,22 @@ fn local_tree_sessions_keep_imported_procedures_and_remain_isolated() {
     assert_eq!(sessions[0].invoke("increment", &[]).unwrap(), "2");
     assert_eq!(sessions[0].metadata().groups.len(), 1);
 }
+
+#[test]
+fn renamed_global_aliases_preserve_lazy_default_reads_writes_and_unsets() {
+    let mut session = open(
+        r#"
+        name app; version 1
+        proc read_alias {} {upvar #0 distname local; return $local}
+        proc write_alias {} {upvar #0 distname local; set local explicit}
+        proc unset_alias {} {upvar #0 distname local; unset local; set local recreated}
+    "#,
+    );
+    assert_eq!(session.invoke("read_alias", &[]).unwrap(), "app-1");
+    session.invoke("version", &["2"]).unwrap();
+    assert_eq!(session.invoke("read_alias", &[]).unwrap(), "app-2");
+    session.invoke("write_alias", &[]).unwrap();
+    assert_eq!(session.scalar("distname").unwrap(), "explicit");
+    session.invoke("unset_alias", &[]).unwrap();
+    assert_eq!(session.scalar("distname").unwrap(), "recreated");
+}

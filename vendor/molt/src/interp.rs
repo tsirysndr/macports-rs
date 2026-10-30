@@ -698,6 +698,7 @@ impl Interp {
         interp.add_command("for", commands::cmd_for);
         interp.add_command("foreach", commands::cmd_foreach);
         interp.add_command("global", commands::cmd_global);
+        interp.add_command("upvar", commands::cmd_upvar);
         interp.add_command("if", commands::cmd_if);
         interp.add_command("incr", commands::cmd_incr);
         interp.add_command("info", commands::cmd_info);
@@ -1288,9 +1289,9 @@ impl Interp {
     /// # }
     /// ```
     pub fn scalar(&mut self, name: &str) -> MoltResult {
-        if self.scopes.is_global(name) {
+        if let Some(name) = self.scopes.global_name(name).map(str::to_owned) {
             if let Some((id, read, _)) = self.global_scalar_hooks {
-                if let Some(value) = read(self, id, name)? {
+                if let Some(value) = read(self, id, &name)? {
                     return Ok(value);
                 }
             }
@@ -1310,9 +1311,9 @@ impl Interp {
         self.global_scalar_hooks = Some((id, read, changed));
     }
     fn scalar_changed(&mut self, name: &str) -> Result<(), Exception> {
-        if self.scopes.is_global(name) {
+        if let Some(name) = self.scopes.global_name(name).map(str::to_owned) {
             if let Some((id, _, changed)) = self.global_scalar_hooks {
-                changed(self, id, name, ScalarChange::Write)?;
+                changed(self, id, &name, ScalarChange::Write)?;
             }
         }
         Ok(())
@@ -1488,12 +1489,12 @@ impl Interp {
     /// # }
     /// ```
     pub fn unset(&mut self, name: &str) {
-        let global = self.scopes.is_global(name);
+        let global = self.scopes.global_name(name).map(str::to_owned);
         self.scopes.unset(name);
-        if global {
+        if let Some(name) = global {
             if let Some((id, _, changed)) = self.global_scalar_hooks {
                 // Tcl ignores errors raised by unset traces.
-                let _ = changed(self, id, name, ScalarChange::Unset);
+                let _ = changed(self, id, &name, ScalarChange::Unset);
             }
         }
     }
@@ -1619,6 +1620,11 @@ impl Interp {
     pub fn upvar(&mut self, level: usize, name: &str) {
         assert!(level <= self.scopes.current(), "Invalid scope level");
         self.scopes.upvar(level, name);
+    }
+
+    /// Link a differently named scalar or whole array in the current scope.
+    pub fn upvar_named(&mut self, level: usize, other: &str, local: &str) -> Result<(), Exception> {
+        self.scopes.upvar_named(level, other, local)
     }
 
     /// Pushes a variable scope (i.e., a stack level) onto the scope stack.

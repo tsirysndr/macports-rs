@@ -22,5 +22,10 @@ Local changes:
 - `split` and `lrange`, plus end-relative and integer-arithmetic list indices;
   shared index parsing for `lindex` and `lrange`.
 
+- Native `upvar` for scalar and whole-array aliases, including renamed variables,
+  relative/absolute scope levels, alias chains, and retained links after unset.
+  Array-element aliases remain explicitly unsupported. Global scalar hooks resolve
+  the alias target name; mutable lookup no longer uses unsafe transmutation.
+
 These hooks are host APIs, not a complete implementation of Tcl's `trace` command.
 The upstream source and tests remain available to verify interpreter behavior.
