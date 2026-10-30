@@ -20,6 +20,8 @@ pub struct SystemRequest {
     pub prepare_directory: Option<PathBuf>,
     pub nice: Option<i32>,
     pub new_session: bool,
+    /// Session-local creation mask forwarded to the child.
+    pub creation_mask: Option<u32>,
 }
 impl SystemRequest {
     /// MacPorts explicitly runs system scripts via /bin/sh -c. Resolve relative
@@ -33,9 +35,9 @@ impl SystemRequest {
                 .try_exists()
                 .with_context(|| format!("cannot inspect command directory {}", path.display()))?
             {
-                std::fs::create_dir_all(&path).with_context(|| {
-                    format!("cannot create command directory {}", path.display())
-                })?;
+                crate::build::directories::create_all(&path, self.creation_mask).with_context(
+                    || format!("cannot create command directory {}", path.display()),
+                )?;
             }
         }
         Ok(Command {
@@ -53,6 +55,7 @@ impl SystemRequest {
             clear_environment: true,
             nice: self.nice,
             new_session: self.new_session,
+            creation_mask: self.creation_mask,
         })
     }
 }
@@ -138,6 +141,7 @@ fn command(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
         script: argv.last().unwrap().to_string(),
         directory,
         prepare_directory: None,
+        creation_mask: interp.context::<State>(id).creation_mask,
         nice,
         new_session,
         environment: environment

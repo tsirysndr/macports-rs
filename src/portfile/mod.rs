@@ -10,6 +10,7 @@ mod command_exec;
 mod command_options;
 mod commands;
 mod configure_phase;
+mod creation_mask;
 mod defaults;
 mod destroot_phase;
 mod ditems;
@@ -64,6 +65,7 @@ pub struct Evaluation {
 #[derive(Default)]
 struct State {
     groups: PortGroups,
+    creation_mask: Option<u32>,
     system_executor: Option<system::Executor>,
     loaded_groups: Vec<LoadedGroup>,
     group_failures: BTreeSet<String>,
@@ -176,6 +178,7 @@ fn open(
     commands::install(&mut interp, id);
     utilities::install(&mut interp, id);
     paths::install(&mut interp, id);
+    creation_mask::install(&mut interp, id);
     traverse::install(&mut interp, id);
     ditems::install(&mut interp, id);
     dlist::install(&mut interp, id);

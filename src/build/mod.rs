@@ -1,5 +1,6 @@
 //! Source-phase subprocesses with immediate, labeled output. Command selection
 //! and Portfile stage scheduling belong to the installer, not this runner.
+pub(crate) mod directories;
 mod log;
 mod process;
 use crate::progress::Progress;
@@ -18,6 +19,8 @@ pub struct Command {
     pub nice: Option<i32>,
     /// Start a session without a controlling terminal (`system -notty`).
     pub new_session: bool,
+    /// Child-only file creation mask; None inherits the host mask.
+    pub creation_mask: Option<u32>,
 }
 /// Completed process identity and status, retained for Tcl CHILDSTATUS errors.
 #[derive(Debug)]

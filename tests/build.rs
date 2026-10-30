@@ -18,6 +18,7 @@ fn command(directory: &Path, script: &str) -> Command {
         clear_environment: false,
         nice: None,
         new_session: false,
+        creation_mask: None,
     }
 }
 #[tokio::test]
@@ -294,4 +295,37 @@ async fn requested_session_and_priority_apply_only_to_the_child() {
         assert_eq!(libc::getsid(0), parent_session);
         assert_eq!(libc::getpriority(libc::PRIO_PROCESS, 0), parent_priority);
     }
+}
+
+#[tokio::test]
+async fn concurrent_children_use_independent_creation_masks() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    let mut private = command(root.path(), ": > private");
+    private.creation_mask = Some(0o077);
+    let mut public = command(root.path(), ": > public");
+    public.creation_mask = Some(0o022);
+    let (mut private_log, mut public_log) = (Vec::new(), Vec::new());
+    let (a, b) = tokio::join!(
+        build::run_to(&private, "one", Phase::Build, &mut private_log),
+        build::run_to(&public, "two", Phase::Build, &mut public_log)
+    );
+    a.unwrap();
+    b.unwrap();
+    assert_eq!(
+        std::fs::metadata(root.path().join("private"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+    assert_eq!(
+        std::fs::metadata(root.path().join("public"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o644
+    );
 }

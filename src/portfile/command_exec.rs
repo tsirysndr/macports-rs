@@ -225,6 +225,7 @@ fn execute(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
         .iter()
         .map(|[key, value]| (key.to_string(), value.to_string()))
         .collect();
+    let creation_mask = interp.context::<State>(id).creation_mask;
     let result = system::execute_request(
         interp,
         id,
@@ -232,6 +233,7 @@ fn execute(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
             script: format!("{before} {script} {after}"),
             directory: None,
             prepare_directory: Some(directory.as_str().into()),
+            creation_mask,
             nice,
             new_session,
             environment,

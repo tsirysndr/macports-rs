@@ -32,10 +32,11 @@ pub(super) async fn run(
     }
     let new_session = command.new_session;
     let nice = command.nice;
+    let creation_mask = command.creation_mask;
     if !new_session {
         builder.process_group(0);
     }
-    if new_session || nice.is_some() {
+    if new_session || nice.is_some() || creation_mask.is_some() {
         // SAFETY: this post-fork hook only uses captured Copy values and leaf OS
         // calls. It does not allocate, acquire locks, or access the Tokio runtime.
         unsafe {
@@ -47,6 +48,9 @@ pub(super) async fn run(
                     // Native MacPorts ignores setpriority failure (for example,
                     // an unprivileged request to increase scheduling priority).
                     libc::setpriority(libc::PRIO_PROCESS, 0, priority);
+                }
+                if let Some(mask) = creation_mask {
+                    libc::umask(mask as libc::mode_t);
                 }
                 Ok(())
             });
