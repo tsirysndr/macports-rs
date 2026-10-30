@@ -1368,3 +1368,21 @@ retain the caller's fallback values; a standalone override flag without a runtim
 does not override those defaults. Tests cover accepted values, absent/invalid
 metadata, and registry persistence when the archive runtime differs from the host.
 The live-session registration metadata builder remains pending.
+
+`registration::from_session` now builds registration properties and archive targets
+from retained live Portfile state. It reads subport/version/revision/epoch, canonical
+active variants, platform compatibility, and canonical architectures, rejecting
+identity changes from the resolved installation plan. Requested variant choices
+remain separate from active variants. Resolved dependency names and serialized
+Portfile text are explicit caller inputs; provider fallback guesses are rejected.
+Location and binary inventory are filled by storage/preparation. Actual C++ runtime
+remains unknown until archive metadata supplies it, while the fallback override flag
+compares the evaluated compiler choice with the installation default. Tests cover
+platform-independent/noarch results, requested variants, runtime changes, stale
+identity, unresolved providers, and batch download/installation using generated
+registration properties. This does not initialize PortSystem or execute hooks.
+
+Registry registration stores an unknown/empty actual C++ runtime as SQL NULL,
+matching MacPorts' metadata-discovery queries. The explicit archive value `none`
+remains a string and means no C++ runtime was found. A registry test verifies that
+these two states remain distinct.

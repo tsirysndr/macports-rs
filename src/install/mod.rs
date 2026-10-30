@@ -20,4 +20,5 @@ pub mod activation;
 
 pub mod binary;
 pub mod publication;
+pub mod registration;
 pub mod store;

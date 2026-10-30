@@ -13,6 +13,17 @@ pub struct Session {
 }
 
 impl Session {
+    /// Canonical selected variants from the retained interpreter's live state.
+    pub fn active_variants(&mut self) -> Result<String> {
+        check_supported(&mut self.interp, self.id)?;
+        Ok(self
+            .interp
+            .context::<State>(self.id)
+            .active
+            .iter()
+            .map(|name| format!("+{name}"))
+            .collect())
+    }
     pub fn open(
         source: &str,
         variables: &BTreeMap<String, String>,

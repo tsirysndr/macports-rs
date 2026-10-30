@@ -217,12 +217,36 @@ fn download_job<'a>(
     url: &str,
     dependencies: Vec<String>,
 ) -> port_rs::install::binary::Job<'a> {
-    let mut registration = record();
-    registration.name = port.name.clone();
-    registration.dependencies = dependencies;
+    let source = format!(
+        "name {}; version 1; revision 0; epoch 0; variant ssl {{}}; platforms darwin; set configure.build_arch arm64; set os.arch arm; set configure.cxx_stdlib libc++; set cxx_stdlib libc++",
+        port.name
+    );
+    let mut requested = port_rs::spec::PortSpec::named(&port.name);
+    requested.parse_modifier("+ssl").unwrap();
+    let mut session = port_rs::portfile::Session::open(
+        &source,
+        &BTreeMap::new(),
+        &requested,
+        port_rs::portfile::PortGroups::default(),
+    )
+    .unwrap();
+    let (target, registration) = port_rs::install::registration::from_session(
+        &mut session,
+        &item(port),
+        &Platform {
+            darwin_major: 24,
+            architecture: "arm",
+        },
+        port_rs::install::registration::Inputs {
+            requested: &requested,
+            dependencies,
+            portfile: source,
+        },
+    )
+    .unwrap();
     port_rs::install::binary::Job {
         item: item(port),
-        target: target(),
+        target,
         registration,
         request: port_rs::install::fetch::Request {
             name: port.name.clone(),
