@@ -29,7 +29,7 @@ base64 = "0.22"
 tar = { version = "0.4", default-features = false }
 bzip2 = "0.6"
 ripemd = "0.2"
-molt = "0.3.1"
+molt = { version = "0.3.1", path = "vendor/molt" }
 libc = "0.2"
 
 [profile.release]
@@ -40,3 +40,7 @@ strip = true
 [[bench]]
 name = "index"
 harness = false
+
+[workspace]
+members = ["vendor/molt"]
+default-members = ["."]
