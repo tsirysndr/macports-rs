@@ -1080,3 +1080,17 @@ options before that point remain a compatibility gap. As upstream does, ordinary
 option commands store argument lists, while `option name value` stores a scalar
 verbatim. Tests stage custom paths and derived names containing spaces through
 that accessor, without changing list semantics for executable arguments/scripts.
+
+`install::activation::Plan::inspect` provides a read-only filesystem preflight
+for a verified `PreparedImage`. It maps payload files and links beneath an
+existing physical activation root, retains their archive metadata, and orders
+explicit and implicit parent directories before children. Control files are not
+activation payload. Existing physical directories are shared; payload collisions
+(including dangling symlinks) and non-directory ancestors are collected as
+conflicts. Once an ancestor is blocked, its descendants are not inspected.
+The plan borrows the prepared image so its private extraction tree remains alive.
+This is a filesystem snapshot, not a live-prefix writer: registry ownership
+checks under the writer lock, publication-time path revalidation, metadata
+application, rollback/recovery, and CLI activation orchestration remain required.
+Tests use signed archive fixtures and verify that both the destination root and
+external symlink targets remain unchanged during preflight.
