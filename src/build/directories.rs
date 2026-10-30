@@ -9,6 +9,9 @@ pub(crate) fn create_all(path: &Path, mask: Option<u32>) -> io::Result<()> {
     let Some(mask) = mask else {
         return fs::create_dir_all(path);
     };
+    if path.try_exists()? && !path.is_dir() {
+        return Err(io::Error::from_raw_os_error(libc::EEXIST));
+    }
     let mut missing = Vec::new();
     let mut parent = path;
     while !parent.as_os_str().is_empty() && !parent.try_exists()? {

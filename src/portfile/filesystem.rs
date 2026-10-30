@@ -108,9 +108,18 @@ fn file_type(metadata: &fs::Metadata) -> &'static str {
 }
 
 pub(super) fn file_error(path: &str, link: bool, err: io::Error) -> Exception {
+    let action = if link { "read link" } else { "read" };
+    path_error(path, &format!("could not {action}"), err)
+}
+
+pub(super) fn path_error(path: &str, action: &str, err: io::Error) -> Exception {
     // Tcl's POSIX error code contains the symbolic errno and its stable English
     // description, rather than Rust's platform-dependent '(os error N)' suffix.
     let (name, description) = match err.raw_os_error() {
+        Some(libc::EEXIST) => ("EEXIST", "file already exists"),
+        Some(libc::ENOSPC) => ("ENOSPC", "no space left on device"),
+        Some(libc::EROFS) => ("EROFS", "read-only file system"),
+        Some(libc::EMLINK) => ("EMLINK", "too many links"),
         Some(libc::ENOENT) => ("ENOENT", "no such file or directory"),
         Some(libc::EACCES) => ("EACCES", "permission denied"),
         Some(libc::EPERM) => ("EPERM", "operation not permitted"),
@@ -126,10 +135,9 @@ pub(super) fn file_error(path: &str, link: bool, err: io::Error) -> Exception {
         _ if err.kind() == io::ErrorKind::InvalidInput => ("EINVAL", "invalid argument"),
         _ => ("UNKNOWN", "unknown error"),
     };
-    let action = if link { "read link" } else { "read" };
     Exception::molt_err2(
         Value::from(vec!["POSIX".into(), name.into(), description.into()]),
-        format!("could not {action} \"{path}\": {description}").into(),
+        format!("{action} \"{path}\": {description}").into(),
     )
 }
 

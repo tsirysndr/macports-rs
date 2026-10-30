@@ -16,7 +16,7 @@ fn root_len(path: &str) -> usize {
     }
 }
 
-fn split(path: &str) -> Vec<&str> {
+pub(super) fn split(path: &str) -> Vec<&str> {
     let root = root_len(path);
     let mut parts = Vec::new();
     if root > 0 {
@@ -47,6 +47,9 @@ pub(super) fn join<'a>(paths: impl IntoIterator<Item = &'a str>) -> String {
 fn file(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 2, 0, "subcommand ?arg ...?")?;
     let operation = argv[1].as_str();
+    if operation == "mkdir" {
+        return filesystem_mutations::mkdir(interp, id, argv);
+    }
     if filesystem::is_metadata_query(operation) {
         if matches!(operation, "mtime" | "atime") && argv.len() == 4 {
             let name = format!("file {operation} setter");

@@ -590,6 +590,11 @@ read-only metadata with catchable POSIX lookup errors. Stat follows symlinks;
 lstat and type inspect the link itself. Stat results support both Tcl 9 dictionary
 returns and caller-scope arrays. Timestamp setters remain unsupported, and
 readlink currently requires a UTF-8 target.
+Execution-enabled sessions support native `file mkdir` with multiple paths,
+recursive parents, directory symlinks, and catchable POSIX errors. New directories
+use the session's creation mask; existing directory permissions are preserved.
+Relative paths use the process working directory, as with the read-only queries.
+Directory creation remains unavailable during metadata evaluation.
 Native `fs-traverse` supports sorted physical traversal, `-depth`, `-tails`,
 `-ignoreErrors`, caller-scope loop variables, and Tcl loop control. Explicit
 root symlinks are followed; nested directory symlinks and other filesystems are
