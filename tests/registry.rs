@@ -321,3 +321,172 @@ fn contents_sizes_follow_symlinks_and_report_missing_paths() {
         )
     );
 }
+
+fn register_path(f: &Fixture, path: &std::path::Path, active: bool) {
+    Connection::open(&f.path)
+        .unwrap()
+        .execute(
+            "INSERT INTO files(id,path,actual_path,active) VALUES(3,?1,?1,?2)",
+            rusqlite::params![path.to_str().unwrap(), active],
+        )
+        .unwrap();
+}
+#[test]
+fn provides_reports_active_owners_and_ignores_inactive_file_records() {
+    let f = files_fixture();
+    let directory = f.dir.path().canonicalize().unwrap();
+    let owned = directory.join("owned");
+    let inactive = directory.join("inactive");
+    std::fs::write(&owned, "file").unwrap();
+    std::fs::write(&inactive, "file").unwrap();
+    register_path(&f, &owned, true);
+    register_path(&f, &inactive, false);
+    let before = std::fs::read(&f.path).unwrap();
+    assert_eq!(
+        stdout(f.run(&[
+            "provides",
+            owned.to_str().unwrap(),
+            inactive.to_str().unwrap()
+        ])),
+        format!(
+            "{} is provided by: curl\n{} is not provided by a MacPorts port.\n",
+            owned.display(),
+            inactive.display()
+        )
+    );
+    assert_eq!(
+        stdout(f.run(&[
+            "-q",
+            "provides",
+            owned.to_str().unwrap(),
+            inactive.to_str().unwrap()
+        ])),
+        "curl\n"
+    );
+    assert_eq!(std::fs::read(&f.path).unwrap(), before);
+}
+#[test]
+fn provides_distinguishes_missing_paths_directories_and_unowned_files() {
+    let f = files_fixture();
+    let directory = f.dir.path().canonicalize().unwrap();
+    let missing = directory.join("missing");
+    let unowned = directory.join("unowned");
+    std::fs::write(&unowned, "").unwrap();
+    assert_eq!(
+        stdout(f.run(&[
+            "provides",
+            missing.to_str().unwrap(),
+            directory.to_str().unwrap(),
+            unowned.to_str().unwrap()
+        ])),
+        format!(
+            "{} does not exist.\n{} is a directory.\n{} is not provided by a MacPorts port.\n",
+            missing.display(),
+            directory.display(),
+            unowned.display()
+        )
+    );
+    assert_eq!(
+        stdout(f.run(&[
+            "-q",
+            "provides",
+            missing.to_str().unwrap(),
+            directory.to_str().unwrap(),
+            unowned.to_str().unwrap()
+        ])),
+        ""
+    );
+}
+#[cfg(unix)]
+#[test]
+fn provides_normalizes_parents_and_preserves_final_symlink_ownership() {
+    let f = files_fixture();
+    let directory = f.dir.path().canonicalize().unwrap();
+    let real = directory.join("real");
+    std::fs::create_dir(&real).unwrap();
+    let alias = directory.join("alias");
+    std::os::unix::fs::symlink(&real, &alias).unwrap();
+    let target = real.join("file");
+    std::fs::write(&target, "").unwrap();
+    register_path(&f, &target, true);
+    let dangling = directory.join("dangling");
+    std::os::unix::fs::symlink("absent-target", &dangling).unwrap();
+    register_path(&f, &dangling, true);
+    let dirlink = directory.join("dirlink");
+    std::os::unix::fs::symlink(&real, &dirlink).unwrap();
+    register_path(&f, &dirlink, true);
+    assert_eq!(
+        stdout(f.run(&["provides", "./alias/file", "./dangling", "dirlink"])),
+        format!(
+            "{} is provided by: curl\n{} is provided by: curl\n{} is provided by: curl\n",
+            target.display(),
+            dangling.display(),
+            dirlink.display()
+        )
+    );
+    assert_eq!(
+        port_rs::registry::path::normalize(&alias.join("../dangling")).unwrap(),
+        dangling
+    );
+}
+#[test]
+fn owner_queries_bind_paths_and_obey_explicit_case_rules() {
+    let f = files_fixture();
+    let directory = f.dir.path().canonicalize().unwrap();
+    let quoted = directory.join("quoted'; SELECT 'name");
+    std::fs::write(&quoted, "").unwrap();
+    register_path(&f, &quoted, true);
+    assert_eq!(
+        stdout(f.run(&["-q", "provides", quoted.to_str().unwrap()])),
+        "curl\n"
+    );
+    let mixed = directory.join("MixedCase");
+    register_path(&f, &mixed, true);
+    let registry = port_rs::registry::Registry::open(Some(&f.path))
+        .unwrap()
+        .unwrap();
+    let lower = directory.join("mixedcase");
+    assert_eq!(registry.owner(lower.to_str().unwrap(), true).unwrap(), None);
+    assert_eq!(
+        registry.owner(lower.to_str().unwrap(), false).unwrap(),
+        Some("curl".into())
+    );
+}
+#[test]
+fn provides_uses_registered_actual_path_and_supports_command_chains() {
+    let f = files_fixture();
+    let directory = f.dir.path().canonicalize().unwrap();
+    let original = directory.join("original");
+    let renamed = directory.join("renamed");
+    std::fs::write(&original, "").unwrap();
+    std::fs::write(&renamed, "").unwrap();
+    Connection::open(&f.path)
+        .unwrap()
+        .execute(
+            "INSERT INTO files VALUES(3,?1,?2,1)",
+            rusqlite::params![original.to_str().unwrap(), renamed.to_str().unwrap()],
+        )
+        .unwrap();
+    assert_eq!(
+        stdout(f.run(&[
+            "-q",
+            "prov",
+            original.to_str().unwrap(),
+            ";",
+            "prov",
+            renamed.to_str().unwrap()
+        ])),
+        "curl\n"
+    );
+}
+#[test]
+fn provides_reports_database_errors_without_partial_results() {
+    let f = Fixture::new();
+    let directory = f.dir.path().canonicalize().unwrap();
+    let file = directory.join("file");
+    std::fs::write(&file, "").unwrap();
+    let output = f.run(&["provides", "missing", file.to_str().unwrap()]);
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("cannot look up registry owner"));
+}

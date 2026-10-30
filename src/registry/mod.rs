@@ -1,8 +1,9 @@
 //! Read-only access to the MacPorts SQLite registry; never initializes or migrates it.
+pub mod path;
 mod selection;
 mod version;
 use anyhow::{Context, Result, ensure};
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::{Connection, OpenFlags, OptionalExtension};
 pub use selection::specifications;
 use std::{collections::HashSet, path::Path, time::Duration};
 
@@ -58,6 +59,18 @@ impl Registry {
     }
     pub fn entries(&self) -> Result<Vec<Entry>> {
         read_entries(&self.connection).context("cannot read MacPorts registry entries")
+    }
+    /// Look up active file-map ownership using the filesystem's case rules.
+    pub fn owner(&self, path: &str, case_sensitive: bool) -> Result<Option<String>> {
+        let sql = if case_sensitive {
+            "SELECT ports.name FROM files JOIN ports ON ports.id=files.id WHERE files.actual_path=?1 AND files.active LIMIT 1"
+        } else {
+            "SELECT ports.name FROM files JOIN ports ON ports.id=files.id WHERE files.actual_path=?1 COLLATE NOCASE AND files.active LIMIT 1"
+        };
+        self.connection
+            .query_row(sql, [path], |row| row.get(0))
+            .optional()
+            .with_context(|| format!("cannot look up registry owner for {path}"))
     }
     pub fn files(&self, entry: &Entry) -> Result<Vec<String>> {
         let sql = if entry.active {

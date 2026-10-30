@@ -76,6 +76,7 @@ unimplemented; removing the platform cache file triggers a fresh download.
 | `install`, `upgrade`, `uninstall`, activation | Not implemented; fail explicitly before filesystem changes |
 | `installed` | Read-only SQLite registry, names/globs, version filters, active/inactive and requested/unrequested selectors |
 | `contents` | Registered file lists, active-image preference, version selection, quiet and size/unit output |
+| `provides` | Active file ownership, quiet output, normalized paths and symlinks |
 | Other registry commands, `sync`, `selfupdate` | Not implemented |
 | Port specifications | Attached/separate `@version`, `+variant`, `-variant`, and `key=value`; canonical echo rendering |
 | Logical expressions | `and`, `or`, `not`, `!`, parentheses, and implicit union; preserves input order |
@@ -230,6 +231,18 @@ forms. Sizes follow symlinks; missing or unreadable paths display `-1`. File
 contents are never opened. Quiet mode hides headings. This initial `contents`
 implementation requires explicit names (with optional versions/variants); globs,
 logical expressions, and registry selectors are not yet supported for this action.
+
+`port provides /opt/local/bin/curl` looks up active file-map ownership, using
+`actual_path` rather than the original image path. Multiple filenames are
+accepted, and `-q` prints only owner names. Missing paths, directories, and
+unowned files produce distinct messages in normal mode and no output in quiet
+mode; these conditions are successful queries.
+
+Relative paths and parent directory symlinks are normalized. A final symlink is
+looked up by its own path, including dangling links and links to directories.
+On macOS, native filesystem capability detection controls case-sensitive versus
+case-insensitive registry matching. Ownership lookup uses bound SQL parameters
+and never reads file contents or modifies registry records.
 
 ## Download engine and progress
 
