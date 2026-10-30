@@ -407,6 +407,15 @@ files. Ordinary `port install` remains blocked before index/registry access unti
 archive verification, extraction, activation, and registry transactions are ready.
 `-y` currently applies only to `install`; other actions reject it.
 
+Native `dlist` APIs now select and evaluate dependency items using required
+and optional dependency tokens. They preserve provider order, select required
+closures without recursive stack growth, stop on handler failures, and support
+completion predicates, custom selectors, handler argument prefixes, and failure
+reasons. `upvar` supports scalar and whole-array aliases used by these callbacks;
+array-element aliases are still unsupported. These are scheduling primitives:
+the full PortSystem target runner, state files, privilege handling, and built-in
+phase procedures are not connected to ordinary installation yet.
+
 The library's `portfile::Session` and `open_from_tree` retain the interpreter
 alongside the initial metadata snapshot. Later literal-argument procedure calls
 share the original globals, arrays, procedures, selected variants, and lazy

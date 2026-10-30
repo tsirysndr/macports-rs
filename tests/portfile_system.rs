@@ -192,3 +192,52 @@ async fn portfile_system_streams_partial_logs_before_shell_exits() {
     assert_eq!(rest, b"\n-> building git: finished\n");
     worker.await.unwrap().unwrap();
 }
+
+#[test]
+fn native_scheduler_stops_dependent_shell_commands_after_build_failure() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().to_owned();
+    let output = Arc::new(Mutex::new(Vec::new()));
+    let sink = output.clone();
+    let mut session = open(
+        r#"
+        name git; version 1
+        set compile [target_new compile compile]
+        ditem_key $compile provides compiled
+        set install [target_new install install_files]
+        target_requires $install compiled
+        proc compile {name} {system {printf 'compiler failed\n'; exit 9}}
+        proc install_files {name} {system {printf wrong > must-not-exist}}
+        proc handler {item} {
+            set procedure [ditem_key $item procedure]
+            $procedure [ditem_key $item name]
+        }
+        proc schedule {} {
+            global compile install
+            set remaining [dlist_eval [list $install $compile] {} handler]
+            return [list [llength $remaining] $dlist_eval_reason]
+        }
+    "#,
+    );
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    session
+        .enable_system(&BTreeMap::new(), move |request| {
+            let mut output = sink.lock().unwrap();
+            runtime.block_on(build::run_status_to(
+                &request.into_command(&path),
+                "git",
+                Phase::Build,
+                &mut *output,
+            ))
+        })
+        .unwrap();
+    assert_eq!(session.invoke("schedule", &[]).unwrap(), "2 handler");
+    assert!(!directory.path().join("must-not-exist").exists());
+    assert_eq!(
+        output.lock().unwrap().as_slice(),
+        b"-> building git: compiler failed\n"
+    );
+}

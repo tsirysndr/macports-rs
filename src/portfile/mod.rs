@@ -6,6 +6,7 @@ mod command_options;
 mod commands;
 mod defaults;
 mod ditems;
+mod dlist;
 mod groups;
 mod platform;
 mod session;
@@ -163,6 +164,7 @@ fn open(
     commands::install(&mut interp, id);
     utilities::install(&mut interp, id);
     ditems::install(&mut interp, id);
+    dlist::install(&mut interp, id);
     targets::install(&mut interp, id).map_err(failure)?;
     interp.add_context_command("PortGroup", groups::command, id);
     interp.add_context_command("platform", platform::command, id);
