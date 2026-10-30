@@ -14,7 +14,7 @@ pub(super) fn install(interp: &mut Interp, id: ContextID) {
     interp.add_context_command("portbuild::build_start", build, id);
     interp.add_context_command("porttest::test_start", test, id);
 }
-fn notice(interp: &mut Interp, id: ContextID, argv: &[Value], verb: &str) -> MoltResult {
+pub(super) fn notice(interp: &mut Interp, id: ContextID, argv: &[Value], verb: &str) -> MoltResult {
     if interp.context::<State>(id).system_executor.is_none() {
         return commands::unsupported(interp, id, argv);
     }
@@ -32,6 +32,9 @@ fn notice(interp: &mut Interp, id: ContextID, argv: &[Value], verb: &str) -> Mol
 }
 fn build(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     notice(interp, id, argv, "Building")?;
+    warn_compiler_fallback(interp, id)
+}
+pub(super) fn warn_compiler_fallback(interp: &mut Interp, id: ContextID) -> MoltResult {
     interp.with_global_scope(|interp| {
         if interp.scalar("portconfigure::no_default_compiler_allowed")?.as_bool()? {
             let state = interp.context::<State>(id);
@@ -71,6 +74,8 @@ mod tests {
             s.invoke("portbuild::build_start", &["ignored", "args"])
                 .unwrap();
         }
+        s.invoke("configure.compiler", &["clang"]).unwrap();
+        s.invoke("portconfigure::configure_start", &[]).unwrap();
         assert_eq!(s.interp.context::<State>(s.id).warned.len(), 1);
         assert!(
             s.interp

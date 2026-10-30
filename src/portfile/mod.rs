@@ -13,6 +13,7 @@ mod command_options;
 mod commands;
 mod configure_checks;
 mod configure_phase;
+mod configure_start;
 mod creation_mask;
 mod defaults;
 mod destroot_phase;
@@ -203,6 +204,7 @@ fn open(
     build_state::install(&mut interp, id);
     phase_start::install(&mut interp, id);
     configure_checks::install(&mut interp, id);
+    configure_start::install(&mut interp, id);
     paths::install(&mut interp, id);
     creation_mask::install(&mut interp, id);
     traverse::install(&mut interp, id);

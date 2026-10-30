@@ -634,8 +634,13 @@ Rust without grep, match warning flags at line ends, and apply case-insensitive
 Tcl-style whitelist globs. Diagnostics use the shared progress manager. The
 implicit-function whitelist must currently be supplied by the host or Portfile;
 SDK-dependent whitelist defaults are not implemented, and missing configuration
-fails explicitly. Configure startup/compiler validation and ccache initialization
-remain unfinished.
+fails explicitly. Native configure startup validates upstream compiler identifiers and shares
+compiler-fallback warning suppression with build startup. A configured compiler
+is still a host input; discovery, fallback selection, and compiler debug-name
+reporting are not implemented. Ccache startup retains upstream's root requirement;
+initialization under root remains unsupported until the privilege worker exists.
+A real-shell test exercises configure start, main, and finish through the prepared
+target runtime, including state-based skipping on a second invocation.
 Native `portbuild::build_start` and `porttest::test_start` now emit phase notices;
 build startup also warns once per session about compiler fallback when the host
 sets `portconfigure::no_default_compiler_allowed`. This flag defaults to false;

@@ -272,3 +272,90 @@ fn xmkmf_runs_makefiles_generation_instead_of_the_configure_command() {
     assert!(requests[0].0.contains("xmkmf-script"));
     assert!(requests[1].0.contains("make Makefiles"));
 }
+
+#[test]
+fn prepared_configure_runs_start_main_finish_and_skips_completed_work() {
+    use port_rs::{portfile::TargetOutcome, progress::Progress};
+    let tmp = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(tmp.path()).unwrap();
+    std::fs::write(root.join("Portfile"), "name app; version 1").unwrap();
+    std::fs::write(root.join("configure-script"), "echo configure-lifecycle\nprintf 'all:\\n\\t@echo built\\n' > Makefile\necho 'warning: type defaults to int [-Wimplicit-int]' > config.log\n").unwrap();
+    let mut session = open(
+        "configure.compiler clang; configure.pre_args {}; configure.checks.implicit_function_declaration.whitelist {}",
+    );
+    let work = root.join("build/new/app/work");
+    for (key, value) in [
+        ("portpath", root.clone()),
+        ("portdbpath", root.join("database")),
+        ("portbuildpath", root.join("build/new")),
+        ("subbuildpath", root.join("build/new/app")),
+        ("workpath", work.clone()),
+        ("configure.dir", work.join("src")),
+    ] {
+        session
+            .invoke("set", &[key, value.to_str().unwrap()])
+            .unwrap();
+    }
+    session
+        .invoke(
+            "configure.args",
+            &[root.join("configure-script").to_str().unwrap()],
+        )
+        .unwrap();
+    let (requests, output) = enable(&mut session, &root);
+    session.set_progress(Progress::new(true));
+    let item = session.scalar("org.macports.configure").unwrap();
+    assert_eq!(
+        session.run_prepared_target(&item, false).unwrap(),
+        TargetOutcome::Completed
+    );
+    assert!(work.join("src/Makefile").is_file());
+    assert!(
+        String::from_utf8(output.lock().unwrap().clone())
+            .unwrap()
+            .contains("-> configuring app: configure-lifecycle")
+    );
+    assert_eq!(requests.lock().unwrap().len(), 1);
+    assert_eq!(
+        session.run_prepared_target(&item, false).unwrap(),
+        TargetOutcome::AlreadyCompleted
+    );
+    assert_eq!(requests.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn configure_start_rejects_unknown_compiler_before_running_any_commands() {
+    let mut session = open("configure.compiler unknown");
+    session
+        .enable_system(&BTreeMap::new(), |_| {
+            panic!("startup must not launch a command")
+        })
+        .unwrap();
+    session.set_progress(port_rs::progress::Progress::new(true));
+    assert!(
+        session
+            .invoke("portconfigure::configure_start", &[])
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid value for configure.compiler: unknown")
+    );
+    session
+        .invoke("configure.compiler", &["macports-clang-devel"])
+        .unwrap();
+    assert_eq!(
+        session
+            .invoke("portconfigure::configure_start", &["ignored"])
+            .unwrap(),
+        ""
+    );
+    session.invoke("configure.ccache", &["yes"]).unwrap();
+    let error = session
+        .invoke("portconfigure::configure_start", &[])
+        .unwrap_err()
+        .to_string();
+    if unsafe { libc::getuid() } == 0 {
+        assert!(error.contains("privilege"));
+    } else {
+        assert!(error.contains("requires root privileges"));
+    }
+}
