@@ -76,6 +76,7 @@ unimplemented; removing the platform cache file triggers a fresh download.
 | `install`, `upgrade`, `uninstall`, activation | Not implemented; fail explicitly before filesystem changes |
 | `installed` | Read-only SQLite registry, names/globs, version filters, active/inactive and requested/unrequested selectors |
 | `contents` | Registered file lists, active-image preference, version selection, quiet and size/unit output |
+| `space` | Active-file sizes, hard-link deduplication, symlink sizes, unit selection, and totals |
 | `provides` | Active file ownership, quiet output, normalized paths and symlinks |
 | `dependents`, `rdependents` | Installed-registry reverse dependencies, verbose versions, full trees, cycle handling |
 | `outdated` | Active-version, revision, epoch, and Darwin-platform comparison against the catalog |
@@ -83,7 +84,7 @@ unimplemented; removing the platform cache file triggers a fresh download.
 | Port specifications | Attached/separate `@version`, `+variant`, `-variant`, and `key=value`; canonical echo rendering |
 | Logical expressions | `and`, `or`, `not`, `!`, parentheses, and implicit union; preserves input order |
 | `rdepends:<port>` | Indexed transitive reverse dependencies; exact, case-insensitive port names |
-| Registry selectors outside `installed`, `depof`/`rdepof`, current directory, Portfile URLs | Not implemented |
+| Registry selectors outside `installed`/`outdated`, `depof`/`rdepof`, current directory, Portfile URLs | Not implemented |
 | Action abbreviations | Unique case-insensitive prefixes, exact-name priority, upstream ambiguity checks |
 | Command chaining | Quoted `;` separators, per-action option reset, stops on first error |
 | Interactive mode and command files | Not implemented |
@@ -236,6 +237,19 @@ forms. Sizes follow symlinks; missing or unreadable paths display `-1`. File
 contents are never opened. Quiet mode hides headings. This initial `contents`
 implementation requires explicit names (with optional versions/variants); globs,
 logical expressions, and registry selectors are not yet supported for this action.
+
+`port space curl` reports the sizes of registered active files. Use `--units B`
+(or the units accepted by `contents`) for a fixed unit and `--total` to print
+only the sum. Multiple ports also produce a total by default; quiet mode retains
+size rows. Hard links are counted once per port, symlinks contribute their own
+length, and missing/unreadable files are skipped. These are logical file sizes,
+not allocated disk blocks or compressed archive sizes.
+
+This action currently requires explicit names, with optional version/variant
+qualifiers. It always measures the active image and warns when a specified
+version differs. Inactive/missing ports and ports without registered files emit
+diagnostics and do not contribute to the total. Registry queries remain
+read-only and do not load a catalog or execute external tools.
 
 `port provides /opt/local/bin/curl` looks up active file-map ownership, using
 `actual_path` rather than the original image path. Multiple filenames are

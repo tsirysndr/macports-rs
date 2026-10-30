@@ -926,3 +926,111 @@ fn logical_registry_selections_work_in_command_chains() {
         "  curl @8.10_0+ssl (active)\n  pkg10 @1.0_0\n"
     );
 }
+
+fn space_fixture() -> Fixture {
+    let f = files_fixture();
+    let file = f.dir.path().join("payload");
+    let hardlink = f.dir.path().join("hardlink");
+    let link = f.dir.path().join("dangling");
+    let missing = f.dir.path().join("removed");
+    std::fs::write(&file, vec![0u8; 4096]).unwrap();
+    std::fs::hard_link(&file, &hardlink).unwrap();
+    std::os::unix::fs::symlink("absent", &link).unwrap();
+    let db = Connection::open(&f.path).unwrap();
+    db.execute("DELETE FROM files", []).unwrap();
+    for (id, path, active) in [
+        (3, &file, 1),
+        (3, &hardlink, 1),
+        (3, &link, 1),
+        (3, &missing, 1),
+        (4, &hardlink, 1),
+        (3, &file, 0),
+    ] {
+        db.execute(
+            "INSERT INTO files VALUES (?1, '/original-path', ?2, ?3)",
+            rusqlite::params![id, path.to_str().unwrap(), active],
+        )
+        .unwrap();
+    }
+    f
+}
+#[test]
+fn space_counts_hardlinks_once_per_port_and_lstats_dangling_links() {
+    let f = space_fixture();
+    let before = std::fs::read(&f.path).unwrap();
+    assert_eq!(
+        stdout(f.run(&["space", "--units", "B", "curl", "pkg2"])),
+        "4102 B curl\n4096 B pkg2\n8198 B total\n"
+    );
+    assert_eq!(std::fs::read(&f.path).unwrap(), before);
+    assert!(!f.dir.path().join("missing-home").exists());
+}
+#[test]
+fn space_supports_total_units_quiet_and_action_abbreviations() {
+    let f = space_fixture();
+    assert_eq!(
+        stdout(f.run(&["-q", "spac", "--units", "Ki", "pkg2"])),
+        "4.0 KiB pkg2\n"
+    );
+    assert_eq!(
+        stdout(f.run(&["space", "--total", "--units", "B", "curl", "pkg2"])),
+        "8198 B total\n"
+    );
+    assert_eq!(
+        stdout(f.run(&["space", "--total", "pkg2"])),
+        "4.0 KiB total\n"
+    );
+}
+#[test]
+fn space_reports_active_version_even_when_an_inactive_version_is_requested() {
+    let f = space_fixture();
+    let result = f.run(&["space", "--units", "B", "curl@8.9_1+ssl"]);
+    assert!(
+        String::from_utf8_lossy(&result.stderr)
+            .contains("Active version of curl is not 8.9_1 but 8.10_0")
+    );
+    assert_eq!(stdout(result), "4102 B curl @8.10_0+ssl\n");
+    let result = f.run(&["space", "--units", "B", "curl@8.10_0+ssl"]);
+    assert!(result.stderr.is_empty());
+    assert_eq!(stdout(result), "4102 B curl @8.10_0+ssl\n");
+}
+#[test]
+fn space_distinguishes_inactive_empty_and_removed_files() {
+    let f = space_fixture();
+    let db = Connection::open(&f.path).unwrap();
+    db.execute("DELETE FROM files WHERE id=4", []).unwrap();
+    let result = f.run(&["space", "--total", "pkg10", "pkg2", "missing"]);
+    let errors = String::from_utf8_lossy(&result.stderr);
+    assert!(errors.contains("Port pkg10 is not active."));
+    assert!(errors.contains("Port pkg2 does not have any files registered."));
+    assert!(errors.contains("Port missing is not active."));
+    assert_eq!(stdout(result), "0 B total\n");
+    db.execute(
+        "UPDATE files SET actual_path='/nonexistent-port-rs-file'",
+        [],
+    )
+    .unwrap();
+    assert_eq!(stdout(f.run(&["space", "curl"])), "0 B curl\n");
+}
+#[test]
+fn space_validates_selectors_and_database_before_output() {
+    let f = Fixture::new();
+    for args in [
+        vec!["space", "curl"],
+        vec!["space", "active"],
+        vec!["space", "curl", "and", "pkg2"],
+        vec!["space", "pkg*"],
+    ] {
+        let result = f.run(&args);
+        assert!(!result.status.success());
+        assert!(result.stdout.is_empty());
+    }
+}
+#[test]
+fn space_options_reset_between_chained_commands() {
+    let f = space_fixture();
+    assert_eq!(
+        stdout(f.run(&["space", "--total", "pkg2", ";", "space", "pkg2"])),
+        "4.0 KiB total\n4.0 KiB pkg2\n"
+    );
+}

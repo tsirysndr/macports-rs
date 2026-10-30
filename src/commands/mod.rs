@@ -9,6 +9,8 @@ mod installed;
 mod outdated;
 mod provides;
 mod search;
+mod size;
+mod space;
 mod system;
 mod variants;
 
@@ -21,6 +23,8 @@ use std::{
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Report disk space used by active ports
+    Space(space::Space),
     /// Compare active installations with the available catalog
     Outdated(outdated::Outdated),
     /// Show installed ports that depend on a port
@@ -131,6 +135,8 @@ impl Session {
             )?;
         } else if let Command::Provides(args) = command {
             provides::run(&mut out, registry_file, args, quiet)?;
+        } else if let Command::Space(args) = command {
+            space::run(&mut out, registry_file, args)?;
         } else if let Command::Contents(args) = command {
             contents::run(&mut out, registry_file, args, quiet)?;
         } else if let Command::Installed(args) = command {
@@ -179,6 +185,7 @@ impl Session {
                 | Command::Version
                 | Command::Platform
                 | Command::Download(_)
+                | Command::Space(_)
                 | Command::Unsupported(_) => unreachable!(),
             }
         }
