@@ -365,7 +365,7 @@ async fn batch_downloads_concurrently_then_installs_dependencies_in_order() {
             .is_err()
         );
         assert_eq!(calls.load(Ordering::SeqCst), 0);
-        let batch = port_rs::install::binary::fetch_batch(
+        let batch = port_rs::install::binary::fetch_batch_with_proxies(
             vec![
                 download_job(&base, &url, vec![]),
                 download_job(&app, &url, vec!["base".into()]),
@@ -374,6 +374,10 @@ async fn batch_downloads_concurrently_then_installs_dependencies_in_order() {
             &keys,
             2,
             &progress,
+            &port_rs::install::proxy::Resolved {
+                proxies: Default::default(),
+                no_proxy: None,
+            },
         )
         .await;
         assert_eq!(fs::read_dir(software.path()).unwrap().count(), 0);

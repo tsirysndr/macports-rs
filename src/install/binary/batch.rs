@@ -26,6 +26,29 @@ pub async fn fetch_batch<'a>(
     concurrency: usize,
     progress: &Progress,
 ) -> Result<Batch<'a>> {
+    fetch_batch_inner(jobs, staging, keys, concurrency, progress, None).await
+}
+
+/// Fetch a binary batch using the startup driver's resolved proxy snapshot.
+pub async fn fetch_batch_with_proxies<'a>(
+    jobs: Vec<Job<'a>>,
+    staging: &Path,
+    keys: &[TrustedKey],
+    concurrency: usize,
+    progress: &Progress,
+    proxies: &crate::install::proxy::Resolved,
+) -> Result<Batch<'a>> {
+    fetch_batch_inner(jobs, staging, keys, concurrency, progress, Some(proxies)).await
+}
+
+async fn fetch_batch_inner<'a>(
+    jobs: Vec<Job<'a>>,
+    staging: &Path,
+    keys: &[TrustedKey],
+    concurrency: usize,
+    progress: &Progress,
+    proxies: Option<&crate::install::proxy::Resolved>,
+) -> Result<Batch<'a>> {
     let mut positions = HashMap::new();
     for (index, job) in jobs.iter().enumerate() {
         super::validate(&job.item)?;
@@ -52,7 +75,13 @@ pub async fn fetch_batch<'a>(
         .into_iter()
         .map(|job| (job.request, (job.item, job.target, job.registration)))
         .unzip();
-    let archives = fetch::run(&requests, staging, keys, concurrency, progress).await?;
+    let archives = match proxies {
+        Some(proxies) => {
+            fetch::run_with_proxies(&requests, staging, keys, concurrency, progress, proxies)
+                .await?
+        }
+        None => fetch::run(&requests, staging, keys, concurrency, progress).await?,
+    };
     Ok(Batch { steps, archives })
 }
 impl Batch<'_> {

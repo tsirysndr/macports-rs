@@ -23,6 +23,29 @@ pub async fn run(
     jobs: usize,
     progress: &Progress,
 ) -> Result<Vec<VerifiedArchive>> {
+    run_inner(requests, directory, keys, jobs, progress, None).await
+}
+
+/// Fetch using explicit startup proxy settings instead of process environment.
+pub async fn run_with_proxies(
+    requests: &[Request],
+    directory: &Path,
+    keys: &[TrustedKey],
+    jobs: usize,
+    progress: &Progress,
+    proxies: &super::proxy::Resolved,
+) -> Result<Vec<VerifiedArchive>> {
+    run_inner(requests, directory, keys, jobs, progress, Some(proxies)).await
+}
+
+async fn run_inner(
+    requests: &[Request],
+    directory: &Path,
+    keys: &[TrustedKey],
+    jobs: usize,
+    progress: &Progress,
+    proxies: Option<&super::proxy::Resolved>,
+) -> Result<Vec<VerifiedArchive>> {
     ensure!((1..=128).contains(&jobs), "jobs must be between 1 and 128");
     ensure!(
         !keys.is_empty() && keys.len() <= 64,
@@ -59,12 +82,16 @@ pub async fn run(
                 .collect()
         })
         .collect::<Result<_>>()?;
-    let client = Client::builder()
+    let builder = Client::builder()
         .user_agent(concat!("port-rs/", env!("CARGO_PKG_VERSION")))
         .connect_timeout(Duration::from_secs(15))
         .read_timeout(Duration::from_secs(60))
-        .timeout(Duration::from_secs(3600))
-        .build()?;
+        .timeout(Duration::from_secs(3600));
+    let client = match proxies {
+        Some(proxies) => proxies.configure_client(builder)?,
+        None => builder,
+    }
+    .build()?;
     progress.phase(&format!(
         "Fetching {} signed archives ({jobs} concurrent transfers)",
         requests.len()

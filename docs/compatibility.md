@@ -1464,5 +1464,10 @@ the filtered environment using upstream precedence and proxy_override_env rules.
 It returns the resolved protocol proxy map and bypass value without modifying
 process environment. Tests cover lower/uppercase precedence, absent versus empty
 values, configured/system fallback, rsync, and override behavior when no replacement
-exists. Native system proxy discovery and transport-client integration remain
-separate work; this helper does not alter current downloader routing.
+exists. Native system proxy discovery remains separate work.
+`fetch::run_with_proxies` and `binary::fetch_batch_with_proxies` configure archive
+and signature HTTP(S) requests from the resolved snapshot, disabling implicit
+process-environment proxy lookup. Scheme settings override ALL, explicit empty
+scheme values select direct transport, and bypass entries use reqwest's host/IP
+matching. Local-server tests exercise proxy routing and bypass alongside archive
+authentication; the existing transport APIs retain their default proxy behavior.

@@ -436,3 +436,90 @@ async fn out_of_order_failures_still_drain_and_report_the_first_plan_error() {
     assert_eq!(server.calls.load(Ordering::SeqCst), 6);
     assert_eq!(std::fs::read_dir(temp.path()).unwrap().count(), 0);
 }
+
+#[tokio::test]
+async fn explicit_proxy_routes_archive_and_signature_without_resolving_origin() {
+    use port_rs::install::proxy::Resolved;
+    use std::collections::BTreeMap;
+    let (key, signature) = signed(b"through proxy");
+    let proxy = server(vec![
+        ("http://archive.invalid/package", response(b"through proxy")),
+        ("http://archive.invalid/package.sig", response(&signature)),
+    ])
+    .await;
+    let temp = tempfile::tempdir().unwrap();
+    let requests = [Request {
+        name: "app".into(),
+        urls: vec!["http://archive.invalid/package".into()],
+        max_bytes: 100,
+    }];
+    for scheme in ["http", "all"] {
+        let settings = Resolved {
+            proxies: BTreeMap::from([(scheme.into(), proxy.url.clone())]),
+            no_proxy: None,
+        };
+        let mut archives = fetch::run_with_proxies(
+            &requests,
+            temp.path(),
+            std::slice::from_ref(&key),
+            1,
+            &Progress::new(true),
+            &settings,
+        )
+        .await
+        .unwrap();
+        let mut bytes = Vec::new();
+        archives[0]
+            .reader()
+            .unwrap()
+            .read_to_end(&mut bytes)
+            .unwrap();
+        assert_eq!(bytes, b"through proxy");
+    }
+    assert_eq!(proxy.calls.load(Ordering::SeqCst), 4);
+}
+
+#[tokio::test]
+async fn explicit_bypass_and_empty_scheme_disable_all_proxy_fallback() {
+    use port_rs::install::proxy::Resolved;
+    use std::collections::BTreeMap;
+    let (key, signature) = signed(b"direct");
+    let origin = server(vec![
+        ("/package", response(b"direct")),
+        ("/package.sig", response(&signature)),
+    ])
+    .await;
+    let proxy = server(vec![]).await;
+    let temp = tempfile::tempdir().unwrap();
+    let requests = [request(&origin, &["/package"], 100)];
+    for settings in [
+        Resolved {
+            proxies: BTreeMap::from([("all".into(), proxy.url.clone())]),
+            no_proxy: Some("127.0.0.1".into()),
+        },
+        Resolved {
+            proxies: BTreeMap::from([
+                ("all".into(), proxy.url.clone()),
+                ("http".into(), String::new()),
+            ]),
+            no_proxy: None,
+        },
+        Resolved {
+            proxies: BTreeMap::new(),
+            no_proxy: None,
+        },
+    ] {
+        fetch::run_with_proxies(
+            &requests,
+            temp.path(),
+            std::slice::from_ref(&key),
+            1,
+            &Progress::new(true),
+            &settings,
+        )
+        .await
+        .unwrap();
+    }
+    assert_eq!(origin.calls.load(Ordering::SeqCst), 6);
+    assert_eq!(proxy.calls.load(Ordering::SeqCst), 0);
+}

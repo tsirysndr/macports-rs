@@ -75,3 +75,36 @@ pub fn apply(
             .cloned(),
     }
 }
+
+impl Resolved {
+    /// Configure HTTP(S) transport exclusively from this resolved snapshot.
+    /// A present empty scheme value disables its ALL fallback, as in curl.
+    /// reqwest handles proxy authentication and NO_PROXY host/IP matching.
+    pub fn configure_client(
+        &self,
+        builder: reqwest::ClientBuilder,
+    ) -> anyhow::Result<reqwest::ClientBuilder> {
+        use anyhow::Context;
+        let mut builder = builder.no_proxy();
+        for scheme in ["http", "https"] {
+            if let Some(value) = self.proxies.get(scheme).or_else(|| self.proxies.get("all")) {
+                if value.is_empty() {
+                    continue;
+                }
+                let proxy = if scheme == "http" {
+                    reqwest::Proxy::http(value)
+                } else {
+                    reqwest::Proxy::https(value)
+                }
+                .with_context(|| format!("invalid {scheme} proxy setting"))?
+                .no_proxy(
+                    self.no_proxy
+                        .as_deref()
+                        .and_then(reqwest::NoProxy::from_string),
+                );
+                builder = builder.proxy(proxy);
+            }
+        }
+        Ok(builder)
+    }
+}
