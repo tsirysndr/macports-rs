@@ -177,7 +177,7 @@ impl WriteTransaction<'_> {
         let date = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
         let date = i64::try_from(date)?;
         savepoint.execute("INSERT INTO ports(name,portfile,location,epoch,version,revision,variants,requested_variants,state,date,installtype,archs,requested,os_platform,os_major,cxx_stdlib,cxx_stdlib_overridden) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'imaged',?9,'image',?10,?11,?12,?13,?14,?15)",
-            params![image.name,image.portfile,image.location,image.epoch,image.version,image.revision,image.variants,image.requested_variants,date,image.archs,image.requested,image.platform,image.os_major,image.cxx_stdlib,image.cxx_stdlib_overridden])?;
+            params![image.name,image.portfile,image.location,image.epoch,image.version,image.revision,image.variants,image.requested_variants,date,image.archs,image.requested,image.platform,image.os_major,(!image.cxx_stdlib.is_empty()).then_some(&image.cxx_stdlib),image.cxx_stdlib_overridden])?;
         let id = savepoint.last_insert_rowid();
         {
             let mut file = savepoint.prepare(

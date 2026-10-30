@@ -565,3 +565,27 @@ fn activation_mapping_cannot_place_a_file_beneath_another_mapped_file() {
     }
     assert!(!tx.entries().unwrap()[0].active);
 }
+
+#[test]
+fn unknown_cxx_runtime_is_null_and_distinct_from_no_runtime() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("registry.db");
+    let mut writer = Writer::create(&path).unwrap();
+    let mut tx = writer.transaction().unwrap();
+    let mut unknown = image("unknown");
+    unknown.cxx_stdlib.clear();
+    let unknown_id = tx.register(&unknown).unwrap();
+    let mut no_runtime = image("no_runtime");
+    no_runtime.cxx_stdlib = "none".into();
+    let none_id = tx.register(&no_runtime).unwrap();
+    tx.commit().unwrap();
+    let db = Connection::open(path).unwrap();
+    let read = |id| {
+        db.query_row("SELECT cxx_stdlib FROM ports WHERE id=?", [id], |row| {
+            row.get::<_, Option<String>>(0)
+        })
+        .unwrap()
+    };
+    assert_eq!(read(unknown_id), None);
+    assert_eq!(read(none_id), Some("none".into()));
+}
