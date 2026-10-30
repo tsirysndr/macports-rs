@@ -600,9 +600,18 @@ Execution-enabled sessions can take ownership of a locked file through
 `write_statefile`, `get_statefile_value`, `check_statefile_variants`, and `close`.
 Output variables use the caller's scope; closing the handle or dropping the
 session releases the lock. State class patterns currently use Rust regex syntax,
-so Tcl-specific advanced expressions remain a compatibility gap. Automatic
-`open_statefile` policy, invalidation/cleanup, and phase scheduling are not yet
-connected.
+so Tcl-specific advanced expressions remain a compatibility gap.
+`Session::open_build_state` implements real-build checksum initialization,
+v1/v2 invalidation, future-Portfile rejection, and ignore-different handling
+once the host has prepared the work directory and privileges. Unknown versions
+are returned to the host for warnings. Empty state files are initialized as
+fresh (including recovery from an interrupted first open). Stale-work cleanup
+retains the work directory and locked state inode, unlike upstream's
+pre-lock directory deletion; its records are reset only after cleanup succeeds.
+This serializes cooperating Rust builders, but cannot protect against external
+tools unlinking the state file. Runtime `.home`/`.tmp` recreation, writable-tree
+ownership preparation, dry-run opening, the PortSystem `open_statefile` command,
+and CLI phase scheduling are not yet connected.
 Native `file join`, `dirname`, `tail`, `extension`, `rootname`, `split`,
 `pathtype`, and `separator` construct and inspect Unix paths without filesystem
 access. These follow the current MacPorts-bundled Tcl 9 lexical rules, including

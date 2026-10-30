@@ -146,3 +146,35 @@ fn session_lifetime_and_host_close_release_handles_and_metadata_cannot_attach() 
     drop(first);
     assert!(StateFile::try_open(&path, None).unwrap().is_some());
 }
+
+#[test]
+fn host_open_initializes_and_attaches_state_only_for_execution_sessions() {
+    let root = tempfile::tempdir().unwrap();
+    let work = root.path().join("work");
+    fs::create_dir(&work).unwrap();
+    let source = root.path().join("Portfile");
+    fs::write(&source, "name app; version 1").unwrap();
+    assert!(
+        session(false)
+            .open_build_state(&work, "app", &source, false)
+            .is_err()
+    );
+    assert_eq!(fs::read_dir(&work).unwrap().count(), 0);
+    let mut session = session(true);
+    let (fd, compatibility) = session
+        .open_build_state(&work, "app", &source, false)
+        .unwrap();
+    assert_eq!(compatibility, port_rs::build::state::Compatibility::Current);
+    assert_eq!(
+        session
+            .invoke("check_statefile", &["version", "2", &fd])
+            .unwrap(),
+        "1"
+    );
+    session.invoke("close", &[&fd]).unwrap();
+    assert!(
+        StateFile::try_open(&work.join(".macports.app.state"), None)
+            .unwrap()
+            .is_some()
+    );
+}

@@ -4,6 +4,32 @@ use crate::build::state::StateFile;
 use molt::{MoltResult, check_args};
 
 impl Session {
+    /// Prepare real-build state after work-directory/privilege setup, then
+    /// transfer its lock into this session. The returned compatibility reports
+    /// the pre-cleanup state (including unknown versions for host warnings).
+    pub fn open_build_state(
+        &mut self,
+        work: &std::path::Path,
+        subport: &str,
+        portfile: &std::path::Path,
+        ignore_different: bool,
+    ) -> Result<(String, crate::build::state::Compatibility)> {
+        check_supported(&mut self.interp, self.id)?;
+        let state = self.interp.context::<State>(self.id);
+        ensure!(
+            state.system_executor.is_some(),
+            "build state requires an execution-enabled session"
+        );
+        let prepared = crate::build::work_state::prepare(
+            work,
+            subport,
+            portfile,
+            state.creation_mask,
+            ignore_different,
+        )?;
+        let handle = self.attach_build_state(prepared.state)?;
+        Ok((handle, prepared.compatibility))
+    }
     /// Transfer a locked state file to an execution-enabled session. The host
     /// still performs open_statefile policy, including stale-work cleanup.
     /// The returned opaque handle is accepted by state helpers and `close`.

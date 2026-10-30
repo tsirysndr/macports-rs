@@ -112,6 +112,11 @@ impl StateFile {
         self.file.flush()?;
         Ok(true)
     }
+    /// Rewrite fresh records without releasing the lock or replacing its inode.
+    pub(crate) fn reset(&mut self, portfile_sha256: &str) -> Result<()> {
+        self.file.set_len(0)?;
+        self.initialize(portfile_sha256)
+    }
     pub fn initialize(&mut self, portfile_sha256: &str) -> Result<()> {
         self.record("version", "2")?;
         self.record("checksum", portfile_sha256)?;
