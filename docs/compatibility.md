@@ -934,3 +934,14 @@ behind. Rewrites preserve inode, hardlinks, owner/group, and permissions and
 support non-UTF-8 content. This helper assumes ownership preparation is complete;
 it does not yet perform the remaining destroot finish operations or record phase
 completion. The full destroot startup/finish callbacks remain unfinished.
+
+`Session::check_destroot_layout` implements destroot finish's advisory layout
+check. It reports all violations, including hidden entries, while accepting the
+standard prefix children and configured application/framework directories plus
+LaunchAgents, LaunchDaemons, and StartupItems. The exact `yes` override skips
+inspection and emits the upstream notice. Prefix ancestors and the prefix itself
+follow directory symlinks as upstream glob does; permitted subtrees are not
+recursively checked. Non-UTF-8 filenames fail explicitly. An empty or absent
+stage is not a layout violation by itself: the separate empty-stage guard still
+needs to be connected in destroot finish. The report does not authorize
+activation or mark staging complete.
