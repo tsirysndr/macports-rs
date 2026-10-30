@@ -38,6 +38,7 @@ mod targets;
 mod test_phase;
 mod traverse;
 mod utilities;
+mod workpath;
 pub use groups::{LoadedGroup, PortGroups};
 mod variants;
 use crate::{index::Port, spec::PortSpec};
@@ -187,6 +188,7 @@ fn open(
     }
     commands::install(&mut interp, id);
     utilities::install(&mut interp, id);
+    workpath::install(&mut interp, id);
     paths::install(&mut interp, id);
     creation_mask::install(&mut interp, id);
     traverse::install(&mut interp, id);

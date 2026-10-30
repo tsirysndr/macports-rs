@@ -584,8 +584,12 @@ The native `quotemeta` helper escapes non-word characters for livecheck patterns
 `shellescape` (also `macports::shellescape`) applies MacPorts' character escaping
 for shell arguments. Native `realpath` resolves existing paths and symlinks with
 catchable errors; `portutil::get_oldbuildpath` reproduces the legacy URL/path-based
-build-directory mapping. Work-directory migration and ownership setup remain
-unfinished.
+build-directory mapping. Execution-enabled `portutil::create_workpath` creates
+`.home`/`.tmp`, repairs the legacy build link, and migrates pre-2.11 directories
+or older linked build trees while preserving file identity on the same volume.
+`chownAsRoot` applies recursive link-aware ownership when already running as root
+and is a no-op for ordinary users. Temporary privilege elevation, cross-volume
+migration, state-file locking, and CLI lifecycle integration remain unfinished.
 Native `file join`, `dirname`, `tail`, `extension`, `rootname`, `split`,
 `pathtype`, and `separator` construct and inspect Unix paths without filesystem
 access. These follow the current MacPorts-bundled Tcl 9 lexical rules, including
