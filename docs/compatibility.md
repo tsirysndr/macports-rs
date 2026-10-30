@@ -1549,3 +1549,12 @@ remaining valid keys are retained. Inputs are bounded and only regular files are
 read. Tests authenticate archive bytes using configured keys and reject tampering.
 .pem entries belong to legacy .rmd160 verification, which remains unsupported;
 archive-site selection and full install execution are still incomplete.
+
+`config::Paths::archive_sites` loads archive_sites.conf into native site records.
+The parser preserves upstream field handling, duplicate-name updates, Tcl URL
+lists, platform-dependent C++/libtool defaults, and legacy signature defaults.
+Compatibility filtering compares normalized prefix/application/framework paths,
+C++ runtime, libtool policy, and caller-supplied native archive-format support.
+Configured URLs retain no-port-subdirectory semantics. Ports-tree site resource
+evaluation, site merging, legacy signature verification, and final download
+selection are not yet connected to this configuration layer.

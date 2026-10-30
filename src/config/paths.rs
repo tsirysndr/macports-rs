@@ -13,6 +13,22 @@ pub struct Paths {
     pub portsrc: Option<PathBuf>,
 }
 impl Paths {
+    pub fn archive_sites(
+        &self,
+        config: &Config,
+        platform: &str,
+        major: u32,
+    ) -> Result<crate::install::sites::Sites> {
+        let path = config
+            .get("archive_sites_conf")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                self.absolute(&self.configuration_directory)
+                    .join("archive_sites.conf")
+            });
+        crate::install::sites::Sites::read(&self.absolute(&path), platform, major)
+    }
+
     /// Load configured Signify keys together with already selected site keys.
     pub fn archive_keys(
         &self,
