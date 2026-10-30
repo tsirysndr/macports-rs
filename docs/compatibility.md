@@ -1252,3 +1252,16 @@ rollback, collisions including dangling symlinks, mismatched identities and
 architectures, traversal rejection, and physical-directory enforcement. This
 requires exclusive management of the store; automatic registry registration,
 cache reuse/reverification, and crash recovery are still pending.
+
+`StoredImage::register` now binds caller-supplied evaluated registration metadata
+to the stored archive's identity, variants, architectures, complete file inventory,
+and location. An empty location is filled from the store; a conflicting location
+is rejected. Resolved dependency names and binary classifications remain the
+caller's responsibility. The method registers an inactive image, commits, and
+retains its archive/signature only on success. Validation, insertion, and COMMIT
+failures remove the new store entries and report cleanup failures. Tests inject
+insert and deferred-constraint commit failures, check that registry rows and stored
+files are absent, and retry successfully. An integration test runs authenticated
+storage, registration, preparation, and activation together, retaining the archive
+and active payload after temporary extraction cleanup. CLI orchestration and
+crash recovery remain pending.

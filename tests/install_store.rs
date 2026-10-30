@@ -199,3 +199,189 @@ fn validates_identity_architecture_and_physical_directories_before_storage() {
     assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
     assert!(Store::open(&temp.path().join("app/")).is_err());
 }
+
+fn registration() -> port_rs::registry::write::NewImage {
+    use port_rs::registry::write::{ImageFile, NewImage};
+    NewImage {
+        name: "app".into(),
+        version: "1".into(),
+        variants: "+ssl".into(),
+        archs: "arm64".into(),
+        requested: true,
+        requested_variants: "+ssl".into(),
+        platform: "darwin".into(),
+        os_major: "24".into(),
+        files: vec![ImageFile {
+            path: "/opt/local/app".into(),
+            binary: false,
+        }],
+        dependencies: vec!["base".into()],
+        ..NewImage::default()
+    }
+}
+
+#[test]
+fn registration_binds_identity_file_map_and_location_before_retaining_storage() {
+    let software = tempfile::tempdir().unwrap();
+    let database = tempfile::tempdir().unwrap();
+    let store = Store::open(software.path()).unwrap();
+    let mut writer =
+        port_rs::registry::write::Writer::create(&database.path().join("registry.db")).unwrap();
+    let port = port();
+    let mut archive = stage(&bytes());
+    for mismatch in 0..5 {
+        let stored = store
+            .stage(
+                &mut archive,
+                &item(&port),
+                &target("arm"),
+                Limits::default(),
+            )
+            .unwrap();
+        let mut record = registration();
+        match mismatch {
+            0 => record.version = "2".into(),
+            1 => record.archs = "x86_64".into(),
+            2 => record.files.clear(),
+            3 => record.location = "/wrong/archive.tbz2".into(),
+            _ => record.variants.clear(),
+        }
+        assert!(stored.register(&mut writer, record).is_err());
+        assert!(writer.transaction().unwrap().entries().unwrap().is_empty());
+        assert_eq!(fs::read_dir(software.path()).unwrap().count(), 0);
+    }
+    let stored = store
+        .stage(
+            &mut archive,
+            &item(&port),
+            &target("arm"),
+            Limits::default(),
+        )
+        .unwrap();
+    let location = stored.location().to_owned();
+    let signature = stored.signature_location().to_owned();
+    let id = stored.register(&mut writer, registration()).unwrap();
+    let tx = writer.transaction().unwrap();
+    assert_eq!(tx.image_identity(id).unwrap().name, "app");
+    assert!(!tx.entries().unwrap()[0].active);
+    assert_eq!(fs::read(&location).unwrap(), bytes());
+    assert_eq!(fs::read_to_string(signature).unwrap(), archive.signature());
+    let db = rusqlite::Connection::open(database.path().join("registry.db")).unwrap();
+    let registered: (String, i64) = db
+        .query_row(
+            "SELECT location,requested FROM ports WHERE id=?",
+            [id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(registered, (location.to_str().unwrap().to_owned(), 1));
+    assert_eq!(
+        db.query_row("SELECT name FROM dependencies WHERE id=?", [id], |row| {
+            row.get::<_, String>(0)
+        })
+        .unwrap(),
+        "base"
+    );
+}
+
+#[test]
+fn registration_update_and_commit_failures_remove_stored_files_and_registry_rows() {
+    for commit_failure in [false, true] {
+        let software = tempfile::tempdir().unwrap();
+        let database = tempfile::tempdir().unwrap();
+        let db_path = database.path().join("registry.db");
+        let store = Store::open(software.path()).unwrap();
+        let mut writer = port_rs::registry::write::Writer::create(&db_path).unwrap();
+        let db = rusqlite::Connection::open(&db_path).unwrap();
+        if commit_failure {
+            db.execute_batch("CREATE TABLE test_parent(id INTEGER PRIMARY KEY);
+                CREATE TABLE test_child(id INTEGER REFERENCES test_parent(id) DEFERRABLE INITIALLY DEFERRED);
+                CREATE TRIGGER fail_registration AFTER INSERT ON ports BEGIN INSERT INTO test_child VALUES(99); END;").unwrap();
+        } else {
+            db.execute_batch("CREATE TRIGGER fail_registration BEFORE INSERT ON dependencies BEGIN SELECT RAISE(FAIL,'forced registration failure'); END;").unwrap();
+        }
+        let mut archive = stage(&bytes());
+        let port = port();
+        let stored = store
+            .stage(
+                &mut archive,
+                &item(&port),
+                &target("arm"),
+                Limits::default(),
+            )
+            .unwrap();
+        let error = stored.register(&mut writer, registration()).unwrap_err();
+        let text = format!("{error:#}");
+        assert!(
+            text.contains(if commit_failure {
+                "FOREIGN KEY"
+            } else {
+                "forced registration failure"
+            }),
+            "{text}"
+        );
+        assert_eq!(fs::read_dir(software.path()).unwrap().count(), 0);
+        for table in ["ports", "files", "dependencies"] {
+            assert_eq!(
+                db.query_row(&format!("SELECT count(*) FROM {table}"), [], |row| row
+                    .get::<_, i64>(0))
+                    .unwrap(),
+                0
+            );
+        }
+        db.execute_batch("DROP TRIGGER fail_registration").unwrap();
+        store
+            .stage(
+                &mut archive,
+                &item(&port),
+                &target("arm"),
+                Limits::default(),
+            )
+            .unwrap()
+            .register(&mut writer, registration())
+            .unwrap();
+        assert_eq!(writer.transaction().unwrap().entries().unwrap().len(), 1);
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn stored_registered_archive_can_be_prepared_and_activated_end_to_end() {
+    use port_rs::install::{activation::Plan, extract};
+    let software = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(software.path()).unwrap();
+    let c = contents(&["opt/local/app"]);
+    let bytes = compress(&tar_with_owner(
+        &[
+            ("+CONTENTS", b'0', c.as_bytes(), ""),
+            ("opt/local/app", b'0', b"payload", ""),
+        ],
+        unsafe { libc::geteuid() }.into(),
+        unsafe { libc::getegid() }.into(),
+    ));
+    let mut archive = stage(&bytes);
+    let port = port();
+    let item = item(&port);
+    let target = target("arm");
+    let mut writer =
+        port_rs::registry::write::Writer::create(&work.path().join("registry.db")).unwrap();
+    let stored = store
+        .stage(&mut archive, &item, &target, Limits::default())
+        .unwrap();
+    let location = stored.location().to_owned();
+    let id = stored.register(&mut writer, registration()).unwrap();
+    let prepared =
+        extract::prepare_for_target(&mut archive, &item, &target, work.path(), Limits::default())
+            .unwrap();
+    let plan = Plan::inspect(&prepared, root.path()).unwrap();
+    plan.activate(&mut writer, id).unwrap();
+    drop(prepared);
+    assert_eq!(
+        fs::read(root.path().join("opt/local/app")).unwrap(),
+        b"payload"
+    );
+    assert_eq!(fs::read(location).unwrap(), bytes);
+    assert!(writer.transaction().unwrap().entries().unwrap()[0].active);
+}

@@ -6,8 +6,12 @@ use super::{
     publication::{PublishedDirectory, PublishedFile, Root},
     target::Target,
 };
-use anyhow::{Result, ensure};
-use std::path::{Path, PathBuf};
+use crate::registry::write::{NewImage, Writer};
+use anyhow::{Context, Result, ensure};
+use std::{
+    collections::BTreeSet,
+    path::{Path, PathBuf},
+};
 
 pub struct Store {
     root: Root,
@@ -81,6 +85,71 @@ pub struct StoredImage {
     directory: Option<PublishedDirectory>,
 }
 impl StoredImage {
+    /// Bind evaluated registration metadata to this inspected archive, commit an
+    /// inactive registry entry, then retain the stored files. The caller supplies
+    /// resolved dependencies and binary classifications; these are not inferred
+    /// from versioned +CONTENTS dependency labels. An empty location is filled in.
+    /// This coordinates ordinary errors, not recovery from process termination.
+    pub fn register(mut self, writer: &mut Writer, mut record: NewImage) -> Result<i64> {
+        let result = (|| -> Result<i64> {
+            let contents = &self.inspection.contents;
+            let variants: String = contents
+                .variants
+                .iter()
+                .map(|variant| format!("+{variant}"))
+                .collect();
+            let mut archs: Vec<_> = record.archs.split_whitespace().collect();
+            archs.sort_unstable();
+            let mut expected_archs: Vec<_> = contents.archs.iter().map(String::as_str).collect();
+            expected_archs.sort_unstable();
+            ensure!(
+                record.name.eq_ignore_ascii_case(&contents.name)
+                    && record.version == contents.version
+                    && u64::try_from(record.revision).ok() == Some(contents.revision)
+                    && u64::try_from(record.epoch).ok() == Some(contents.epoch)
+                    && record.variants == variants
+                    && archs == expected_archs,
+                "registration identity does not match stored archive"
+            );
+            let expected: BTreeSet<_> = contents
+                .files
+                .iter()
+                .map(|path| format!("/{path}"))
+                .collect();
+            let actual: BTreeSet<_> = record.files.iter().map(|file| file.path.clone()).collect();
+            ensure!(
+                actual.len() == record.files.len() && actual == expected,
+                "registration file map does not match stored archive"
+            );
+            let location = self
+                .location
+                .to_str()
+                .context("archive location is not UTF-8")?;
+            ensure!(
+                record.location.is_empty() || record.location == location,
+                "registration location does not match stored archive"
+            );
+            record.location = location.to_owned();
+            let mut transaction = writer.transaction()?;
+            let id = transaction.register(&record)?;
+            transaction.commit()?;
+            Ok(id)
+        })();
+        match result {
+            Ok(id) => {
+                self.persist();
+                Ok(id)
+            }
+            Err(error) => {
+                if let Err(rollback) = self.remove() {
+                    return Err(error.context(format!(
+                        "registration storage rollback also failed: {rollback:#}"
+                    )));
+                }
+                Err(error)
+            }
+        }
+    }
     pub fn location(&self) -> &Path {
         &self.location
     }
