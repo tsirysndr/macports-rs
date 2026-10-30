@@ -531,6 +531,13 @@ read-only metadata with catchable POSIX lookup errors. Stat follows symlinks;
 lstat and type inspect the link itself. Stat results support both Tcl 9 dictionary
 returns and caller-scope arrays. Timestamp setters remain unsupported, and
 readlink currently requires a UTF-8 target.
+Native `fs-traverse` supports sorted physical traversal, `-depth`, `-tails`,
+`-ignoreErrors`, caller-scope loop variables, and Tcl loop control. Explicit
+root symlinks are followed; nested directory symlinks and other filesystems are
+not descended into. Paths currently require UTF-8. The native
+`portutil::get_latest_path_mtime` helper finds the latest regular-file timestamp
+using the same traversal. Automatic `source_date_epoch` still needs Git-history
+resolution before its full upstream default can be enabled.
 Other filesystem-backed `file` operations and subcommand abbreviations remain
 unimplemented.
 

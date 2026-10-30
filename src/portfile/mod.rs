@@ -20,6 +20,7 @@ pub use source::{evaluate_from_tree, open_from_tree};
 mod system;
 pub use system::SystemRequest;
 mod targets;
+mod traverse;
 mod utilities;
 pub use groups::{LoadedGroup, PortGroups};
 mod variants;
@@ -93,7 +94,8 @@ fn list(values: impl IntoIterator<Item = String>) -> Value {
 }
 
 /// Evaluate source supplied by the caller, using explicit platform/configuration
-/// variables. Does not search for PortGroups, touch the filesystem, or execute hooks.
+/// variables. Does not search for PortGroups or execute hooks. Supported read-only
+/// filesystem queries inspect the host when invoked by the source.
 /// Callers must not treat success as approval to skip returned hooks or targets.
 pub fn evaluate(
     source: &str,
@@ -168,6 +170,7 @@ fn open(
     commands::install(&mut interp, id);
     utilities::install(&mut interp, id);
     paths::install(&mut interp, id);
+    traverse::install(&mut interp, id);
     ditems::install(&mut interp, id);
     dlist::install(&mut interp, id);
     targets::install(&mut interp, id).map_err(failure)?;

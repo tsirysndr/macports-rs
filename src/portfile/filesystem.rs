@@ -107,7 +107,7 @@ fn file_type(metadata: &fs::Metadata) -> &'static str {
     }
 }
 
-fn file_error(path: &str, link: bool, err: io::Error) -> Exception {
+pub(super) fn file_error(path: &str, link: bool, err: io::Error) -> Exception {
     // Tcl's POSIX error code contains the symbolic errno and its stable English
     // description, rather than Rust's platform-dependent '(os error N)' suffix.
     let (name, description) = match err.raw_os_error() {
