@@ -224,7 +224,8 @@ pub fn evaluate_with_groups(
         metadata.extend([name.clone(), list(details).to_string()]);
     }
     fields.insert("vinfo".into(), list(metadata).to_string());
-    let enabled = state.active.iter().map(|name| format!("+{name}")).collect();
+    let enabled: String = state.active.iter().map(|name| format!("+{name}")).collect();
+    fields.insert("canonical_active_variants".into(), enabled.clone());
     Ok(Evaluation {
         groups: std::mem::take(&mut state.loaded_groups),
         port: Port {

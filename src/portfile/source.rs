@@ -23,7 +23,7 @@ pub fn evaluate_from_tree(
             && relative
                 .components()
                 .all(|part| matches!(part, Component::Normal(_))),
-        "{}: index has no valid relative portdir; use variants --index for indexed metadata",
+        "{}: index has no valid relative portdir; use --index for indexed metadata",
         indexed.name
     );
     let root = root
@@ -32,7 +32,7 @@ pub fn evaluate_from_tree(
     let path = root.join(relative).join("Portfile");
     let path = path.canonicalize().with_context(|| {
         format!(
-            "cannot find local Portfile {}; use variants --index for indexed metadata",
+            "cannot find local Portfile {}; use --index for indexed metadata",
             path.display()
         )
     })?;

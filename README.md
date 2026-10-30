@@ -11,7 +11,7 @@ command or separately installed SQLite library is needed.
 **This is not yet a drop-in replacement. Installation is not implemented.**
 It currently provides native index and installed-registry queries, a tested parallel download engine,
 and terminal progress rendering. It evaluates a subset of local Portfiles for
-variant inspection. It does not mutate an
+variant and dependency inspection. It does not mutate an
 existing MacPorts registry, or forward commands to another executable.
 
 ## Build and run
@@ -72,6 +72,7 @@ unimplemented; removing the platform cache file triggers a fresh download.
 | `info --index` | Ordered fields, `--line`, `--pretty`, metadata summaries, maintainer decoding, and dependency formatting |
 | `echo` | Names/globs, regex field selectors, logical expressions, versions, variants, and options |
 | `deps --index`, `rdeps --index` | Direct/recursive indexed dependencies, build/test filters, full trees, cycle handling |
+| `deps`, `rdeps` | Evaluate supported local Portfiles for variant-dependent direct/recursive dependencies |
 | `variants --index` | Sorted variant details, defaults/requested markers, descriptions, conflicts, and requirements |
 | `variants` | Native evaluation of supported local Portfiles and PortGroups alongside a selected PortIndex |
 | Index data | Serialized Tcl list data is parsed in Rust; no Tcl code is evaluated |
@@ -162,8 +163,16 @@ Portfile commands fail explicitly, without falling back to cached metadata or
 fetching source code. The downloaded default index alone is insufficient for this
 mode. macports.conf and variants.conf defaults are not loaded yet.
 
-Dependency inspection requires explicit `--index` until native Portfile
-evaluation is connected to those commands. `deps --index` groups dependencies by phase; `rdeps --index`
+`deps` and `rdeps` use the same local-tree selection as `variants`. Selected
+variants update dependency lists and appear in the full-name heading. Recursive
+queries evaluate each reachable port once per root, passing explicit variant and
+option choices to dependencies without imposing the root's version constraint.
+Excluded dependency phases do not cause source loading. All selected roots and
+reachable dependencies are validated before printing. These queries still report
+fallback port names for bin/lib/path dependencies rather than probing installed
+providers. Configuration files and unsupported PortSystem APIs remain limitations.
+
+`deps --index` groups cached dependencies by phase; `rdeps --index`
 walks their complete indexed graph. `--no-build` removes fetch, extract, patch,
 and build edges; `--no-test` removes test edges at every level. Library/runtime
 edges remain. `--full` repeats shared subtrees and annotates cycles; the default
@@ -411,7 +420,8 @@ a default updates its template without overriding explicit values. Computed
 The [vendored Molt core](vendor/molt/PORT-RS-PATCHES.md) provides host variable hooks;
 its upstream tests run in the macOS CI matrix alongside port-rs tests.
 
-This evaluator is connected to local-tree `variants` queries, but not installation.
+This evaluator is connected to local-tree `variants`, `deps`, and `rdeps` queries,
+but not installation.
 The complete PortSystem API still needs implementation, including namespace
 commands and build-stage defaults used by larger PortGroups. Unsupported operations fail; guarded attempts to
 call unsupported I/O commands are recorded and cannot yield approved metadata.

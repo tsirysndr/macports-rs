@@ -259,7 +259,7 @@ fn missing_and_malformed_dependencies_fail_without_partial_tree_output() {
     }
 }
 #[test]
-fn evaluation_requests_fail_explicitly() {
+fn missing_local_sources_fail_explicitly() {
     let fixture = Fixture::new(&[("root", "")]);
     for args in [
         vec!["deps", "root"],
@@ -269,7 +269,7 @@ fn evaluation_requests_fail_explicitly() {
     ] {
         let output = fixture.run(&args);
         assert!(!output.status.success());
-        assert!(String::from_utf8_lossy(&output.stderr).contains("Portfile evaluation"));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("valid relative portdir"));
     }
 }
 
@@ -506,4 +506,139 @@ fn dependency_filters_skip_invalid_excluded_phases() {
         stdout(&fixture.run(&["-q", "rdeps", "--index", "--no-build", "--no-test", "root"])),
         "  leaf\n"
     );
+}
+
+fn source(fixture: &Fixture, name: &str, script: &str) {
+    let path = fixture.0.path().join("net").join(name);
+    std::fs::create_dir_all(&path).unwrap();
+    std::fs::write(
+        path.join("Portfile"),
+        format!("name {name}; version 2; {script}"),
+    )
+    .unwrap();
+}
+
+#[test]
+fn evaluated_direct_dependencies_follow_variants_and_show_active_variants() {
+    let fixture = Fixture::new(&[("root", "portdir net/root depends_lib port:stale")]);
+    source(
+        &fixture,
+        "root",
+        r#"
+        depends_lib port:base
+        variant tls {depends_lib-append port:secure}
+        default_variants +tls
+    "#,
+    );
+    assert_eq!(
+        stdout(&fixture.run(&["deps", "root"])),
+        "Full Name: root @2_0+tls\nLibrary Dependencies: base, secure\n"
+    );
+    assert_eq!(
+        stdout(&fixture.run(&["deps", "root", "-tls"])),
+        "Full Name: root @2_0\nLibrary Dependencies: base\n"
+    );
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "deps", "--index", "root"])),
+        "Library Dependencies: stale\n"
+    );
+}
+
+#[test]
+fn recursive_local_queries_evaluate_children_with_explicit_variants() {
+    let fixture = Fixture::new(&[
+        ("root", "portdir net/root"),
+        ("child", "portdir net/child"),
+        ("leaf", "portdir net/leaf"),
+        ("extra", "portdir net/extra"),
+    ]);
+    source(
+        &fixture,
+        "root",
+        "depends_lib port:child; variant custom {}",
+    );
+    source(
+        &fixture,
+        "child",
+        "depends_lib port:leaf; variant custom {depends_lib-append port:extra}",
+    );
+    source(&fixture, "leaf", "");
+    source(&fixture, "extra", "");
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "rdeps", "root@2", "+custom"])),
+        "  child\n    leaf\n    extra\n"
+    );
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "rdeps", "root", "-custom"])),
+        "  child\n    leaf\n"
+    );
+    // The root version is not imposed on dependencies.
+    std::fs::write(
+        fixture.0.path().join("net/child/Portfile"),
+        "name child; version 3; depends_lib port:leaf",
+    )
+    .unwrap();
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "rdeps", "root@2"])),
+        "  child\n    leaf\n"
+    );
+}
+
+#[test]
+fn recursive_local_filters_skip_unneeded_portfiles_and_cycles_terminate() {
+    let fixture = Fixture::new(&[("root", "portdir net/root"), ("child", "portdir net/child")]);
+    source(
+        &fixture,
+        "root",
+        "depends_build port:missing; depends_lib port:child",
+    );
+    source(
+        &fixture,
+        "child",
+        "depends_test port:missing; depends_lib port:root",
+    );
+    let output = stdout(&fixture.run(&["-q", "rdeps", "--no-build", "--no-test", "root"]));
+    assert_eq!(output, "  child\n    root\n");
+    let output = stdout(&fixture.run(&["rdeps", "--no-build", "--no-test", "--full", "root"]));
+    assert!(output.contains("(cyclic dependency)"), "{output}");
+    let output = fixture.run(&["rdeps", "root"]);
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("root depends on port:missing"));
+}
+
+#[test]
+fn evaluated_dependencies_validate_all_roots_and_children_before_output() {
+    let fixture = Fixture::new(&[("good", "portdir net/good"), ("bad", "portdir net/bad")]);
+    source(&fixture, "good", "depends_lib port:bad");
+    source(&fixture, "bad", "unsupported_command");
+    for args in [vec!["deps", "good", "bad"], vec!["rdeps", "good"]] {
+        let output = fixture.run(&args);
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("unsupported_command"));
+    }
+}
+
+#[test]
+fn graph_resolver_loads_shared_nodes_once() {
+    let index = Index::parse(&index_data(&[("root", "")])).unwrap();
+    let mut calls = std::collections::BTreeMap::<String, usize>::new();
+    let graph = Graph::resolve(index.lookup("root").unwrap(), |name| {
+        *calls.entry(name.into()).or_default() += 1;
+        let names = match name {
+            "root" => vec!["left", "right"],
+            "left" | "right" => vec!["shared"],
+            "shared" => vec!["root"],
+            _ => unreachable!(),
+        };
+        names
+            .into_iter()
+            .map(|name| port_rs::dependencies::Dependency::parse(&format!("port:{name}")))
+            .collect()
+    })
+    .unwrap();
+    graph.walk(true, |_, _, _| Ok(())).unwrap();
+    assert_eq!(calls.len(), 4);
+    assert!(calls.values().all(|count| *count == 1));
 }

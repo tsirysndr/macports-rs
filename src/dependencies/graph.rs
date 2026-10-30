@@ -14,20 +14,30 @@ pub struct Graph<'a> {
 impl<'a> Graph<'a> {
     pub fn build(index: &'a Index, name: &str, filter: Filter) -> Result<Self> {
         let root = query::lookup(index, name)?;
+        Self::resolve(root, |name| of(query::lookup(index, name)?, filter))
+    }
+
+    /// Resolve each reachable port once before rendering. The caller may supply
+    /// indexed or evaluated metadata; cycles never recursively evaluate sources.
+    pub fn resolve(
+        root: &'a Port,
+        mut load: impl FnMut(&str) -> Result<Vec<Dependency>>,
+    ) -> Result<Self> {
         let mut edges = HashMap::new();
-        let mut pending = VecDeque::from([root]);
+        let mut pending = VecDeque::from([(root.name.clone(), None::<String>)]);
         let mut queued = HashSet::from([root.name.to_lowercase()]);
-        while let Some(port) = pending.pop_front() {
-            let dependencies = of(port, filter)?;
+        while let Some((name, parent)) = pending.pop_front() {
+            let dependencies = load(&name)
+                .with_context(|| parent.unwrap_or_else(|| format!("{name}: dependencies")))?;
             for dependency in &dependencies {
                 if queued.insert(dependency.name.to_lowercase()) {
-                    let target = query::lookup(index, &dependency.name).with_context(|| {
-                        format!("{} depends on {}", port.name, dependency.specification)
-                    })?;
-                    pending.push_back(target);
+                    pending.push_back((
+                        dependency.name.clone(),
+                        Some(format!("{} depends on {}", name, dependency.specification)),
+                    ));
                 }
             }
-            edges.insert(port.name.to_lowercase(), dependencies);
+            edges.insert(name.to_lowercase(), dependencies);
         }
         Ok(Self { root, edges })
     }

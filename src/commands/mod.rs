@@ -7,6 +7,7 @@ mod info;
 mod inspect;
 mod install;
 mod installed;
+mod local;
 mod location;
 mod outdated;
 mod provides;
@@ -58,9 +59,9 @@ pub enum Command {
     Info(info::Info),
     /// Print selected port specifications
     Echo(inspect::Selection),
-    /// Display direct dependencies from PortIndex (--index required)
+    /// Display dependencies from local Portfiles, or cached metadata with --index
     Deps(dependencies::DependencyOptions),
-    /// Display recursive dependencies from PortIndex (--index required)
+    /// Display recursive dependencies from local Portfiles or --index
     Rdeps(dependencies::RecursiveDependencyOptions),
     /// Display variants from local Portfiles, or cached metadata with --index
     Variants(variants::Variants),
@@ -113,15 +114,6 @@ impl Session {
                 r#"command "install" execution is not implemented yet; use -y install to preview an indexed binary installation plan; no Tcl or MacPorts fallback is used"#
             );
         }
-        let indexed = match &command {
-            Command::Deps(options) => Some(options.index),
-            Command::Rdeps(options) => Some(options.options.index),
-            _ => None,
-        };
-        ensure!(
-            indexed != Some(false),
-            "dependency inspection without --index requires Portfile evaluation, which is not implemented; use deps --index or rdeps --index"
-        );
         let stdout = io::stdout();
         let mut out = io::BufWriter::new(stdout.lock());
         if let Command::Outdated(args) = command {
@@ -160,27 +152,34 @@ impl Session {
         } else if let Command::Download(args) = command {
             download::run(&mut out, args, quiet)?;
         } else if let Command::Variants(args) = command {
-            let root = if args.index {
-                None
-            } else if let Some(path) = index_file {
-                Some(
-                    path.parent()
-                        .filter(|p| !p.as_os_str().is_empty())
-                        .unwrap_or(Path::new("."))
-                        .to_path_buf(),
-                )
-            } else {
-                ensure!(
-                    Path::new("PortIndex").try_exists()?,
-                    "no local ports tree selected; use --index-file PATH or use variants --index"
-                );
-                Some(PathBuf::from("."))
-            };
+            let root = local::root(index_file, args.index, "variants")?;
             variants::run(
                 &mut out,
                 self.index(index_file, quiet)?,
                 args,
                 quiet,
+                root.as_deref(),
+            )?;
+        } else if let Command::Deps(args) = command {
+            let root = local::root(index_file, args.index, "deps")?;
+            dependencies::run(
+                &mut out,
+                self.index(index_file, quiet)?,
+                &args,
+                None,
+                quiet,
+                verbose,
+                root.as_deref(),
+            )?;
+        } else if let Command::Rdeps(args) = command {
+            let root = local::root(index_file, args.options.index, "rdeps")?;
+            dependencies::run(
+                &mut out,
+                self.index(index_file, quiet)?,
+                &args.options,
+                Some(args.full),
+                quiet,
+                verbose,
                 root.as_deref(),
             )?;
         } else {
@@ -201,17 +200,6 @@ impl Session {
                 Command::Echo(args) => inspect::run(&mut out, index, &args.ports, quiet, "echo")?,
                 Command::Search(args) => search::run(&mut out, index, args, quiet)?,
                 Command::Info(args) => info::run(&mut out, index, args, quiet, verbose)?,
-                Command::Deps(args) => {
-                    dependencies::run(&mut out, index, &args, None, quiet, verbose)?
-                }
-                Command::Rdeps(args) => dependencies::run(
-                    &mut out,
-                    index,
-                    &args.options,
-                    Some(args.full),
-                    quiet,
-                    verbose,
-                )?,
                 Command::Outdated(_)
                 | Command::Dependents(_)
                 | Command::Rdependents(_)
@@ -223,6 +211,8 @@ impl Session {
                 | Command::Download(_)
                 | Command::Location(_)
                 | Command::Space(_)
+                | Command::Deps(_)
+                | Command::Rdeps(_)
                 | Command::Variants(_)
                 | Command::Unsupported(_) => unreachable!(),
             }

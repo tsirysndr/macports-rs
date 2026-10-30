@@ -6,7 +6,7 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use clap::Args;
-use std::{collections::BTreeMap, fmt::Write as _, io::Write, path::Path};
+use std::{fmt::Write as _, io::Write, path::Path};
 
 #[derive(Args)]
 pub struct Variants {
@@ -25,18 +25,7 @@ pub(super) fn run(
     root: Option<&Path>,
 ) -> Result<()> {
     let specs = query::specifications(index, &args.ports)?;
-    let variables = if root.is_some() {
-        let platform = crate::source::detect_platform()?;
-        BTreeMap::from([
-            ("os.platform".into(), "darwin".into()),
-            ("os.subplatform".into(), "macosx".into()),
-            ("os.major".into(), platform.darwin_major.to_string()),
-            ("os.arch".into(), platform.architecture.into()),
-            ("prefix".into(), "/opt/local".into()),
-        ])
-    } else {
-        BTreeMap::new()
-    };
+    let variables = super::local::variables(root)?;
     let width = usize::from(console::Term::stdout().size().1).max(40);
     let rendered = specs
         .iter()
