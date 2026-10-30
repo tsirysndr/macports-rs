@@ -7,6 +7,8 @@ use std::{
     time::Duration,
 };
 use tokio::io::AsyncWriteExt;
+mod host;
+pub use host::{BuildHost, detect_build_host};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Platform {

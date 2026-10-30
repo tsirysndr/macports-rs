@@ -28,12 +28,5 @@ pub(super) fn variables(root: Option<&Path>) -> Result<BTreeMap<String, String>>
     if root.is_none() {
         return Ok(BTreeMap::new());
     }
-    let platform = crate::source::detect_platform()?;
-    Ok(BTreeMap::from([
-        ("os.platform".into(), "darwin".into()),
-        ("os.subplatform".into(), "macosx".into()),
-        ("os.major".into(), platform.darwin_major.to_string()),
-        ("os.arch".into(), platform.architecture.into()),
-        ("prefix".into(), "/opt/local".into()),
-    ]))
+    crate::source::detect_build_host()?.variables()
 }
