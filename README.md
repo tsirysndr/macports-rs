@@ -410,6 +410,12 @@ update these records and define their user-procedure wrappers with global-variab
 access. Records are returned with the evaluation result. Dynamic `target_provides`,
 target scheduling, and built-in phase execution remain incomplete.
 
+The `commands` declaration creates the standard command-option families, including
+`.cmd`, `.dir`, `.args`, and `.env`. Configure/compiler and livecheck metadata
+setters accept Portfile values and user overrides. Compiler/SDK selection and
+their native defaults and option traces remain incomplete; declaring these fields
+does not approve a build configuration or execute the corresponding programs.
+
 PortGroups can be imported from explicitly configured local directories or
 embedded sources, with deterministic search precedence and one evaluation per
 name/version. Nested and recursive includes share the interpreter. Imported
@@ -429,6 +435,8 @@ The [vendored Molt core](vendor/molt/PORT-RS-PATCHES.md) provides host variable 
 its upstream tests run in the macOS CI matrix alongside port-rs tests.
 The interpreter also implements `string map` for PortGroup-generated procedures
 and template values, including ordered substitutions and `-nocase` matching.
+`split`, `lrange`, and end-relative/arithmetic `lindex` indices support Portfile
+list and URL transformations without an external interpreter.
 
 This evaluator is connected to local-tree `variants`, `deps`, and `rdeps` queries,
 but not installation.

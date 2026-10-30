@@ -58,6 +58,18 @@ pub(super) const OPTIONS: &[&str] = &[
     "test.target",
     "test.args",
     "test.env",
+    "livecheck.url",
+    "livecheck.type",
+    "livecheck.md5",
+    "livecheck.regex",
+    "livecheck.branch",
+    "livecheck.name",
+    "livecheck.distname",
+    "livecheck.version",
+    "livecheck.ignore_sslcert",
+    "livecheck.compression",
+    "livecheck.curloptions",
+    "livecheck.user_agent",
 ];
 pub(super) fn register(interp: &mut Interp, id: ContextID, name: &str) {
     interp.context::<State>(id).options.insert(name.into());
@@ -93,7 +105,7 @@ fn system(_: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
     }
     Ok(Value::empty())
 }
-fn options(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
+pub(super) fn options(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     for name in &argv[1..] {
         let name = name.as_str();
         if name.is_empty()
