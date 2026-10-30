@@ -573,6 +573,9 @@ a default updates its template without overriding explicit values. Computed
 `extract.suffix`. Circular defaults and excessive evaluation depth are reported.
 The [vendored Molt core](../vendor/molt/PORT-RS-PATCHES.md) provides host variable hooks;
 its upstream tests run in the macOS CI matrix alongside port-rs tests.
+Integer arguments and expressions recognize Tcl 9's case-insensitive `0x`, `0o`,
+`0b`, and `0d` prefixes; plain leading-zero integers are decimal. The interpreter
+still uses signed 64-bit integers rather than Tcl's arbitrary-precision numbers.
 The interpreter also implements `string map` for PortGroup-generated procedures
 and template values, including ordered substitutions and `-nocase` matching.
 `split`, `lrange`, and end-relative/arithmetic `lindex` indices support Portfile

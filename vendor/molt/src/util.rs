@@ -32,15 +32,23 @@ pub fn read_int(ptr: &mut Tokenizer) -> Option<String> {
         result.push(p.next().unwrap());
     }
 
-    // NEXT, skip a "0x".
+    // NEXT, recognize Tcl 9 radix prefixes.
     let mut radix = 10;
 
     if p.is('0') {
         result.push(p.next().unwrap());
 
-        if p.is('x') {
+        if p.is('x') || p.is('X') {
             result.push(p.next().unwrap());
             radix = 16;
+        } else if p.is('o') || p.is('O') {
+            result.push(p.next().unwrap());
+            radix = 8;
+        } else if p.is('b') || p.is('B') {
+            result.push(p.next().unwrap());
+            radix = 2;
+        } else if p.is('d') || p.is('D') {
+            result.push(p.next().unwrap());
         } else {
             missing_digits = false;
         }

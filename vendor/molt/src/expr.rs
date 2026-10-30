@@ -329,7 +329,10 @@ fn expr_get_value(interp: &mut Interp, info: &mut ExprInfo, prec: i32) -> DatumR
                 match operator {
                     UNARY_MINUS => match value.vtype {
                         Type::Int => {
-                            value.int = -value.int;
+                            value.int = value
+                                .int
+                                .checked_neg()
+                                .ok_or_else(|| Exception::molt_err("integer overflow".into()))?;
                         }
                         Type::Float => {
                             value.flt = -value.flt;
@@ -833,7 +836,9 @@ fn expr_lex(interp: &mut Interp, info: &mut ExprInfo) -> DatumResult {
     if !p.is('+') && !p.is('-') {
         if expr_looks_like_int(&p) {
             // There's definitely an integer to parse; parse it.
-            let token = util::read_int(&mut p).unwrap();
+            let Some(token) = util::read_int(&mut p) else {
+                return syntax_error(info);
+            };
             let int = Value::get_int(&token)?;
             info.token = VALUE;
             info.expr = p;
@@ -1285,7 +1290,9 @@ fn expr_parse_string(string: &str) -> DatumResult {
 
             // NEXT, get the integer token from it.  We know there has to be something,
             // since it "looks like int".
-            let token = util::read_int(&mut p).unwrap();
+            let Some(token) = util::read_int(&mut p) else {
+                return Ok(Datum::string(string));
+            };
 
             // NEXT, did we read the whole string?  If not, it isn't really an integer.
             // Otherwise, drop through and return it as a string.
@@ -1373,7 +1380,10 @@ fn expr_abs_func(args: &[Datum; MAX_MATH_ARGS]) -> DatumResult {
     } else {
         // TODO: need to handle integer overflow here.
         if arg.int < 0 {
-            Ok(Datum::int(-arg.int))
+            arg.int
+                .checked_neg()
+                .map(Datum::int)
+                .ok_or_else(|| Exception::molt_err("integer overflow".into()))
         } else {
             Ok(Datum::int(arg.int))
         }

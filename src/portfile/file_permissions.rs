@@ -67,27 +67,9 @@ fn numeric(text: &str) -> Option<u32> {
     {
         return Some((value & 0x7fff) as u32);
     }
-    let (negative, digits) = if let Some(v) = text.strip_prefix('-') {
-        (true, v)
-    } else {
-        (false, text.strip_prefix('+').unwrap_or(text))
-    };
-    let (radix, digits) = if let Some(v) = digits.strip_prefix("0o") {
-        (8, v)
-    } else if let Some(v) = digits.strip_prefix("0x") {
-        (16, v)
-    } else if let Some(v) = digits.strip_prefix("0b") {
-        (2, v)
-    } else {
-        (10, digits)
-    };
-    if digits.starts_with(['+', '-']) {
-        return None;
-    }
-    let number = i128::from_str_radix(digits, radix).ok()?;
-    let number = if negative { -number } else { number };
-    let number = i64::try_from(number).ok()?;
-    Some((number & 0x7fff) as u32)
+    Value::get_int(text)
+        .ok()
+        .map(|number| (number & 0x7fff) as u32)
 }
 fn symbolic(text: &str, mut mode: u32) -> Option<u32> {
     if let Some(value) = rwx(text) {

@@ -35,3 +35,9 @@ Local changes:
 
 These hooks are host APIs, not a complete implementation of Tcl's `trace` command.
 The upstream source and tests remain available to verify interpreter behavior.
+
+- Tcl 9 integer radix prefixes (`0x`, `0o`, `0b`, `0d`, either case), strict
+  sign placement, and correct signed 64-bit minimum parsing. Expression tokens
+  use the same prefixes; malformed prefixed literals return errors instead of
+  panicking. Integer negation and absolute value report overflow rather than
+  panicking on the signed minimum. Arbitrary-precision integers remain pending.

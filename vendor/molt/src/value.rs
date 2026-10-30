@@ -182,6 +182,7 @@ use std::any::Any;
 use std::any::TypeId;
 use std::cell::RefCell;
 use std::cell::UnsafeCell;
+use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::hash::Hash;
@@ -653,8 +654,8 @@ impl Value {
     ///
     /// # Integer Syntax
     ///
-    /// Molt accepts decimal integer strings, and hexadecimal integer strings
-    /// with a `0x` prefix.  Strings may begin with a unary "+" or "-".  Hex
+    /// Molt accepts Tcl 9 decimal integers and explicit `0x`, `0o`, `0b`,
+    /// and `0d` prefixes (case insensitive). Leading zeros alone remain decimal.  Strings may begin with a unary "+" or "-".  Hex
     /// digits may be in upper or lower case.
     ///
     /// # Example
@@ -690,9 +691,10 @@ impl Value {
 
     /// Converts a string argument into a `MoltInt`, returning an error on failure.
     ///
-    /// Molt accepts decimal integer strings, and hexadecimal integer strings
-    /// with a `0x` prefix.  Strings may begin with a unary "+" or "-".  Leading and
-    /// trailing whitespace is ignored.
+    /// Molt accepts Tcl 9 decimal integers and explicit `0x`, `0o`, `0b`,
+    /// and `0d` prefixes (case insensitive). Leading zeros alone remain decimal.
+    /// Strings may begin with a unary "+" or "-". Leading and trailing whitespace
+    /// is ignored.
     ///
     /// # Example
     ///
@@ -706,25 +708,36 @@ impl Value {
     /// ```
     pub fn get_int(arg: &str) -> Result<MoltInt, Exception> {
         let orig = arg;
-        let mut arg = arg.trim();
-        let mut minus = 1;
-
-        if arg.starts_with('+') {
-            arg = &arg[1..];
-        } else if arg.starts_with('-') {
-            minus = -1;
-            arg = &arg[1..];
-        }
-
-        let parse_result = if let Some(digits) = arg.strip_prefix("0x") {
-            MoltInt::from_str_radix(digits, 16)
+        let arg = arg.trim();
+        let (negative, unsigned) = if let Some(value) = arg.strip_prefix('-') {
+            (true, value)
         } else {
-            arg.parse::<MoltInt>()
+            (false, arg.strip_prefix('+').unwrap_or(arg))
         };
-
-        match parse_result {
-            Ok(int) => Ok(minus * int),
-            Err(_) => molt_err!("expected integer but got \"{}\"", orig),
+        let (radix, digits) = match unsigned.as_bytes() {
+            [b'0', b'x' | b'X', ..] => (16, &unsigned[2..]),
+            [b'0', b'o' | b'O', ..] => (8, &unsigned[2..]),
+            [b'0', b'b' | b'B', ..] => (2, &unsigned[2..]),
+            [b'0', b'd' | b'D', ..] => (10, &unsigned[2..]),
+            _ => (10, unsigned),
+        };
+        let number = if !digits.is_empty() && digits.chars().all(|c| c.is_digit(radix)) {
+            u64::from_str_radix(digits, radix)
+                .ok()
+                .and_then(|magnitude| {
+                    let signed = if negative {
+                        -(magnitude as i128)
+                    } else {
+                        magnitude as i128
+                    };
+                    MoltInt::try_from(signed).ok()
+                })
+        } else {
+            None
+        };
+        match number {
+            Some(int) => Ok(int),
+            None => molt_err!("expected integer but got \"{}\"", orig),
         }
     }
 
