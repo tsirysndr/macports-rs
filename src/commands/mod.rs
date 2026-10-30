@@ -6,6 +6,7 @@ mod download;
 mod info;
 mod inspect;
 mod installed;
+mod location;
 mod outdated;
 mod provides;
 mod search;
@@ -23,6 +24,8 @@ use std::{
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Show the recorded location of an installed port image
+    Location(location::Location),
     /// Report disk space used by active ports
     Space(space::Space),
     /// Compare active installations with the available catalog
@@ -135,6 +138,8 @@ impl Session {
             )?;
         } else if let Command::Provides(args) = command {
             provides::run(&mut out, registry_file, args, quiet)?;
+        } else if let Command::Location(args) = command {
+            location::run(&mut out, registry_file, args, quiet)?;
         } else if let Command::Space(args) = command {
             space::run(&mut out, registry_file, args)?;
         } else if let Command::Contents(args) = command {
@@ -185,6 +190,7 @@ impl Session {
                 | Command::Version
                 | Command::Platform
                 | Command::Download(_)
+                | Command::Location(_)
                 | Command::Space(_)
                 | Command::Unsupported(_) => unreachable!(),
             }

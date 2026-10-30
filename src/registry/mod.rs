@@ -83,6 +83,22 @@ impl Registry {
             .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
             .collect::<rusqlite::Result<Vec<_>>>()?)
     }
+    /// Return the recorded image location without inspecting or unpacking it.
+    pub fn location(&self, entry: &Entry) -> Result<String> {
+        self.connection
+            .query_row(
+                "SELECT location FROM ports WHERE id=?1",
+                [entry.id],
+                |row| row.get(0),
+            )
+            .with_context(|| {
+                format!(
+                    "cannot read image location for {} @{}",
+                    entry.name,
+                    entry.full_version()
+                )
+            })
+    }
     pub fn files(&self, entry: &Entry) -> Result<Vec<String>> {
         let sql = if entry.active {
             "SELECT actual_path FROM files WHERE id=?1 AND active ORDER BY actual_path"

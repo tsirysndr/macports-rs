@@ -1034,3 +1034,111 @@ fn space_options_reset_between_chained_commands() {
         "4.0 KiB total\n4.0 KiB pkg2\n"
     );
 }
+
+fn location_fixture() -> Fixture {
+    let f = Fixture::new();
+    let db = Connection::open(&f.path).unwrap();
+    db.execute_batch("ALTER TABLE ports ADD COLUMN location TEXT;
+        UPDATE ports SET location='/opt/local/var/macports/software/' || name || '/' || name || '-' || version || '.tbz2';
+        UPDATE ports SET location='/custom images/pkg2 image' WHERE id=4;").unwrap();
+    f
+}
+#[test]
+fn location_prints_recorded_image_paths_without_accessing_them() {
+    let f = location_fixture();
+    let before = std::fs::read(&f.path).unwrap();
+    assert_eq!(
+        stdout(f.run(&["location", "PKG2"])),
+        "Port pkg2 2.0_0 is installed as an image in:\n/custom images/pkg2 image\n"
+    );
+    assert_eq!(
+        stdout(f.run(&["-q", "locat", "pkg2", "pkg10"])),
+        "/custom images/pkg2 image\n/opt/local/var/macports/software/pkg10/pkg10-1.0.tbz2\n"
+    );
+    assert_eq!(std::fs::read(&f.path).unwrap(), before);
+    assert!(!f.dir.path().join("missing-home").exists());
+}
+#[test]
+fn location_requires_disambiguation_even_when_one_image_is_active() {
+    let f = location_fixture();
+    let result = f.run(&["location", "curl"]);
+    assert!(!result.status.success());
+    assert!(result.stdout.is_empty());
+    let error = String::from_utf8_lossy(&result.stderr);
+    assert!(error.contains("specify the full version"));
+    assert!(error.contains("@8.9_1+ssl"));
+    assert!(error.contains("@8.10_0+ssl (active)"));
+    for args in [
+        vec!["-q", "location", "curl@8.9"],
+        vec!["-q", "location", "curl", "@8.9_1", "+ssl"],
+    ] {
+        assert_eq!(
+            stdout(f.run(&args)),
+            "/opt/local/var/macports/software/curl/curl-8.9.tbz2\n"
+        );
+    }
+    assert_eq!(
+        stdout(f.run(&["-q", "location", "curl@8.10_0+ssl"])),
+        "/opt/local/var/macports/software/curl/curl-8.10.tbz2\n"
+    );
+}
+#[test]
+fn location_validates_all_selections_before_output() {
+    let f = location_fixture();
+    for selector in [
+        "missing",
+        "curl",
+        "curl@8.9_1",
+        "active",
+        "pkg*",
+        "name:pkg2",
+    ] {
+        let result = f.run(&["location", "pkg2", selector]);
+        assert!(!result.status.success(), "{selector}");
+        assert!(result.stdout.is_empty(), "{selector}");
+    }
+}
+#[test]
+fn location_missing_or_null_column_errors_do_not_affect_other_queries() {
+    let f = Fixture::new();
+    let result = f.run(&["location", "pkg2"]);
+    assert!(!result.status.success());
+    assert!(result.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&result.stderr).contains("cannot read image location"));
+    assert!(f.run(&["installed", "pkg2"]).status.success());
+    let f = location_fixture();
+    Connection::open(&f.path)
+        .unwrap()
+        .execute("UPDATE ports SET location=NULL WHERE id=1", [])
+        .unwrap();
+    let result = f.run(&["location", "pkg2", "pkg10"]);
+    assert!(!result.status.success());
+    assert!(result.stdout.is_empty());
+}
+#[test]
+fn location_reads_the_same_snapshot_as_entry_selection() {
+    let f = location_fixture();
+    let writer = Connection::open(&f.path).unwrap();
+    writer.execute_batch("PRAGMA journal_mode=WAL").unwrap();
+    let reader = port_rs::registry::Registry::open(Some(&f.path))
+        .unwrap()
+        .unwrap();
+    let entries = reader.entries().unwrap();
+    let entry = entries.iter().find(|entry| entry.name == "pkg2").unwrap();
+    writer
+        .execute("UPDATE ports SET location='/new-image' WHERE id=4", [])
+        .unwrap();
+    assert_eq!(reader.location(entry).unwrap(), "/custom images/pkg2 image");
+    assert_eq!(stdout(f.run(&["-q", "location", "pkg2"])), "/new-image\n");
+}
+#[test]
+fn location_chains_with_registry_commands_and_stops_on_errors() {
+    let f = location_fixture();
+    assert_eq!(
+        stdout(f.run(&["-q", "location", "pkg2", ";", "installed", "pkg2"])),
+        "/custom images/pkg2 image\n  pkg2 @2.0_0 (active)\n"
+    );
+    let result = f.run(&["location", "missing", ";", "installed", "pkg2"]);
+    assert!(!result.status.success());
+    assert!(result.stdout.is_empty());
+}

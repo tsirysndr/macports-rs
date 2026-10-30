@@ -76,6 +76,7 @@ unimplemented; removing the platform cache file triggers a fresh download.
 | `install`, `upgrade`, `uninstall`, activation | Not implemented; fail explicitly before filesystem changes |
 | `installed` | Read-only SQLite registry, names/globs, version filters, active/inactive and requested/unrequested selectors |
 | `contents` | Registered file lists, active-image preference, version selection, quiet and size/unit output |
+| `location` | Recorded image paths, explicit version selection, ambiguity errors, and quiet output |
 | `space` | Active-file sizes, hard-link deduplication, symlink sizes, unit selection, and totals |
 | `provides` | Active file ownership, quiet output, normalized paths and symlinks |
 | `dependents`, `rdependents` | Installed-registry reverse dependencies, verbose versions, full trees, cycle handling |
@@ -237,6 +238,15 @@ forms. Sizes follow symlinks; missing or unreadable paths display `-1`. File
 contents are never opened. Quiet mode hides headings. This initial `contents`
 implementation requires explicit names (with optional versions/variants); globs,
 logical expressions, and registry selectors are not yet supported for this action.
+
+`port location pkg2` prints the registry's recorded image path; `-q` hides the
+heading. Both active and inactive images are eligible. If several images match,
+specify a plain version or complete version/revision/variant string, for example
+`port location curl @8.10.1_0+ssl`. Unlike `contents`, an active image does not
+resolve ambiguity automatically. This action currently accepts explicit names
+only. It reads paths from the same registry snapshot as image selection, without
+checking, opening, or extracting the recorded images. Missing location columns
+or NULL values produce explicit errors, leaving other registry queries usable.
 
 `port space curl` reports the sizes of registered active files. Use `--units B`
 (or the units accepted by `contents`) for a fixed unit and `--total` to print
