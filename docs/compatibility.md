@@ -488,7 +488,7 @@ Custom staging blocks can delegate through `do-destroot`. The host must provide
 prefix is restored on success and failure. Tests stage an executable into a
 temporary prefix with live logs. Native non-root destroot finish now performs
 staging cleanup and restores the saved mask. Native non-root startup now prepares the hierarchy and mask for ports without
-startup items and for ports supplying a single custom launchd plist. Privilege transitions, startup-item generation, and privileged
+startup items and for ports supplying custom launchd plists. Privilege transitions, startup-item generation, and privileged
 ownership conversion remain unfinished.
 
 The CLI captures and restores its inherited creation mask at the start of
@@ -999,15 +999,15 @@ The native `portdestroot::destroot_start` callback uses this helper after option
 cleanup (`destroot.clean` exactly `yes`) and staging-mask setup. It checks root
 requirements and unsupported startup-item requests before cleanup. Ports without
 startup items, with an explicitly disabled single item, or with a supported
-custom launchd plist can complete the non-root staging lifecycle. Requested service generation and multi-item lists
-fail explicitly until launchd support exists. The default staging mask comes
+custom launchd plist can complete the non-root staging lifecycle. Requested plist and wrapper generation still fails explicitly; port-supplied
+custom plists are supported for single and multiple startup items. The default staging mask comes
 from `system_options(destroot_umask)`; the host must supply it or an explicit
 `destroot.umask`. Startup errors restore the prior mask. General
 mtree file/link/checksum specifications, escaped filenames, and wildcard entries
 are explicitly rejected rather than silently interpreted as directory templates.
 
 
-Native `portstartupitem::startupitem_create` stages a single port-supplied regular
+Native `portstartupitem::startupitem_create` stages port-supplied regular
 `startupitem.custom_file` for launchd. It honors the item name, unique name, plist
 filename, and LaunchAgents/LaunchDaemons location. Copying preserves file bytes,
 permissions, and timestamps and refuses an existing destination, matching the
@@ -1017,8 +1017,20 @@ when `startupitem.install` is enabled. Existing links are replaced without
 following their targets. No service is loaded and no external command is run.
 A disabled type skips staging. When type is omitted, creation must be enabled
 and the host supplies `system_options(startupitem_type)` for type selection.
-Generated plists/wrappers, multiple startup items, and privileged placement still
-fail explicitly. Custom source symlinks, path components containing slashes or
+Generated plists/wrappers and privileged placement still fail explicitly. Custom source symlinks, path components containing slashes or
 parent references, and symlinked hierarchy directories are rejected. Tests cover
 metadata preservation, names, link replacement, disabled items, collision handling,
 and custom-plist staging through the complete native non-root destroot lifecycle.
+
+
+Multiple custom startup items use the native `startupitems` name/value list.
+Each `name` begins or revisits an item; revisiting merges attributes while resetting
+its derived unique name and plist filename, matching upstream dictionary behavior.
+Missing attributes inherit global `startupitem.*` settings, while derived names
+remain item-specific. An omitted type uses the global type default, including the
+global creation flag, rather than the per-item creation flag. Disabled items are
+skipped. All item definitions and custom source files are validated before any
+item is staged, so an invalid later definition does not leave an earlier plist
+behind. Filesystem copy/link failures can still leave a partially staged batch;
+no completion state is recorded on failure. Tests cover inheritance, mixed
+LaunchAgents/LaunchDaemons, repeated names, disabled items, and invalid batches.
