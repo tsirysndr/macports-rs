@@ -1,5 +1,7 @@
 # port-rs
 
+[![Rust](https://github.com/tsirysndr/macports-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/tsirysndr/macports-rs/actions/workflows/ci.yml)
+
 A standalone Rust implementation of the MacPorts `port` CLI, built with clap,
 Tokio, and reqwest. No Tcl runtime or existing MacPorts executable required;
 SQLite is bundled.
