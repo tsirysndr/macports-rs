@@ -64,3 +64,100 @@ fn ordered_files_override_values_and_missing_files_are_ignored() {
     assert_eq!(config.extra_env().unwrap(), ["USER", "MORE"]);
     assert_eq!(config.proxy_settings().http.as_deref(), Some("final"));
 }
+
+#[test]
+fn discovered_files_and_values_use_explicit_home_and_working_directory() {
+    use port_rs::config::Paths;
+    use std::collections::BTreeMap;
+    let root = tempfile::tempdir().unwrap();
+    let cwd = root.path().canonicalize().unwrap();
+    std::fs::create_dir_all(cwd.join("etc")).unwrap();
+    std::fs::create_dir_all(cwd.join("home/.macports")).unwrap();
+    std::fs::create_dir_all(cwd.join("actual")).unwrap();
+    std::os::unix::fs::symlink(cwd.join("actual"), cwd.join("alias")).unwrap();
+    std::fs::write(
+        cwd.join("etc/macports.conf"),
+        "prefix alias\nproxy_http system\n",
+    )
+    .unwrap();
+    std::fs::write(
+        cwd.join("home/.macports/macports.conf"),
+        "proxy_http user\nframeworks_dir ~/Frameworks\n",
+    )
+    .unwrap();
+    std::fs::write(
+        cwd.join("override"),
+        "proxy_http last\nportdbpath alias/new/../database\n",
+    )
+    .unwrap();
+    let paths = Paths::discover(
+        "etc".into(),
+        cwd.clone(),
+        &BTreeMap::from([
+            ("HOME".into(), "home".into()),
+            ("PORTSRC".into(), "override".into()),
+            ("SUDO_USER".into(), "nonexistent-user-ignored".into()),
+        ]),
+        0,
+    )
+    .unwrap();
+    let config = paths.load().unwrap();
+    assert_eq!(config.get("prefix"), cwd.join("actual").to_str());
+    assert_eq!(
+        config.get("frameworks_dir"),
+        cwd.join("home/Frameworks").to_str()
+    );
+    assert_eq!(
+        config.get("portdbpath"),
+        cwd.join("actual/database").to_str()
+    );
+    assert_eq!(config.proxy_settings().http.as_deref(), Some("last"));
+    assert_eq!(paths.normalize("").unwrap(), "");
+    assert_eq!(
+        paths.normalize("~//Frameworks").unwrap(),
+        cwd.join("home/Frameworks").to_str().unwrap()
+    );
+    let empty_override = Paths::discover(
+        "etc".into(),
+        cwd.clone(),
+        &BTreeMap::from([("PORTSRC".into(), String::new())]),
+        0,
+    )
+    .unwrap();
+    assert_eq!(
+        empty_override
+            .load()
+            .unwrap()
+            .proxy_settings()
+            .http
+            .as_deref(),
+        Some("system")
+    );
+    assert!(paths.normalize("~port-rs-nonexistent-user/path").is_err());
+    let no_home = Paths::discover("etc".into(), cwd, &BTreeMap::new(), 0).unwrap();
+    assert!(no_home.user_home.is_none());
+    assert!(no_home.normalize("~/file").is_err());
+    assert_eq!(
+        no_home.load().unwrap().proxy_settings().http.as_deref(),
+        Some("system")
+    );
+}
+
+#[test]
+fn startup_home_can_be_resolved_through_native_accounts() {
+    use port_rs::config::Paths;
+    use std::collections::BTreeMap;
+    let cwd = std::env::current_dir().unwrap();
+    let paths = Paths::discover(
+        "/opt/local/etc/macports".into(),
+        cwd,
+        &BTreeMap::from([("SUDO_USER".into(), "root".into())]),
+        0,
+    )
+    .unwrap();
+    assert!(paths.user_home.as_ref().unwrap().is_absolute());
+    assert_eq!(
+        paths.normalize("~root").unwrap(),
+        paths.normalize("~").unwrap()
+    );
+}

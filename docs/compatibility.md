@@ -1480,3 +1480,11 @@ the preceding value. Path normalization is an explicit caller callback. Parsed
 extra_env and proxy settings can feed the startup helpers; automatic system/user/
 PORTSRC discovery, path-context resolution, and CLI configuration wiring remain
 unfinished.
+
+`config::Paths` discovers system, user, and PORTSRC configuration locations from
+explicit startup environment and working-directory inputs. HOME takes precedence;
+otherwise native reentrant account lookup supplies SUDO_USER or non-root user
+homes without dscl/id subprocesses. Path values expand bare/named-user tildes,
+resolve existing symlinks, and normalize missing leaves. Empty PORTSRC is ignored.
+Account lookup is shared with Portfile ownership operations. These startup APIs
+are not yet wired into the CLI installation lifecycle.

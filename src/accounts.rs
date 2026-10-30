@@ -6,14 +6,15 @@ use std::{
     ptr,
 };
 
-pub(super) struct Account {
+pub(crate) struct Account {
     pub id: u32,
     pub name: String,
+    pub home: Option<std::path::PathBuf>,
 }
-pub(super) fn by_id(id: u32, group: bool) -> io::Result<Option<Account>> {
+pub(crate) fn by_id(id: u32, group: bool) -> io::Result<Option<Account>> {
     lookup(Some(id), None, group)
 }
-pub(super) fn by_name(name: &str, group: bool) -> io::Result<Option<Account>> {
+pub(crate) fn by_name(name: &str, group: bool) -> io::Result<Option<Account>> {
     let name = CString::new(name).map_err(|_| io::Error::from_raw_os_error(libc::EINVAL))?;
     lookup(None, Some(&name), group)
 }
@@ -48,6 +49,7 @@ fn lookup(id: Option<u32>, name: Option<&CStr>, group: bool) -> io::Result<Optio
                     Some((
                         (*result).gr_gid,
                         CStr::from_ptr((*result).gr_name).to_bytes().to_vec(),
+                        None,
                     ))
                 } else {
                     None
@@ -77,6 +79,7 @@ fn lookup(id: Option<u32>, name: Option<&CStr>, group: bool) -> io::Result<Optio
                     Some((
                         (*result).pw_uid,
                         CStr::from_ptr((*result).pw_name).to_bytes().to_vec(),
+                        Some(CStr::from_ptr((*result).pw_dir).to_bytes().to_vec()),
                     ))
                 } else {
                     None
@@ -92,9 +95,14 @@ fn lookup(id: Option<u32>, name: Option<&CStr>, group: bool) -> io::Result<Optio
             return Err(io::Error::from_raw_os_error(status));
         }
         return record
-            .map(|(id, name)| {
+            .map(|(id, name, home)| {
+                use std::os::unix::ffi::OsStringExt;
                 String::from_utf8(name)
-                    .map(|name| Account { id, name })
+                    .map(|name| Account {
+                        id,
+                        name,
+                        home: home.map(|bytes| std::ffi::OsString::from_vec(bytes).into()),
+                    })
                     .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))
             })
             .transpose();

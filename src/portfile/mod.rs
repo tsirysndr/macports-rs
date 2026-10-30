@@ -1,7 +1,7 @@
 //! Native Portfile metadata evaluation. No tclsh, libtcl, or subprocess fallback.
 //! This is an incremental MacPorts command implementation, not yet a complete
 //! PortSystem. Unsupported commands fail; deferred build hooks are retained.
-mod accounts;
+use crate::accounts;
 mod architecture;
 mod binaries;
 mod build_defaults;
