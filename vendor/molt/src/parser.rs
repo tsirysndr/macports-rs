@@ -452,7 +452,14 @@ pub(crate) fn parse_varname(ctx: &mut EvalPtr) -> Result<Word, Exception> {
         }
     } else {
         let start = ctx.mark();
-        ctx.skip_while(|ch| is_varname_char(*ch));
+        loop {
+            ctx.skip_while(|ch| is_varname_char(*ch));
+            if ctx.tok().as_str().starts_with("::") {
+                ctx.skip_while(|ch| *ch == ':');
+            } else {
+                break;
+            }
+        }
         let name = ctx.token(start).to_string();
 
         if !ctx.next_is('(') {

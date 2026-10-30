@@ -478,8 +478,9 @@ pub fn cmd_global(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResu
     // FIRST, if we're at the global scope this is a no-op.
     if interp.scope_level() > 0 {
         for name in &argv[1..] {
-            // TODO: Should upvar take the name as a Value?
-            interp.upvar(0, name.as_str());
+            let name = name.as_str();
+            let local = name.rsplit("::").next().unwrap_or(name);
+            interp.upvar_named(0, name, local)?;
         }
     }
     molt_ok!()
@@ -883,6 +884,13 @@ pub fn cmd_proc(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult
             return molt_err!("argument with no name");
         } else if vec.len() > 2 {
             return molt_err!("too many fields in argument specifier \"{}\"", arg);
+        }
+        let parameter = vec[0].as_str();
+        if parameter.contains("::") {
+            return molt_err!("formal parameter \"{}\" is not a simple name", parameter);
+        }
+        if parameter.contains('(') && parameter.ends_with(')') {
+            return molt_err!("formal parameter \"{}\" is an array element", parameter);
         }
     }
 

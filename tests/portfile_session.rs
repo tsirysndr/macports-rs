@@ -202,3 +202,28 @@ fn renamed_global_aliases_preserve_lazy_default_reads_writes_and_unsets() {
     session.invoke("unset_alias", &[]).unwrap();
     assert_eq!(session.scalar("distname").unwrap(), "recreated");
 }
+
+#[test]
+fn qualified_global_build_options_resolve_defaults_and_keep_local_shadows() {
+    let mut session = open(
+        r#"
+        name app; version 1
+        proc read_build {} {
+            set distname local
+            return [list $distname $::distname ${::build.jobs}]
+        }
+        proc change_build {} {set ::version 2; set ::build.jobs 7}
+    "#,
+    );
+    assert_eq!(session.invoke("read_build", &[]).unwrap(), "local app-1 2");
+    session.invoke("change_build", &[]).unwrap();
+    assert_eq!(session.invoke("read_build", &[]).unwrap(), "local app-2 7");
+    session
+        .invoke(
+            "proc",
+            &["clear", "", "unset ::distname; set ::distname explicit"],
+        )
+        .unwrap();
+    session.invoke("clear", &[]).unwrap();
+    assert_eq!(session.scalar("distname").unwrap(), "explicit");
+}

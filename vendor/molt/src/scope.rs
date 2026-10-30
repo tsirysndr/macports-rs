@@ -15,6 +15,7 @@
 use crate::types::Exception;
 use crate::types::MoltList;
 use crate::value::Value;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::Debug;
 
@@ -81,6 +82,32 @@ pub(crate) struct ScopeStack {
     stack: Vec<Scope>,
 }
 
+/// Canonical root-qualified storage names. Namespace evaluation and command
+/// resolution are separate; this handles the qualified variable names used by
+/// native host modules, without treating them as procedure-local variables.
+fn qualified_name(name: &str) -> Cow<'_, str> {
+    let name = if name.starts_with("::") {
+        name.trim_start_matches(':')
+    } else {
+        name
+    };
+    if !name.contains(":::") {
+        return Cow::Borrowed(name);
+    }
+    let mut result = String::with_capacity(name.len());
+    let mut chars = name.chars().peekable();
+    while let Some(ch) = chars.next() {
+        result.push(ch);
+        if ch == ':' && chars.peek() == Some(&':') {
+            result.push(':');
+            while chars.peek() == Some(&':') {
+                chars.next();
+            }
+        }
+    }
+    Cow::Owned(result)
+}
+
 impl ScopeStack {
     //-------------------------------------------------------------------------------------
     // Public API
@@ -95,16 +122,20 @@ impl ScopeStack {
         ss
     }
 
-    fn location<'a>(&'a self, mut level: usize, mut name: &'a str) -> (usize, &'a str) {
-        while let Some(Var::Upvar(target, other)) = self.stack[level].map.get(name) {
+    fn location<'a>(&'a self, mut level: usize, name: &'a str) -> (usize, Cow<'a, str>) {
+        if name.contains("::") {
+            level = 0;
+        }
+        let mut name = qualified_name(name);
+        while let Some(Var::Upvar(target, other)) = self.stack[level].map.get(name.as_ref()) {
             level = *target;
-            name = other;
+            name = Cow::Borrowed(other);
         }
         (level, name)
     }
-    pub(crate) fn global_name<'a>(&'a self, name: &'a str) -> Option<&'a str> {
+    pub(crate) fn global_name(&self, name: &str) -> Option<String> {
         let (level, name) = self.location(self.current(), name);
-        (level == 0).then_some(name)
+        (level == 0).then(|| name.into_owned())
     }
     pub(crate) fn take_locals(&mut self) -> Vec<Scope> {
         self.stack.split_off(1)
@@ -235,7 +266,7 @@ impl ScopeStack {
         // Resolve iteratively and retain each alias so later writes recreate
         // the target, including after unsetting a whole aliased array.
         let (level, target) = self.location(level, name);
-        let target = target.to_owned();
+        let target = target.into_owned();
         if !array_only || matches!(self.stack[level].map.get(&target), Some(Var::Array(_))) {
             self.stack[level].map.remove(&target);
         }
@@ -248,6 +279,9 @@ impl ScopeStack {
     /// does not exist; the variable will be created on the first `set`, if any.  This is
     /// consistent with standard TCL behavior.
     pub fn upvar(&mut self, level: usize, name: &str) {
+        if name.contains("::") {
+            return;
+        }
         assert!(level < self.current(), "Can't upvar to current stack level");
         let top = self.current();
         self.stack[top]
@@ -260,20 +294,28 @@ impl ScopeStack {
             return molt_err!("bad level {}", level);
         }
         let (target, name) = self.location(level, other);
-        if target == self.current() && name == local {
+        let local_level = if local.contains("::") {
+            0
+        } else {
+            self.current()
+        };
+        let local = qualified_name(local).into_owned();
+        if target == local_level && name == local {
             return molt_err!("can't upvar from variable to itself");
         }
-        let name = name.to_owned();
+        if local_level == 0 && target > 0 {
+            return molt_err!("can't create namespace variable that refers to procedure variable");
+        }
+        let name = name.into_owned();
         if matches!(
-            self.stack[self.current()].map.get(local),
+            self.stack[local_level].map.get(&local),
             Some(Var::Scalar(_) | Var::Array(_))
         ) {
             return molt_err!("variable \"{}\" already exists", local);
         }
-        let current = self.current();
-        self.stack[current]
+        self.stack[local_level]
             .map
-            .insert(local.into(), Var::Upvar(target, name));
+            .insert(local, Var::Upvar(target, name));
         Ok(())
     }
 
@@ -302,6 +344,7 @@ impl ScopeStack {
         self.stack[self.current()]
             .map
             .keys()
+            .filter(|name| self.current() != 0 || !name.contains("::"))
             .map(Value::from)
             .collect()
     }
@@ -324,7 +367,12 @@ impl ScopeStack {
 
     /// Gets a list of the variables defined in the global scope.
     pub fn vars_in_global_scope(&self) -> MoltList {
-        self.stack[0].map.keys().map(Value::from).collect()
+        self.stack[0]
+            .map
+            .keys()
+            .filter(|name| !name.contains("::"))
+            .map(Value::from)
+            .collect()
     }
 
     /// Determines whether the name names an array variable or not.
@@ -370,7 +418,9 @@ impl ScopeStack {
     /// Does nothing if the array element doesn't exist, or the variable isn't an array
     /// variable.
     pub fn unset_element(&mut self, name: &str, index: &str) {
-        if let Some(Var::Array(map)) = self.var_mut(self.current(), name) {
+        let (level, name) = self.location(self.current(), name);
+        let name = name.into_owned();
+        if let Some(Var::Array(map)) = self.stack[level].map.get_mut(&name) {
             map.remove(index);
         }
     }
@@ -421,7 +471,7 @@ impl ScopeStack {
     ///
     fn var(&self, level: usize, name: &str) -> Option<&Var> {
         let (level, name) = self.location(level, name);
-        self.stack[level].map.get(name)
+        self.stack[level].map.get(name.as_ref())
     }
 
     /// Retrieves an mutable borrow of the variable of the given name, searching the
@@ -432,7 +482,7 @@ impl ScopeStack {
     ///
     fn var_mut(&mut self, level: usize, name: &str) -> Option<&mut Var> {
         let (level, name) = self.location(level, name);
-        let name = name.to_owned();
+        let name = name.into_owned();
         Some(self.stack[level].map.entry(name).or_insert(Var::New))
     }
 }

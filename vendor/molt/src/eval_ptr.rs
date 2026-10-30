@@ -169,6 +169,9 @@ impl<'a> EvalPtr<'a> {
 
     /// Is the current character a valid variable name character?
     pub fn next_is_varname_char(&mut self) -> bool {
+        if self.tok.as_str().starts_with("::") {
+            return true;
+        }
         match self.tok.peek() {
             Some(c) => c.is_alphanumeric() || c == '_',
             None => false,

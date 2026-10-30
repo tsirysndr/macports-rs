@@ -412,7 +412,11 @@ and optional dependency tokens. They preserve provider order, select required
 closures without recursive stack growth, stop on handler failures, and support
 completion predicates, custom selectors, handler argument prefixes, and failure
 reasons. `upvar` supports scalar and whole-array aliases used by these callbacks;
-array-element aliases are still unsupported. These are scheduling primitives:
+array-element aliases are still unsupported. Qualified global references such as
+`$::name`, `${::build.jobs}`, and `$::env(KEY)` resolve through the same storage
+and lazy-default hooks as unqualified globals, while preserving local shadows.
+Full namespace evaluation, imports, and command resolution are still incomplete.
+These are scheduling primitives:
 the full PortSystem target runner, state files, privilege handling, and built-in
 phase procedures are not connected to ordinary installation yet.
 

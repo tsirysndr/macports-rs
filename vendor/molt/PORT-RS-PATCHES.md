@@ -27,5 +27,11 @@ Local changes:
   Array-element aliases remain explicitly unsupported. Global scalar hooks resolve
   the alias target name; mutable lookup no longer uses unsafe transmutation.
 
+- Qualified global variable substitution (`$::name`, `${::build.jobs}`, qualified
+  arrays), canonical namespace separators, global/upvar alias resolution, and
+  root-variable enumeration. Reject qualified/array-element procedure parameters.
+  Unsetting a missing array element no longer creates an invalid placeholder.
+  Full namespace evaluation/import/command resolution remains unimplemented.
+
 These hooks are host APIs, not a complete implementation of Tcl's `trace` command.
 The upstream source and tests remain available to verify interpreter behavior.

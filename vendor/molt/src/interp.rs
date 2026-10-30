@@ -1289,7 +1289,7 @@ impl Interp {
     /// # }
     /// ```
     pub fn scalar(&mut self, name: &str) -> MoltResult {
-        if let Some(name) = self.scopes.global_name(name).map(str::to_owned) {
+        if let Some(name) = self.scopes.global_name(name) {
             if let Some((id, read, _)) = self.global_scalar_hooks {
                 if let Some(value) = read(self, id, &name)? {
                     return Ok(value);
@@ -1311,7 +1311,7 @@ impl Interp {
         self.global_scalar_hooks = Some((id, read, changed));
     }
     fn scalar_changed(&mut self, name: &str) -> Result<(), Exception> {
-        if let Some(name) = self.scopes.global_name(name).map(str::to_owned) {
+        if let Some(name) = self.scopes.global_name(name) {
             if let Some((id, _, changed)) = self.global_scalar_hooks {
                 changed(self, id, &name, ScalarChange::Write)?;
             }
@@ -1489,7 +1489,7 @@ impl Interp {
     /// # }
     /// ```
     pub fn unset(&mut self, name: &str) {
-        let global = self.scopes.global_name(name).map(str::to_owned);
+        let global = self.scopes.global_name(name);
         self.scopes.unset(name);
         if let Some(name) = global {
             if let Some((id, _, changed)) = self.global_scalar_hooks {
