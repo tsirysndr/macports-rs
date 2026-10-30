@@ -750,3 +750,126 @@ fn system_actions_can_be_chained_without_a_catalog() {
     assert!(lines[1].starts_with("darwin "));
     assert_eq!(lines[2], lines[0]);
 }
+
+#[test]
+fn unique_action_prefixes_and_case_insensitive_expansion_work() {
+    let fixture = Fixture::new();
+    for action in ["sear", "SEARCH", "SeAr"] {
+        assert_eq!(
+            stdout(&fixture.run(&["-q", action, "--exact", "curl"])),
+            "curl\n"
+        );
+    }
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "ver"])),
+        format!("{}\n", env!("CARGO_PKG_VERSION"))
+    );
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "inf", "--index", "--version", "curl"])),
+        "8.0\n"
+    );
+    assert_eq!(stdout(&fixture.run(&["-q", "ec", "curl"])), "curl\n");
+}
+
+#[test]
+fn action_ambiguity_includes_unimplemented_upstream_commands() {
+    let fixture = Fixture::new();
+    for (action, matches) in [
+        ("dep", vec!["dependents", "deps"]),
+        ("rdep", vec!["rdependents", "rdeps"]),
+        ("i", vec!["info", "install", "installed"]),
+        (
+            "se",
+            vec![
+                "select",
+                "search",
+                "selfupdate",
+                "setrequested",
+                "setunrequested",
+            ],
+        ),
+    ] {
+        let output = fixture.run(&[action]);
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        let error = String::from_utf8_lossy(&output.stderr);
+        assert!(error.contains("is ambiguous"), "{error}");
+        for candidate in matches {
+            assert!(error.contains(&format!("port {candidate}")), "{error}");
+        }
+    }
+}
+
+#[test]
+fn exact_actions_win_and_unique_unsupported_prefixes_remain_errors() {
+    let fixture = Fixture::new();
+    for (action, canonical) in [
+        ("install", "install"),
+        ("activ", "activate"),
+        ("uninst", "uninstall"),
+    ] {
+        let output = fixture.run(&[action, "curl"]);
+        assert!(!output.status.success());
+        let error = String::from_utf8_lossy(&output.stderr);
+        assert!(error.contains("not implemented"), "{error}");
+        assert!(error.contains(&format!("\"{canonical}\"")), "{error}");
+        assert!(!error.contains("ambiguous"));
+    }
+    // Upstream performs the exact-name check before lowercasing prefixes.
+    let output = fixture.run(&["INSTALL", "curl"]);
+    assert!(String::from_utf8_lossy(&output.stderr).contains("is ambiguous"));
+}
+
+#[test]
+fn action_expansion_preserves_global_values_and_port_arguments() {
+    let fixture = Fixture::new();
+    let index = fixture.directory.path().join("search");
+    std::fs::copy(fixture.directory.path().join("PortIndex"), &index).unwrap();
+    assert_eq!(
+        stdout(&fixture.run(&[
+            "--index-file",
+            index.to_str().unwrap(),
+            "-q",
+            "ec",
+            "sear",
+            "ver"
+        ])),
+        "sear\nver\n"
+    );
+}
+
+#[test]
+fn help_expands_unique_action_prefixes_without_loading_an_index() {
+    let directory = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_port"))
+        .args(["he", "sear"])
+        .env("PORT_RS_INDEX", directory.path().join("missing"))
+        .env("PATH", "")
+        .output()
+        .unwrap();
+    let output = stdout(&output);
+    assert!(output.contains("port search"));
+    assert!(output.contains("--exact"));
+}
+
+#[test]
+fn chains_expand_each_action_and_stop_on_ambiguity() {
+    let fixture = Fixture::new();
+    assert_eq!(
+        stdout(&fixture.run(&[
+            "-q",
+            "ec",
+            "curl",
+            ";",
+            "inf",
+            "--index",
+            "--version",
+            "curl"
+        ])),
+        "curl\n8.0\n"
+    );
+    let output = fixture.run(&["-q", "ec", "curl", ";", "dep", ";", "ec", "zlib"]);
+    assert!(!output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "curl\n");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("is ambiguous"));
+}

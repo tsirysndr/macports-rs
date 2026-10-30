@@ -1,3 +1,5 @@
+mod actions;
+
 use clap::Parser;
 use port_rs::commands::Command;
 use std::{ffi::OsString, path::PathBuf};
@@ -27,16 +29,7 @@ pub(crate) fn invocations(args: impl IntoIterator<Item = OsString>) -> Vec<Vec<O
     let mut args = args.into_iter();
     let program = args.next().unwrap_or_else(|| "port".into());
     let args: Vec<_> = args.collect();
-    let mut end = 0;
-    while end < args.len() {
-        if args[end] == "--index-file" {
-            end = (end + 2).min(args.len());
-        } else if args[end].to_string_lossy().starts_with('-') && args[end] != "--" {
-            end += 1;
-        } else {
-            break;
-        }
-    }
+    let end = leading_options(&args);
     let base: Vec<_> = std::iter::once(program)
         .chain(args[..end].iter().cloned())
         .collect();
@@ -48,6 +41,35 @@ pub(crate) fn invocations(args: impl IntoIterator<Item = OsString>) -> Vec<Vec<O
         .filter(|command| !command.is_empty())
         .map(|command| base.iter().chain(command).cloned().collect())
         .collect()
+}
+
+fn leading_options(args: &[OsString]) -> usize {
+    let mut end = 0;
+    while end < args.len() {
+        if args[end] == "--index-file" {
+            end = (end + 2).min(args.len());
+        } else if args[end].to_string_lossy().starts_with('-') && args[end] != "--" {
+            end += 1;
+        } else {
+            break;
+        }
+    }
+    end
+}
+
+impl Cli {
+    pub(crate) fn parse_invocation(mut args: Vec<OsString>) -> anyhow::Result<Self> {
+        let action = 1 + leading_options(&args[1..]);
+        if let Some(name) = args.get(action).and_then(|name| name.to_str()) {
+            let expanded = actions::expand(name)?;
+            let help = expanded == "help";
+            args[action] = expanded.into();
+            if help && let Some(name) = args.get(action + 1).and_then(|name| name.to_str()) {
+                args[action + 1] = actions::expand(name)?.into();
+            }
+        }
+        Ok(Self::parse_from(args))
+    }
 }
 
 #[cfg(test)]

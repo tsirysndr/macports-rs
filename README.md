@@ -77,6 +77,7 @@ unimplemented; removing the platform cache file triggers a fresh download.
 | Logical expressions | `and`, `or`, `not`, `!`, parentheses, and implicit union; preserves input order |
 | `rdepends:<port>` | Indexed transitive reverse dependencies; exact, case-insensitive port names |
 | Registry selectors, `depof`/`rdepof`, current directory, Portfile URLs | Not implemented |
+| Action abbreviations | Unique case-insensitive prefixes, exact-name priority, upstream ambiguity checks |
 | Command chaining | Quoted `;` separators, per-action option reset, stops on first error |
 | Interactive mode and command files | Not implemented |
 
@@ -94,6 +95,14 @@ order and stop on the first error; successful earlier actions are not rolled
 back. The parsed index is reused until `--index-file` changes, so a chain sees a
 consistent catalog snapshot for each uninterrupted use of a source. Semicolons
 inside a larger argument are ordinary characters. No shell interpreter is used.
+
+Actions accept unique prefixes: `port sear curl`, `port ver`, and
+`port help sear`. Exact lowercase action names take priority; otherwise prefixes
+are matched case-insensitively against the upstream command vocabulary, including
+commands not yet implemented here. For example, `dep` is ambiguous between
+`dependents` and `deps`; `activ` resolves to `activate` and reports that it is not
+implemented. The Rust `download` extension also participates. Wildcard action
+patterns and interactive-only action abbreviations are not supported.
 
 Place command flags before the first port expression. Field selectors use
 case-insensitive regular expressions, including singular/plural aliases such as
@@ -239,7 +248,8 @@ memory measurements and differential benchmarks on the same machine remain requi
 
 ## Code organization
 
-- `src/main.rs`, `src/cli.rs`: CLI options, command chaining, and exit handling.
+- `src/main.rs`, `src/cli.rs`, `src/cli/actions.rs`: CLI options, command chaining,
+  action expansion, and exit handling.
 - `src/commands/`: action-specific arguments and handlers for search, info,
   dependency queries, downloads, and basic index inspection.
 - `src/dependencies/`: dependency specifications, phase filters, graph traversal,

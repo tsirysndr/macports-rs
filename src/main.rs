@@ -1,13 +1,12 @@
 mod cli;
 
-use clap::Parser;
 use port_rs::commands;
 use std::io;
 
 fn run() -> anyhow::Result<()> {
     let mut session = commands::Session::default();
     for args in cli::invocations(std::env::args_os()) {
-        let cli = cli::Cli::parse_from(args);
+        let cli = cli::Cli::parse_invocation(args)?;
         session.run(
             cli.command,
             cli.index_file.as_deref(),
