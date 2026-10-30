@@ -4,7 +4,7 @@ use crate::{
     spec::{PortSpec, is_modifier},
 };
 use anyhow::{Result, bail, ensure};
-mod glob;
+pub(crate) mod glob;
 use glob::Glob;
 use regex::{Regex, RegexBuilder};
 use std::collections::BTreeMap;

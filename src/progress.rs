@@ -63,7 +63,11 @@ impl Progress {
     }
     /// Warnings remain visible in quiet mode and coexist with download bars.
     pub fn warning(&self, message: &str) {
-        let message = format!("Warning: {}", sanitize(message));
+        self.message(&format!("Warning: {message}"));
+    }
+    /// Unconditional plain message, including details accompanying a warning.
+    pub fn message(&self, message: &str) {
+        let message = sanitize(message);
         if self.terminal && !self.quiet {
             let _ = self.bars.println(message);
         } else {

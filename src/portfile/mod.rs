@@ -11,6 +11,7 @@ mod build_state;
 mod command_exec;
 mod command_options;
 mod commands;
+mod configure_checks;
 mod configure_phase;
 mod creation_mask;
 mod defaults;
@@ -201,6 +202,7 @@ fn open(
     workpath::install(&mut interp, id);
     build_state::install(&mut interp, id);
     phase_start::install(&mut interp, id);
+    configure_checks::install(&mut interp, id);
     paths::install(&mut interp, id);
     creation_mask::install(&mut interp, id);
     traverse::install(&mut interp, id);

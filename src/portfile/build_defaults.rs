@@ -32,6 +32,12 @@ pub(super) fn initialize(interp: &mut Interp, id: ContextID) -> MoltResult {
             "[portconfigure::configure_get_developer_dir]",
         ),
         ("use_configure", "yes"),
+        ("configure.checks.implicit_function_declaration", "yes"),
+        ("configure.checks.implicit_int", "yes"),
+        (
+            "configure.checks.incompatible_function_pointer_types",
+            "yes",
+        ),
         ("portconfigure::no_default_compiler_allowed", "0"),
         ("UI_PREFIX", "--->"),
         ("configure.env", ""),

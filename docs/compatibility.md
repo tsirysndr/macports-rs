@@ -627,6 +627,15 @@ The caller owns the state handle and its lifetime. This is the callback/state
 portion of `target_run`: runtime-package loading, prerequisites, environment,
 working directory, sandbox/tracing, privileges, and log copying still belong to
 the host driver and are not supplied by this method.
+Native `portconfigure::configure_finish` dispatches enabled checks for implicit
+function declarations, implicit int, and incompatible function-pointer types.
+The checks scan nested config.log, CMakeError.log, and meson-log.txt files in
+Rust without grep, match warning flags at line ends, and apply case-insensitive
+Tcl-style whitelist globs. Diagnostics use the shared progress manager. The
+implicit-function whitelist must currently be supplied by the host or Portfile;
+SDK-dependent whitelist defaults are not implemented, and missing configuration
+fails explicitly. Configure startup/compiler validation and ccache initialization
+remain unfinished.
 Native `portbuild::build_start` and `porttest::test_start` now emit phase notices;
 build startup also warns once per session about compiler fallback when the host
 sets `portconfigure::no_default_compiler_allowed`. This flag defaults to false;
