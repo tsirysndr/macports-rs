@@ -330,6 +330,16 @@ pub struct PublishedDirectory {
     entry: PublishedFile,
 }
 impl PublishedDirectory {
+    pub(crate) fn prepare_rollback(&self) -> Result<()> {
+        self.set_mode(0o700)
+    }
+    pub(crate) fn set_mode(&self, mode: u32) -> Result<()> {
+        ensure!(mode <= 0o7777, "invalid publication mode");
+        self.entry
+            ._anchor
+            .set_permissions(std::fs::Permissions::from_mode(mode))?;
+        Ok(())
+    }
     /// Restore final ownership and permissions after publishing children.
     pub fn set_owner_mode(&self, uid: u64, gid: u64, mode: u32) -> Result<()> {
         self.entry.set_owner_mode(uid, gid, mode)

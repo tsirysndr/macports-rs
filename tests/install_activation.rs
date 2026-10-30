@@ -21,14 +21,18 @@ fn image(directory: &std::path::Path) -> extract::PreparedImage {
         "opt/local/bin/alias",
         "opt/local/bin/hard",
     ]);
-    let bytes = compress(&tar(&[
-        ("+CONTENTS", b'0', c.as_bytes(), ""),
-        ("+PORTFILE", b'0', b"must not execute", ""),
-        ("opt/local/empty", b'5', b"", ""),
-        ("opt/local/bin/app", b'0', b"payload", ""),
-        ("opt/local/bin/alias", b'2', b"", "app"),
-        ("opt/local/bin/hard", b'1', b"", "opt/local/bin/app"),
-    ]));
+    let bytes = compress(&tar_with_owner(
+        &[
+            ("+CONTENTS", b'0', c.as_bytes(), ""),
+            ("+PORTFILE", b'0', b"must not execute", ""),
+            ("opt/local/empty", b'5', b"", ""),
+            ("opt/local/bin/app", b'0', b"payload", ""),
+            ("opt/local/bin/alias", b'2', b"", "app"),
+            ("opt/local/bin/hard", b'1', b"", "opt/local/bin/app"),
+        ],
+        unsafe { libc::geteuid() }.into(),
+        unsafe { libc::getegid() }.into(),
+    ));
     extract::prepare(&mut stage(&bytes), &items[0], directory, Limits::default()).unwrap()
 }
 #[test]
@@ -177,4 +181,105 @@ fn registry_preflight_binds_identity_and_detects_owners_without_disk_files() {
             .contains("owned by another image")
     );
     assert_eq!(fs::read_dir(root.path()).unwrap().count(), 0);
+}
+
+fn registration(plan: &Plan<'_>) -> port_rs::registry::write::NewImage {
+    use port_rs::registry::write::{ImageFile, NewImage};
+    let contents = &plan.image.inspection().contents;
+    NewImage {
+        name: contents.name.clone(),
+        version: contents.version.clone(),
+        revision: contents.revision as i64,
+        epoch: contents.epoch as i64,
+        variants: contents.variants.iter().map(|v| format!("+{v}")).collect(),
+        archs: contents.archs.join(" "),
+        location: "/images/app.tbz2".into(),
+        files: plan
+            .files
+            .iter()
+            .map(|f| ImageFile {
+                path: f.installed_path.clone(),
+                binary: false,
+            })
+            .collect(),
+        ..NewImage::default()
+    }
+}
+
+#[test]
+fn publishes_complete_image_and_commits_registry_before_retention() {
+    use std::os::unix::fs::MetadataExt;
+    let temp = tempfile::tempdir().unwrap();
+    let image = image(temp.path());
+    let root = tempfile::tempdir().unwrap();
+    let plan = Plan::inspect(&image, root.path()).unwrap();
+    let mut writer =
+        port_rs::registry::write::Writer::create(&temp.path().join("registry.db")).unwrap();
+    let mut tx = writer.transaction().unwrap();
+    let id = tx.register(&registration(&plan)).unwrap();
+    let published = plan.publish(&tx, id).unwrap();
+    let app = root.path().join("opt/local/bin/app");
+    assert_eq!(fs::read(&app).unwrap(), b"payload");
+    assert_eq!(
+        fs::read_link(root.path().join("opt/local/bin/alias")).unwrap(),
+        std::path::Path::new("app")
+    );
+    let metadata = fs::metadata(&app).unwrap();
+    assert_eq!(
+        metadata.ino(),
+        fs::metadata(root.path().join("opt/local/bin/hard"))
+            .unwrap()
+            .ino()
+    );
+    assert_eq!(metadata.mtime(), 1_700_000_000);
+    assert_eq!(metadata.mode() & 0o7777, 0o755);
+    assert!(root.path().join("opt/local/empty").is_dir());
+    assert!(!root.path().join("+PORTFILE").exists());
+    assert!(!tx.entries().unwrap()[0].active);
+    tx.activate(id, published.mappings()).unwrap();
+    tx.commit().unwrap();
+    published.persist();
+    assert!(writer.transaction().unwrap().entries().unwrap()[0].active);
+    assert_eq!(fs::read(&app).unwrap(), b"payload");
+}
+
+#[test]
+fn rolls_back_the_whole_image_and_preserves_shared_directories() {
+    let temp = tempfile::tempdir().unwrap();
+    let image = image(temp.path());
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir(root.path().join("opt")).unwrap();
+    fs::write(root.path().join("opt/unrelated"), b"retained").unwrap();
+    let plan = Plan::inspect(&image, root.path()).unwrap();
+    let mut writer =
+        port_rs::registry::write::Writer::create(&temp.path().join("registry.db")).unwrap();
+    let mut tx = writer.transaction().unwrap();
+    let id = tx.register(&registration(&plan)).unwrap();
+    let published = plan.publish(&tx, id).unwrap();
+    drop(published);
+    assert!(!root.path().join("opt/local").exists());
+    assert_eq!(
+        fs::read(root.path().join("opt/unrelated")).unwrap(),
+        b"retained"
+    );
+    assert!(!tx.entries().unwrap()[0].active);
+    plan.publish(&tx, id).unwrap().rollback().unwrap();
+    assert!(!root.path().join("opt/local").exists());
+    // The old preflight must not authorize overwriting a newly created entry.
+    fs::write(root.path().join("opt/local"), b"late collision").unwrap();
+    assert!(plan.publish(&tx, id).is_err());
+    assert_eq!(
+        fs::read(root.path().join("opt/local")).unwrap(),
+        b"late collision"
+    );
+    fs::remove_file(root.path().join("opt/local")).unwrap();
+    // A missing staged file fails after directories and the earlier symlink have
+    // been created. The entire partial publication must be removed.
+    fs::remove_file(image.payload().join("opt/local/bin/app")).unwrap();
+    assert!(plan.publish(&tx, id).is_err());
+    assert!(!root.path().join("opt/local").exists());
+    assert_eq!(
+        fs::read(root.path().join("opt/unrelated")).unwrap(),
+        b"retained"
+    );
 }

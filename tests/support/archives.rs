@@ -15,6 +15,9 @@ pub fn contents(files: &[&str]) -> String {
     )
 }
 pub fn tar(records: &[(&str, u8, &[u8], &str)]) -> Vec<u8> {
+    tar_with_owner(records, 501, 20)
+}
+pub fn tar_with_owner(records: &[(&str, u8, &[u8], &str)], uid: u64, gid: u64) -> Vec<u8> {
     let mut builder = tar::Builder::new(Vec::new());
     for (name, kind, data, link) in records {
         let mut header = tar::Header::new_ustar();
@@ -23,8 +26,8 @@ pub fn tar(records: &[(&str, u8, &[u8], &str)]) -> Vec<u8> {
         header.set_entry_type(tar::EntryType::new(*kind));
         header.set_size(data.len() as u64);
         header.set_mode(0o755);
-        header.set_uid(501);
-        header.set_gid(20);
+        header.set_uid(uid);
+        header.set_gid(gid);
         header.set_mtime(1_700_000_000);
         if !link.is_empty() {
             header.set_link_name(link).unwrap();

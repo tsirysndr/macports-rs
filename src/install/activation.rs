@@ -1,9 +1,11 @@
-//! Read-only filesystem preflight for activating a verified, prepared image.
+//! Filesystem preflight and reversible publication of verified, prepared images.
+mod publish;
 use super::{
     extract::PreparedImage,
     inspect::{Kind, Member},
 };
 use anyhow::{Context, Result, ensure};
+pub use publish::PublishedImage;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs, io,

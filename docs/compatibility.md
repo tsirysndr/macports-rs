@@ -1201,3 +1201,24 @@ they do not implement privilege elevation. A failure after ownership changes
 requires publication rollback. Tests cover set-ID mode restoration, hardlink
 sharing, directories, invalid inputs, replacement paths, and untouched symlink
 targets. Final directory permissions must be applied after child publication.
+
+On macOS, `activation::Plan::publish` now connects prepared images, locked registry
+preflight, and filesystem publication. It rebuilds the filesystem plan, checks the
+registered identity and file ownership, creates missing parents, publishes files
+and symlinks, then creates hardlink aliases. File ownership, modes, and timestamps
+are restored; explicit new directories receive metadata after their children,
+while shared directories stay untouched. Nonempty archive file flags remain an
+explicit unsupported case, rejected before publication. Hardlinks inherit their
+regular source's inode metadata.
+
+The returned `PublishedImage` exposes the registry mappings and owns all rollback
+receipts. The coordinator must activate those mappings, commit the registry, and
+only then persist the publication. Explicit rollback reports cleanup errors;
+Drop performs best-effort rollback. Rollback restores access to newly created
+directories before removing files and then directories in reverse order. Failures
+partway through publication roll back completed work and preserve unrelated files.
+Tests cover a complete image publication plus registry commit, automatic/explicit
+rollback, shared directories, stale preflight conflicts, and missing staged data.
+This API requires exclusive destination access and provides in-process recovery
+only; CLI wiring, file flags, privilege elevation, and durable crash recovery are
+still pending.

@@ -1,0 +1,177 @@
+use super::Plan;
+use crate::{
+    install::{
+        inspect::Kind,
+        publication::{PublishedDirectory, PublishedFile, Root},
+    },
+    registry::write::{ActivationFile, WriteTransaction},
+};
+use anyhow::{Context, Result, ensure};
+use std::{collections::BTreeMap, fs::OpenOptions, os::unix::fs::OpenOptionsExt, path::Path};
+
+/// Filesystem publication pending registry activation and commit. Drop rolls back
+/// in-process; the caller must keep exclusive destination access throughout.
+/// This is not a durable crash-recovery journal.
+pub struct PublishedImage {
+    mappings: Vec<ActivationFile>,
+    files: Vec<PublishedFile>,
+    directories: Vec<PublishedDirectory>,
+}
+impl PublishedImage {
+    pub fn mappings(&self) -> &[ActivationFile] {
+        &self.mappings
+    }
+    /// Call only after registry activation and transaction commit succeed.
+    pub fn persist(mut self) {
+        for file in self.files.drain(..) {
+            file.persist();
+        }
+        for directory in self.directories.drain(..) {
+            directory.persist();
+        }
+    }
+    pub fn rollback(mut self) -> Result<()> {
+        self.remove()
+    }
+    fn remove(&mut self) -> Result<()> {
+        let mut errors = Vec::new();
+        // Final archive permissions may remove directory search/write access.
+        // Reopen access on our own directories before removing their children.
+        for directory in &self.directories {
+            if let Err(error) = directory.prepare_rollback() {
+                errors.push(error.to_string());
+            }
+        }
+        while let Some(file) = self.files.pop() {
+            if let Err(error) = file.rollback() {
+                errors.push(error.to_string());
+            }
+        }
+        while let Some(directory) = self.directories.pop() {
+            if let Err(error) = directory.rollback() {
+                errors.push(error.to_string());
+            }
+        }
+        ensure!(
+            errors.is_empty(),
+            "image rollback failed: {}",
+            errors.join("; ")
+        );
+        Ok(())
+    }
+}
+impl Drop for PublishedImage {
+    fn drop(&mut self) {
+        let _ = self.remove();
+    }
+}
+impl Plan<'_> {
+    /// Recheck the filesystem and locked registry, then publish payload and
+    /// metadata. The caller still owns registry activation/commit and must retain
+    /// the returned receipt until both succeed. Control files are never executed.
+    #[cfg(target_os = "macos")]
+    pub fn publish(
+        &self,
+        transaction: &WriteTransaction<'_>,
+        image_id: i64,
+    ) -> Result<PublishedImage> {
+        let plan = Plan::inspect(self.image, &self.root)?;
+        let mappings = plan.check_registry(transaction, image_id)?;
+        for member in plan.image.inspection().members.values() {
+            ensure!(
+                member
+                    .attributes
+                    .get("SCHILY.fflags")
+                    .is_none_or(String::is_empty),
+                "archive file flags are not supported by activation yet"
+            );
+            ensure!(
+                member.mode <= 0o7777
+                    && member.metadata.uid < u64::from(u32::MAX)
+                    && member.metadata.gid < u64::from(u32::MAX),
+                "invalid activation metadata"
+            );
+        }
+        let root = Root::open(&plan.root)?;
+        let mut published = PublishedImage {
+            mappings,
+            files: Vec::new(),
+            directories: Vec::new(),
+        };
+        let result = (|| -> Result<()> {
+            let mut directory_indices = Vec::new();
+            for directory in &plan.directories {
+                if let Some(receipt) =
+                    root.create_directory(directory.destination.strip_prefix(&plan.root)?, 0o700)?
+                {
+                    directory_indices.push(directory);
+                    published.directories.push(receipt);
+                }
+            }
+            let mut originals = BTreeMap::new();
+            // Hardlinks may sort before their regular-file source.
+            for file in plan
+                .files
+                .iter()
+                .filter(|file| !matches!(file.member.kind, Kind::Hardlink(_)))
+            {
+                let relative = file.destination.strip_prefix(&plan.root)?;
+                let receipt = match &file.member.kind {
+                    Kind::File => {
+                        let mut input = OpenOptions::new()
+                            .read(true)
+                            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+                            .open(&file.source)?;
+                        ensure!(
+                            input.metadata()?.is_file()
+                                && input.metadata()?.len() == file.member.size,
+                            "prepared payload is not a regular file of the expected size"
+                        );
+                        root.publish_file(relative, &mut input, 0o600)?
+                    }
+                    Kind::Symlink(target) => root.publish_symlink(relative, Path::new(target))?,
+                    _ => unreachable!("plan contains only payload files"),
+                };
+                originals.insert(relative.to_owned(), published.files.len());
+                published.files.push(receipt);
+                let receipt = published.files.last().unwrap();
+                let metadata = &file.member.metadata;
+                receipt.set_owner_mode(metadata.uid, metadata.gid, file.member.mode)?;
+                receipt.set_times(metadata.atime, metadata.mtime)?;
+            }
+            for file in &plan.files {
+                if let Kind::Hardlink(target) = &file.member.kind {
+                    let index = originals
+                        .get(Path::new(target))
+                        .context("missing published hardlink source")?;
+                    let receipt = root.publish_hardlink(
+                        file.destination.strip_prefix(&plan.root)?,
+                        &published.files[*index],
+                    )?;
+                    published.files.push(receipt);
+                }
+            }
+            for (directory, receipt) in directory_indices.iter().zip(&published.directories).rev() {
+                if let Some(name) = &directory.member_path {
+                    let member = &plan.image.inspection().members[name];
+                    let metadata = &member.metadata;
+                    receipt.set_owner_mode(metadata.uid, metadata.gid, member.mode)?;
+                    receipt.set_times(metadata.atime, metadata.mtime)?;
+                } else {
+                    // Preserve creation ownership, including inherited groups.
+                    receipt.set_mode(0o755)?;
+                }
+            }
+            Ok(())
+        })();
+        if let Err(error) = result {
+            if let Err(rollback) = published.remove() {
+                return Err(
+                    error.context(format!("publication rollback also failed: {rollback:#}"))
+                );
+            }
+            return Err(error);
+        }
+        Ok(published)
+    }
+}
