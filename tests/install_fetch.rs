@@ -45,6 +45,9 @@ impl Drop for Server {
     }
 }
 async fn server(routes: Vec<(&str, Vec<u8>)>) -> Server {
+    server_with_gate(routes, None).await
+}
+async fn server_with_gate(routes: Vec<(&str, Vec<u8>)>, gate: Option<(&str, &str)>) -> Server {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     let routes: HashMap<String, Vec<u8>> = routes
@@ -56,8 +59,12 @@ async fn server(routes: Vec<(&str, Vec<u8>)>) -> Server {
     let peak = Arc::new(AtomicUsize::new(0));
     let calls = Arc::new(AtomicUsize::new(0));
     let (peak_task, calls_task) = (peak.clone(), calls.clone());
+    let gate = gate.map(|(blocked, release)| (blocked.to_owned(), release.to_owned()));
+    let ready = Arc::new(tokio::sync::Semaphore::new(0));
     let task = tokio::spawn(async move {
         while let Ok((mut socket, _)) = listener.accept().await {
+            let gate = gate.clone();
+            let ready = ready.clone();
             let (routes, active, peak, calls) = (
                 routes.clone(),
                 active.clone(),
@@ -83,6 +90,14 @@ async fn server(routes: Vec<(&str, Vec<u8>)>) -> Server {
                 tokio::time::sleep(Duration::from_millis(20)).await;
                 let request = String::from_utf8(request).unwrap();
                 let path = request.split_whitespace().nth(1).unwrap();
+                if let Some((blocked, release)) = gate {
+                    if path == release {
+                        ready.add_permits(1);
+                    }
+                    if path == blocked {
+                        ready.acquire().await.unwrap().forget();
+                    }
+                }
                 let response = routes.get(path).cloned().unwrap_or_else(|| {
                     b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
                         .to_vec()
@@ -336,4 +351,88 @@ async fn downloaded_archive_prepares_only_for_matching_package_and_target() {
     let path = image.payload();
     drop(image);
     assert!(!path.exists());
+}
+
+#[tokio::test]
+async fn finished_transfer_refills_slot_while_first_transfer_is_still_waiting() {
+    let (key, sig_a) = signed(b"first");
+    let (_, sig_b) = signed(b"second");
+    let (_, sig_c) = signed(b"third");
+    // The first payload cannot finish until the third request starts. With two
+    // slots, completing the second must let the third start independently of A.
+    let server = server_with_gate(
+        vec![
+            ("/a", response(b"first")),
+            ("/a.sig", response(&sig_a)),
+            ("/b", response(b"second")),
+            ("/b.sig", response(&sig_b)),
+            ("/c", response(b"third")),
+            ("/c.sig", response(&sig_c)),
+        ],
+        Some(("/a", "/c.sig")),
+    )
+    .await;
+    let temp = tempfile::tempdir().unwrap();
+    let requests = [
+        request(&server, &["/a"], 5),
+        request(&server, &["/b"], 6),
+        request(&server, &["/c"], 5),
+    ];
+    let mut archives = tokio::time::timeout(
+        Duration::from_secs(10),
+        fetch::run(&requests, temp.path(), &[key], 2, &Progress::new(true)),
+    )
+    .await
+    .expect("a completed transfer must release its slot before the first finishes")
+    .unwrap();
+    for (archive, expected) in archives
+        .iter_mut()
+        .zip([b"first".as_slice(), b"second", b"third"])
+    {
+        let mut bytes = Vec::new();
+        archive.reader().unwrap().read_to_end(&mut bytes).unwrap();
+        assert_eq!(bytes, expected);
+    }
+    assert_eq!(server.peak.load(Ordering::SeqCst), 2);
+    assert_eq!(server.calls.load(Ordering::SeqCst), 6);
+    assert_eq!(std::fs::read_dir(temp.path()).unwrap().count(), 0);
+}
+
+#[tokio::test]
+async fn out_of_order_failures_still_drain_and_report_the_first_plan_error() {
+    let (key, sig) = signed(b"valid");
+    let server = server_with_gate(
+        vec![
+            ("/a", response(b"wrong")),
+            ("/a.sig", response(&sig)),
+            ("/b", response(b"wrong")),
+            ("/b.sig", response(&sig)),
+            ("/c", response(b"valid")),
+            ("/c.sig", response(&sig)),
+        ],
+        Some(("/a", "/c.sig")),
+    )
+    .await;
+    let temp = tempfile::tempdir().unwrap();
+    let requests = [
+        request(&server, &["/a"], 5),
+        request(&server, &["/b"], 5),
+        request(&server, &["/c"], 5),
+    ];
+    let error = tokio::time::timeout(
+        Duration::from_secs(10),
+        fetch::run(&requests, temp.path(), &[key], 2, &Progress::new(true)),
+    )
+    .await
+    .expect("failed transfers must release their slots")
+    .err()
+    .unwrap();
+    let message = format!("{error:#}");
+    assert!(message.contains(&format!("{}/a:", server.url)), "{message}");
+    assert!(
+        !message.contains(&format!("{}/b:", server.url)),
+        "{message}"
+    );
+    assert_eq!(server.calls.load(Ordering::SeqCst), 6);
+    assert_eq!(std::fs::read_dir(temp.path()).unwrap().count(), 0);
 }

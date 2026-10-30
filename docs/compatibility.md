@@ -1324,3 +1324,12 @@ additional decompression/inspection pass previously performed during storage.
 Tests reject a different signed payload with the same package identity before
 creating store entries, and verify that the shared inventory survives extraction
 cleanup. No performance benchmark or speedup claim has been published yet.
+
+Signed-archive fetching now schedules completions independently of input order.
+A finished transfer immediately frees its concurrency slot even if an earlier
+archive is still waiting; results are reordered to plan order after the batch is
+drained. This removes head-of-line blocking without changing the concurrency
+limit, deterministic result/error order, signature validation, or cleanup behavior.
+A gated local HTTP regression test makes the first payload wait for the third
+request with only two transfer slots, then checks ordered results and the observed
+concurrency limit. This is a scheduling regression test, not a performance benchmark.

@@ -69,16 +69,23 @@ pub async fn run(
         "Fetching {} signed archives ({jobs} concurrent transfers)",
         requests.len()
     ));
-    let results: Vec<Result<VerifiedArchive>> = stream::iter(
+    let mut results: Vec<(usize, Result<VerifiedArchive>)> = stream::iter(
         requests
             .iter()
             .zip(&urls)
-            .map(|(request, urls)| fetch(&client, request, urls, directory, keys, progress)),
+            .enumerate()
+            .map(|(index, (request, urls))| {
+                let future = fetch(&client, request, urls, directory, keys, progress);
+                async move { (index, future.await) }
+            }),
     )
-    .buffered(jobs)
+    .buffer_unordered(jobs)
     .collect()
     .await;
-    results.into_iter().collect()
+    // Free each finished slot immediately, even if an earlier transfer is slow.
+    // Restore plan order only after all transfers finish, including on failure.
+    results.sort_unstable_by_key(|(index, _)| *index);
+    results.into_iter().map(|(_, result)| result).collect()
 }
 
 async fn fetch(
