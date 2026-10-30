@@ -453,9 +453,14 @@ working directory. `parse_environment`, `append_to_environment_value`, and
 
 `portbuild::build_main` now executes configured build commands, including
 make/ninja job arguments and make directory logging. `do-build` can delegate to
-it from a custom build block. Compiler discovery, default command/directory
-selection, and PortSystem initialization are still required; callers must supply
-the execution configuration. Native progress callbacks remain unsupported. A macOS integration test compiles a C program and verifies
+it from a custom build block. Enabling execution installs lazy defaults for
+source/staging directories, configure/build/test/destroot command directories,
+compiler include/library paths, verbose compiler logging, and Xcode versus CLT
+developer-directory selection. Explicit values and Portfile defaults take
+precedence. Callers still supply the prefix/work directory, SDK, timestamp,
+selected Xcode directory when needed, and build command. Compiler discovery,
+make selection, and full PortSystem initialization remain unfinished.
+Native progress callbacks remain unsupported. A macOS integration test compiles a C program and verifies
 prefixed compiler diagnostics through this path.
 
 The `portfile` library now evaluates an initial set of Portfile metadata commands

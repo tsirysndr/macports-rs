@@ -61,6 +61,8 @@ impl Session {
     /// Enable `system` with `-W`, `-notty`, and `-nice` after metadata
     /// evaluation. Supply the complete initial environment explicitly; changes
     /// to the Tcl env array are captured separately for every invocation.
+    /// Installs lazy build-directory and compiler-environment defaults without
+    /// replacing Portfile values. Host SDK/compiler discovery remains external.
     ///
     /// The executor is synchronous because Molt procedures are synchronous.
     /// An installer should own this session on a blocking worker and forward
@@ -79,6 +81,7 @@ impl Session {
             .flat_map(|(k, v)| [Value::from(k.clone()), Value::from(v.clone())])
             .collect::<Vec<_>>();
         self.interp.array_set("env", &values).map_err(failure)?;
+        build_defaults::initialize(&mut self.interp, self.id).map_err(failure)?;
         self.interp.context::<State>(self.id).system_executor = Some(Box::new(executor));
         self.interp.add_context_command("system", command, self.id);
         Ok(())

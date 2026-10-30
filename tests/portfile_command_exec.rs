@@ -376,3 +376,38 @@ fn command_exec_uses_the_selected_variable_prefix_for_priority() {
     );
     assert_eq!(requests.lock().unwrap().len(), 1);
 }
+
+#[test]
+fn command_execution_uses_native_build_environment_defaults() {
+    let tree = tempfile::tempdir().unwrap();
+    let mut session = Session::open(
+        r#"
+        name app; version 1
+        set prefix /configured
+        set workpath work
+        set use_xcode no
+        set macosx_deployment_target {}
+        set configure.sdkroot {}
+        set source_date_epoch 12345
+        build.cmd /usr/bin/env
+    "#,
+        &BTreeMap::new(),
+        &PortSpec::named("app"),
+        PortGroups::default(),
+    )
+    .unwrap();
+    let output = executor(&mut session, tree.path().into());
+    session.invoke("command_exec", &["build"]).unwrap();
+    let text = String::from_utf8(output.lock().unwrap().clone()).unwrap();
+    for expected in [
+        "CPATH=/configured/include",
+        "LIBRARY_PATH=/configured/lib",
+        "CC_PRINT_OPTIONS=YES",
+        "CC_PRINT_OPTIONS_FILE=work/.CC_PRINT_OPTIONS",
+        "DEVELOPER_DIR=/Library/Developer/CommandLineTools",
+        "SOURCE_DATE_EPOCH=12345",
+    ] {
+        assert!(text.contains(expected), "missing {expected}: {text}");
+    }
+    assert!(tree.path().join("work/app-1").is_dir());
+}
