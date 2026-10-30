@@ -1110,3 +1110,12 @@ must still revalidate paths, apply metadata, handle rollback/crash recovery, and
 record activation only after successful publication. Tests cover read-only
 preflight, identity mismatch, ownership changes, damaged duplicate file maps,
 and rollback after a deliberately failed activation update.
+
+Registry activation validation also rejects active file owners above or below a
+proposed destination, even when those files are absent from disk. Ancestors use
+indexed exact lookups; descendants use a component-bounded NOCASE range on the
+existing path index. Filename `%` and `_` characters are literal, and ordinary
+prefix lookalikes do not conflict. A single activation mapping cannot place one
+payload file below another mapped file either. Tests cover both ownership
+directions, case differences, deactivated owners, prefix lookalikes, wildcard
+characters, and both ordering permutations of conflicting mappings.

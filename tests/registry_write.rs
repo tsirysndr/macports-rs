@@ -437,3 +437,131 @@ fn failed_activation_after_preflight_rolls_back_all_file_updates() {
     );
     assert!(!registry::read(Some(&path)).unwrap()[0].active);
 }
+
+#[test]
+fn activation_preflight_rejects_registered_ancestors_and_descendants() {
+    for (owned, proposed) in [
+        ("/opt/local/bin/tool", "/OPT/local/bin/TOOL/child"),
+        ("/opt/local/bin/tool/child", "/OPT/LOCAL/bin/tool"),
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        let mut writer = Writer::create(&temp.path().join("registry.db")).unwrap();
+        let mut tx = writer.transaction().unwrap();
+        let owner = tx.register(&image("owner")).unwrap();
+        tx.activate(
+            owner,
+            &[ActivationFile {
+                path: "/opt/local/bin/owner".into(),
+                actual_path: owned.into(),
+            }],
+        )
+        .unwrap();
+        let candidate = tx.register(&image("candidate")).unwrap();
+        let files = [ActivationFile {
+            path: "/opt/local/bin/candidate".into(),
+            actual_path: proposed.into(),
+        }];
+        assert!(
+            tx.check_activation(candidate, &files)
+                .unwrap_err()
+                .to_string()
+                .contains("owned by another image")
+        );
+        assert!(tx.activate(candidate, &files).is_err());
+        assert!(
+            !tx.entries()
+                .unwrap()
+                .iter()
+                .find(|e| e.id == candidate)
+                .unwrap()
+                .active
+        );
+    }
+}
+
+#[test]
+fn ownership_ranges_treat_prefix_lookalikes_and_wildcards_literally() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut writer = Writer::create(&temp.path().join("registry.db")).unwrap();
+    let mut tx = writer.transaction().unwrap();
+    let owner = tx.register(&image("owner")).unwrap();
+    tx.activate(
+        owner,
+        &[ActivationFile {
+            path: "/opt/local/bin/owner".into(),
+            actual_path: "/prefix/a%b_c/child".into(),
+        }],
+    )
+    .unwrap();
+    let candidate = tx.register(&image("candidate")).unwrap();
+    for proposed in [
+        "/prefix/a",
+        "/prefix/a%b",
+        "/prefix/a%b_c-extra",
+        "/prefix/axbyc",
+    ] {
+        tx.check_activation(
+            candidate,
+            &[ActivationFile {
+                path: "/opt/local/bin/candidate".into(),
+                actual_path: proposed.into(),
+            }],
+        )
+        .unwrap();
+    }
+    assert!(
+        tx.check_activation(
+            candidate,
+            &[ActivationFile {
+                path: "/opt/local/bin/candidate".into(),
+                actual_path: "/PREFIX/A%B_C".into()
+            }]
+        )
+        .is_err()
+    );
+    tx.deactivate(owner).unwrap();
+    tx.check_activation(
+        candidate,
+        &[ActivationFile {
+            path: "/opt/local/bin/candidate".into(),
+            actual_path: "/PREFIX/A%B_C".into(),
+        }],
+    )
+    .unwrap();
+}
+
+#[test]
+fn activation_mapping_cannot_place_a_file_beneath_another_mapped_file() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut writer = Writer::create(&temp.path().join("registry.db")).unwrap();
+    let mut tx = writer.transaction().unwrap();
+    let mut record = image("app");
+    record.files.push(ImageFile {
+        path: "/second".into(),
+        binary: false,
+    });
+    let id = tx.register(&record).unwrap();
+    for destinations in [
+        ["/prefix/parent", "/PREFIX/parent/child"],
+        ["/prefix/parent/child", "/PREFIX/parent"],
+    ] {
+        let files = [
+            ActivationFile {
+                path: "/opt/local/bin/app".into(),
+                actual_path: destinations[0].into(),
+            },
+            ActivationFile {
+                path: "/second".into(),
+                actual_path: destinations[1].into(),
+            },
+        ];
+        assert!(
+            tx.check_activation(id, &files)
+                .unwrap_err()
+                .to_string()
+                .contains("cannot contain one another")
+        );
+        assert!(tx.activate(id, &files).is_err());
+    }
+    assert!(!tx.entries().unwrap()[0].active);
+}

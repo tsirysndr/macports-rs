@@ -237,6 +237,9 @@ impl WriteTransaction<'_> {
         let mut owner_query = self.transaction.prepare(
             "SELECT id FROM files WHERE active AND actual_path=?1 COLLATE NOCASE LIMIT 1",
         )?;
+        let mut descendant_query = self.transaction.prepare(
+            "SELECT actual_path FROM files WHERE active AND actual_path >= ?1 COLLATE NOCASE AND actual_path < ?2 COLLATE NOCASE LIMIT 1",
+        )?;
         for file in files {
             absolute_path(&file.path)?;
             absolute_path(&file.actual_path)?;
@@ -248,15 +251,45 @@ impl WriteTransaction<'_> {
                 destinations.insert(file.actual_path.to_ascii_lowercase()),
                 "duplicate activation destination"
             );
-            let owner: Option<i64> = owner_query
-                .query_row([&file.actual_path], |r| r.get(0))
+            for path in Path::new(&file.actual_path).ancestors() {
+                let path = path.to_str().context("activation path is not UTF-8")?;
+                let owner: Option<i64> = owner_query.query_row([path], |r| r.get(0)).optional()?;
+                ensure!(
+                    owner.is_none(),
+                    "activation path {} conflicts with {} owned by another image",
+                    file.actual_path,
+                    path
+                );
+            }
+            // The range covers only children of this exact path component.
+            // '/' is immediately before '0' in SQLite's NOCASE ordering. Unlike
+            // LIKE, literal '%' and '_' in filenames do not become wildcards.
+            let descendant: Option<String> = descendant_query
+                .query_row(
+                    params![
+                        format!("{}/", file.actual_path),
+                        format!("{}0", file.actual_path)
+                    ],
+                    |row| row.get(0),
+                )
                 .optional()?;
             ensure!(
-                owner.is_none(),
-                "activation path {} is owned by another image",
-                file.actual_path
+                descendant.is_none(),
+                "activation path {} contains {} owned by another image",
+                file.actual_path,
+                descendant.unwrap_or_default()
             );
         }
+        for destination in &destinations {
+            for parent in Path::new(destination).ancestors().skip(1) {
+                ensure!(
+                    !destinations
+                        .contains(parent.to_str().context("activation path is not UTF-8")?),
+                    "activation destinations cannot contain one another: {destination}"
+                );
+            }
+        }
+
         ensure!(
             registered.len() == mappings.len()
                 && registered.iter().all(|path| mappings.contains_key(path)),
