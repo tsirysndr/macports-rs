@@ -31,6 +31,7 @@ bzip2 = "0.6"
 ripemd = "0.2"
 molt = { version = "0.3.1", path = "vendor/molt" }
 libc = "0.2"
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 
 [profile.release]
 lto = "thin"

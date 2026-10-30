@@ -957,3 +957,16 @@ symlinks instead of permitting escapes. Pruning never recursively deletes
 nonempty directories or follows descendant directory links. This helper still
 needs to be connected with ownership, libtool cleanup, compression, and layout
 checks in the complete destroot finish callback.
+
+`Session::compress_destroot_manpages` normalizes plain, gzip, and bzip2 pages in
+physical man/cat section directories into level-9 gzip with no filename or time
+in its header. Compression streams through a temporary file; decode failures
+preserve the source and existing destination. Successful outputs retain source
+owner/group and filesystem timestamps and use mode 0444. The gzip implementation
+uses [flate2's Rust backend](https://docs.rs/flate2/latest/flate2/), with the
+existing bundled bzip2 decoder; no compression executable is required. Compressed
+bytes need not match the system gzip implementation. Relative and staged absolute
+links are updated after pages, including repeated passes for link chains; name
+collisions fail without replacing the colliding link. Descendant directory links
+are skipped and an outward-resolving prefix is rejected. This helper still needs
+to be connected into the complete destroot finish callback.
