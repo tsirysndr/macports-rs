@@ -324,3 +324,18 @@ fn native_string_match_selects_portfile_dependencies() {
         "port:darwin-helper port:numbered-helper"
     );
 }
+
+#[test]
+fn array_patterns_filter_portfile_environment_without_changing_unmatched_values() {
+    let mut session = Session::open_with_environment(
+        "name app; version 1; set kept [array get env KEEP_*]; array unset env DROP_*; set names [array names env -exact KEEP_PATH]",
+        &BTreeMap::new(), &PortSpec::named("app"), PortGroups::default(),
+        &BTreeMap::from([("KEEP_PATH".into(), "literal $value".into()), ("DROP_ONE".into(), "one".into()), ("DROP_TWO".into(), "two".into())]),
+    ).unwrap();
+    assert_eq!(
+        tcl_list::parse(&session.scalar("kept").unwrap()).unwrap(),
+        ["KEEP_PATH", "literal $value"]
+    );
+    assert_eq!(session.scalar("names").unwrap(), "KEEP_PATH");
+    assert_eq!(session.invoke("array", &["size", "env"]).unwrap(), "1");
+}

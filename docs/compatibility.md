@@ -1533,3 +1533,10 @@ matching shares the same implementation. Matching uses iterative star retries
 without recursive branching or per-match allocation. Tests include recorded Tcl
 query cases, adversarial star patterns, and Portfile dependency selection; no Tcl
 runtime is used by the tests or application.
+
+Native array operations now support glob patterns in `array get`, `array names`,
+and `array unset`, plus exact/glob modes and mode abbreviations for names. Pattern
+removal follows aliases and preserves empty arrays; missing arrays and scalars
+retain upstream no-op/query behavior. Tests cover literal values, Unicode keys,
+argument errors, Portfile environment filtering, and the existing Tcl regression
+suite. `array names -regexp` remains explicitly unsupported.

@@ -11,6 +11,7 @@ use crate::util;
 use crate::*;
 use std::fs;
 use std::time::Instant;
+mod array_patterns;
 mod list_ops;
 mod string_map;
 mod string_match;
@@ -47,31 +48,17 @@ pub fn cmd_array(interp: &mut Interp, context_id: ContextID, argv: &[Value]) -> 
 
 const ARRAY_SUBCOMMANDS: [Subcommand; 6] = [
     Subcommand("exists", cmd_array_exists),
-    Subcommand("get", cmd_array_get),
-    Subcommand("names", cmd_array_names),
+    Subcommand("get", array_patterns::get),
+    Subcommand("names", array_patterns::names),
     Subcommand("set", cmd_array_set),
     Subcommand("size", cmd_array_size),
-    Subcommand("unset", cmd_array_unset),
+    Subcommand("unset", array_patterns::unset),
 ];
 
 /// # array exists arrayName
 pub fn cmd_array_exists(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
     check_args(2, argv, 3, 3, "arrayName")?;
     molt_ok!(Value::from(interp.array_exists(argv[2].as_str())))
-}
-
-/// # array names arrayName
-/// TODO: Add glob matching as a feature, and support standard TCL options.
-pub fn cmd_array_names(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
-    check_args(2, argv, 3, 3, "arrayName")?;
-    molt_ok!(Value::from(interp.array_names(argv[2].as_str())))
-}
-
-/// # array get arrayname
-/// TODO: Add glob matching as a feature, and support standard TCL options.
-pub fn cmd_array_get(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
-    check_args(2, argv, 3, 3, "arrayName")?;
-    molt_ok!(Value::from(interp.array_get(argv[2].as_str())))
 }
 
 /// # array set arrayName list
@@ -101,18 +88,6 @@ pub fn cmd_array_set(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltR
 pub fn cmd_array_size(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
     check_args(2, argv, 3, 3, "arrayName")?;
     molt_ok!(Value::from(interp.array_size(argv[2].as_str()) as MoltInt))
-}
-
-/// # array unset arrayName ?*index*?
-pub fn cmd_array_unset(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
-    check_args(2, argv, 3, 4, "arrayName ?index?")?;
-
-    if argv.len() == 3 {
-        interp.array_unset(argv[2].as_str());
-    } else {
-        interp.unset_element(argv[2].as_str(), argv[3].as_str());
-    }
-    molt_ok!()
 }
 
 /// assert_eq received, expected
