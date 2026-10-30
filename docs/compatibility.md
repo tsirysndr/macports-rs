@@ -627,6 +627,14 @@ The caller owns the state handle and its lifetime. This is the callback/state
 portion of `target_run`: runtime-package loading, prerequisites, environment,
 working directory, sandbox/tracing, privileges, and log copying still belong to
 the host driver and are not supplied by this method.
+Native `portbuild::build_start` and `porttest::test_start` now emit phase notices;
+build startup also warns once per session about compiler fallback when the host
+sets `portconfigure::no_default_compiler_allowed`. This flag defaults to false;
+compiler discovery/selection itself remains unfinished. `Session::set_progress`
+shares the installer's progress manager with these callbacks, preserving quiet
+mode and concurrent download bars; notices honor `UI_PREFIX`. Real-make tests
+exercise both built-in phases through the prepared runtime and verify that a
+second invocation skips their completed work.
 `Session::run_prepared_target` adds automatic state opening/closing and the
 PortSystem environment lifecycle: build-local HOME/TMPDIR, DEVELOPER_DIR during
 user hooks/body, then database HOME and no TMPDIR after execution. Cleanup also

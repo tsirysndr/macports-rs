@@ -28,6 +28,7 @@ mod filesystem;
 mod filesystem_mutations;
 mod groups;
 mod paths;
+mod phase_start;
 mod platform;
 mod session;
 mod state_open;
@@ -80,6 +81,8 @@ pub struct Evaluation {
 #[derive(Default)]
 struct State {
     groups: PortGroups,
+    progress: Option<crate::progress::Progress>,
+    warned: BTreeSet<String>,
     build_states: BTreeMap<String, crate::build::state::StateFile>,
     next_build_state: u64,
     creation_mask: Option<u32>,
@@ -197,6 +200,7 @@ fn open(
     utilities::install(&mut interp, id);
     workpath::install(&mut interp, id);
     build_state::install(&mut interp, id);
+    phase_start::install(&mut interp, id);
     paths::install(&mut interp, id);
     creation_mask::install(&mut interp, id);
     traverse::install(&mut interp, id);

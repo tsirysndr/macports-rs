@@ -45,8 +45,11 @@ impl Progress {
         PausedBars(self.clone())
     }
     pub fn phase(&self, message: &str) {
+        self.phase_with_prefix("--->", message);
+    }
+    pub fn phase_with_prefix(&self, prefix: &str, message: &str) {
         if !self.quiet {
-            let arrow = console::style("--->")
+            let arrow = console::style(sanitize(prefix))
                 .true_color(PRIMARY_RGB.0, PRIMARY_RGB.1, PRIMARY_RGB.2)
                 .bold()
                 .force_styling(self.color);
@@ -56,6 +59,15 @@ impl Progress {
             } else {
                 eprintln!("{message}");
             }
+        }
+    }
+    /// Warnings remain visible in quiet mode and coexist with download bars.
+    pub fn warning(&self, message: &str) {
+        let message = format!("Warning: {}", sanitize(message));
+        if self.terminal && !self.quiet {
+            let _ = self.bars.println(message);
+        } else {
+            eprintln!("{message}");
         }
     }
     pub fn file(&self, name: &str) -> TransferProgress {
@@ -257,10 +269,14 @@ mod tests {
         second.advance(20);
         capture.0.lock().unwrap().clear();
         progress.phase("Verifying a completed transfer");
+        progress.phase_with_prefix("prefix\n", "Building app");
+        progress.warning("a warning\nwith controls");
         let output = capture.0.lock().unwrap().clone();
         assert!(output.contains("curl.tar.xz"));
         assert!(output.contains("git.tar.gz"));
         assert!(output.contains("Verifying a completed transfer"));
+        assert!(output.contains("prefix   Building app"));
+        assert!(output.contains("Warning: a warning with controls"));
         assert!(output.contains("ETA"));
         assert!(!output.contains('\x1b'));
 
