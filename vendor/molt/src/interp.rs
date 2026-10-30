@@ -706,6 +706,7 @@ impl Interp {
         interp.add_command("lappend", commands::cmd_lappend);
         interp.add_command("lindex", commands::cmd_lindex);
         interp.add_command("lrange", commands::cmd_lrange);
+        interp.add_command("lsearch", commands::cmd_lsearch);
         interp.add_command("split", commands::cmd_split);
         interp.add_command("list", commands::cmd_list);
         interp.add_command("llength", commands::cmd_llength);

@@ -1558,3 +1558,11 @@ C++ runtime, libtool policy, and caller-supplied native archive-format support.
 Configured URLs retain no-port-subdirectory semantics. Ports-tree site resource
 evaluation, site merging, legacy signature verification, and final download
 selection are not yet connected to this configuration layer.
+
+The native interpreter supports lsearch glob/exact modes with -all, -inline, -not,
+-nocase, -start, and integer/real exact comparisons. It preserves match order,
+original inline values, option abbreviation ambiguity, and end-relative start
+indices. Tests exercise the mirror-filter expression used by archive_sites.tcl,
+Portfile evaluation, and the Tcl regression suite. Sorted, dictionary, regexp,
+indexed/stride search modes remain explicitly unsupported; namespace evaluation
+is still needed before loading the full archive-site resource file.

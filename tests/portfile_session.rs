@@ -339,3 +339,19 @@ fn array_patterns_filter_portfile_environment_without_changing_unmatched_values(
     assert_eq!(session.scalar("names").unwrap(), "KEEP_PATH");
     assert_eq!(session.invoke("array", &["size", "env"]).unwrap(), "1");
 }
+
+#[test]
+fn list_search_filters_mirror_urls_during_portfile_evaluation() {
+    let session = open(
+        r#"
+        name app; version 1
+        set protocol https
+        set mirrors [lsearch -all -glob -inline -not "${protocol}://one/ ://disabled/ http://two/" {:*}]
+        description [join $mirrors ,]
+    "#,
+    );
+    assert_eq!(
+        session.metadata().port.get("description"),
+        "https://one/,http://two/"
+    );
+}
