@@ -1133,7 +1133,7 @@ identity before unlinking, and uses the held parent even if its original path
 has been renamed. Persisting a receipt retains the file after coordination.
 The caller must exclusively manage the destination directories throughout these
 operations. These primitives do not supply crash recovery,
-archive ownership/flags, or a
+archive flags, or a
 registry transaction coordinator, and are not wired to CLI install yet. Tests
 cover publication/retention, failed streams, collisions, path escapes, replacement
 inodes, and renamed-parent rollback without altering external symlink targets.
@@ -1179,8 +1179,8 @@ present. PAX timestamps are parsed without floating point, support negative time
 and retain nanosecond precision (finer fractions are truncated). Invalid or
 out-of-range IDs/times fail inspection before extraction. Change times are
 validated but cannot be restored through filesystem APIs. This metadata is
-available on each inspected member; applying ownership and wiring metadata into
-the activation coordinator remain pending.
+available on each inspected member; wiring metadata into the activation
+coordinator remains pending.
 
 Publication receipts expose `set_times` using futimens on the held inode. This
 restores nanosecond access/modification times without resolving paths, including
@@ -1190,3 +1190,14 @@ which the coordinator must call after publishing children. Existing shared
 directories remain untouched. Tests cover fractional and negative timestamps,
 unchanged access times, hardlink sharing, replaced paths, and symlink targets.
 This does not yet add metadata journal recovery or automatic CLI activation.
+
+File and new-directory publication receipts also expose `set_owner_mode`, which
+uses fchown and descriptor-based chmod. Ownership is restored before mode because
+chown can clear set-ID bits. On macOS, symlink receipts update the link inode,
+including dangling links, without changing the target. IDs outside the native
+range and the all-ones "leave unchanged" sentinel are rejected before mutation,
+as are invalid mode bits. These operations require the caller's OS permissions;
+they do not implement privilege elevation. A failure after ownership changes
+requires publication rollback. Tests cover set-ID mode restoration, hardlink
+sharing, directories, invalid inputs, replacement paths, and untouched symlink
+targets. Final directory permissions must be applied after child publication.

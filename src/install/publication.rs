@@ -330,6 +330,10 @@ pub struct PublishedDirectory {
     entry: PublishedFile,
 }
 impl PublishedDirectory {
+    /// Restore final ownership and permissions after publishing children.
+    pub fn set_owner_mode(&self, uid: u64, gid: u64, mode: u32) -> Result<()> {
+        self.entry.set_owner_mode(uid, gid, mode)
+    }
     /// Restore directory times after publishing all children.
     pub fn set_times(&self, atime: Option<Timestamp>, mtime: Timestamp) -> Result<()> {
         self.entry.set_times(atime, mtime)
@@ -356,6 +360,36 @@ pub struct PublishedFile {
     _anchor: Arc<File>,
 }
 impl PublishedFile {
+    /// Restore numeric ownership before permissions: chown can clear set-ID bits.
+    /// Both operations address only the held inode (the link itself for macOS
+    /// symlink receipts). Requires OS permission; this does not elevate privileges.
+    /// If chmod fails after chown, the caller must roll back the publication.
+    pub fn set_owner_mode(&self, uid: u64, gid: u64, mode: u32) -> Result<()> {
+        // All-ones is chown's "leave unchanged" sentinel, not an archive owner.
+        ensure!(
+            uid < u64::from(u32::MAX),
+            "archive uid cannot be represented as an owner"
+        );
+        ensure!(
+            gid < u64::from(u32::MAX),
+            "archive gid cannot be represented as a group"
+        );
+        ensure!(mode <= 0o7777, "invalid publication mode");
+        // SAFETY: the receipt owns this descriptor; IDs were checked above.
+        if unsafe {
+            libc::fchown(
+                self._anchor.as_raw_fd(),
+                uid as libc::uid_t,
+                gid as libc::gid_t,
+            )
+        } != 0
+        {
+            return Err(io::Error::last_os_error()).context("cannot restore publication ownership");
+        }
+        self._anchor
+            .set_permissions(std::fs::Permissions::from_mode(mode))
+            .context("cannot restore publication permissions")
+    }
     /// Set times on the held inode, including the link itself for macOS symlink
     /// receipts. An absent access time leaves the existing access time unchanged.
     /// Hardlink aliases share these times. No pathname is resolved by this call.

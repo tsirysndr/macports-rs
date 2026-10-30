@@ -490,3 +490,108 @@ fn restores_symlink_times_without_touching_the_target() {
         (after.atime(), after.atime_nsec())
     );
 }
+
+#[test]
+fn restores_owner_and_mode_after_chown_and_rejects_invalid_values_before_mutation() {
+    use std::os::unix::fs::MetadataExt;
+    let temp = tempfile::tempdir().unwrap();
+    let root = Root::open(temp.path()).unwrap();
+    let owner = fs::metadata(temp.path()).unwrap();
+    let (uid, gid) = (u64::from(owner.uid()), u64::from(owner.gid()));
+    let directory = root
+        .create_directory(Path::new("bin"), 0o700)
+        .unwrap()
+        .unwrap();
+    let file = root
+        .publish_file(Path::new("bin/app"), &mut &b"data"[..], 0o600)
+        .unwrap();
+    let alias = root.publish_hardlink(Path::new("alias"), &file).unwrap();
+    file.set_owner_mode(uid, gid, 0o4755).unwrap();
+    let metadata = fs::metadata(temp.path().join("alias")).unwrap();
+    assert_eq!(
+        (
+            u64::from(metadata.uid()),
+            u64::from(metadata.gid()),
+            metadata.mode() & 0o7777
+        ),
+        (uid, gid, 0o4755)
+    );
+    for (bad_uid, bad_gid, mode) in [
+        (u64::MAX, gid, 0o600),
+        (uid, u64::MAX, 0o600),
+        (u64::from(u32::MAX), gid, 0o600),
+        (uid, u64::from(u32::MAX), 0o600),
+        (uid, gid, 0o10000),
+    ] {
+        assert!(file.set_owner_mode(bad_uid, bad_gid, mode).is_err());
+        assert_eq!(
+            fs::metadata(temp.path().join("alias")).unwrap().mode() & 0o7777,
+            0o4755
+        );
+    }
+    directory.set_owner_mode(uid, gid, 0o750).unwrap();
+    assert_eq!(
+        fs::metadata(temp.path().join("bin")).unwrap().mode() & 0o7777,
+        0o750
+    );
+    fs::rename(temp.path().join("bin/app"), temp.path().join("moved")).unwrap();
+    fs::write(temp.path().join("bin/app"), b"replacement").unwrap();
+    let before = fs::metadata(temp.path().join("bin/app")).unwrap();
+    file.set_owner_mode(uid, gid, 0o640).unwrap();
+    let after = fs::metadata(temp.path().join("bin/app")).unwrap();
+    assert_eq!(
+        (before.uid(), before.gid(), before.mode()),
+        (after.uid(), after.gid(), after.mode())
+    );
+    assert_eq!(
+        fs::metadata(temp.path().join("moved")).unwrap().mode() & 0o7777,
+        0o640
+    );
+    file.persist();
+    alias.persist();
+    directory.persist();
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn restores_symlink_owner_and_mode_without_following_the_target() {
+    use std::os::unix::fs::MetadataExt;
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(temp.path().join("target"), b"untouched").unwrap();
+    fs::set_permissions(
+        temp.path().join("target"),
+        fs::Permissions::from_mode(0o600),
+    )
+    .unwrap();
+    let before = fs::metadata(temp.path().join("target")).unwrap();
+    let root = Root::open(temp.path()).unwrap();
+    for (name, target) in [("link", "target"), ("dangling", "missing")] {
+        let link = root
+            .publish_symlink(Path::new(name), Path::new(target))
+            .unwrap();
+        link.set_owner_mode(u64::from(before.uid()), u64::from(before.gid()), 0o755)
+            .unwrap();
+        let metadata = fs::symlink_metadata(temp.path().join(name)).unwrap();
+        assert_eq!(
+            (metadata.uid(), metadata.gid(), metadata.mode() & 0o7777),
+            (before.uid(), before.gid(), 0o755)
+        );
+    }
+    let after = fs::metadata(temp.path().join("target")).unwrap();
+    assert_eq!(
+        (
+            before.uid(),
+            before.gid(),
+            before.mode(),
+            before.ctime(),
+            before.ctime_nsec()
+        ),
+        (
+            after.uid(),
+            after.gid(),
+            after.mode(),
+            after.ctime(),
+            after.ctime_nsec()
+        )
+    );
+}
