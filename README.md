@@ -471,18 +471,21 @@ prefixed compiler diagnostics through this path.
 `porttest::test_main` runs configured test commands when `test.run` is true,
 using the inherited build command/directory and the default `test` target.
 Custom test blocks can delegate through `do-test`; child status and environment
-cleanup use the same execution path as builds. Native staged Mach-O architecture
-validation is not implemented yet: on macOS the test phase fails explicitly
-unless the Portfile selects `test.ignore_archs yes` or supplies its own
-`porttest::test_archs` implementation. Disabling `test.run` does not bypass this
-architecture check. Full CLI test scheduling remains unfinished.
+cleanup use the same execution path as builds. On macOS, native staged-file
+inspection warns about mismatched or missing Mach-O architectures before running
+port tests. `get_canonical_archs` selects noarch, selected universal architectures,
+the configured build architecture, or the host fallback using upstream rules.
+Symlinks and non-binary data are skipped. `test.ignore_archs yes` disables the
+scan; disabling `test.run` does not. Temporary privilege elevation for a process
+that has dropped root privileges remains explicitly unsupported. Full CLI test
+scheduling remains unfinished.
 
 The native `macho` library now inspects CPU architectures in thin Mach-O files,
 32/64-bit universal containers, and Unix static archives, including BSD extended
 member names. It reads headers through bounded seeks rather than loading whole
 files, validates container ranges and load-command lengths, and limits nesting
 and inspection work. Tests include real arm64/x86_64 compiler output and a
-static library. Connecting this parser to staged-file validation is still pending.
+static library. The test phase uses this parser for staged-file validation.
 
 The `portfile` library now evaluates an initial set of Portfile metadata commands
 in Rust using [Molt](https://docs.rs/molt/latest/molt/), without `tclsh` or libtcl.

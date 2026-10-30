@@ -88,7 +88,14 @@ fn missing_or_false_test_run_skips_port_tests_but_not_architecture_checks() {
             .unwrap();
         assert_eq!(session.invoke("porttest::test_main", &[]).unwrap(), "0");
     }
+    let tree = tempfile::tempdir().unwrap();
     let mut session = open("test.run no\ntest.ignore_archs no");
+    session
+        .invoke(
+            "set",
+            &["destpath", tree.path().join("missing").to_str().unwrap()],
+        )
+        .unwrap();
     session
         .enable_system(&BTreeMap::new(), |_| {
             panic!("architecture check must stop first")
@@ -99,7 +106,7 @@ fn missing_or_false_test_run_skips_port_tests_but_not_architecture_checks() {
             .invoke("porttest::test_main", &[])
             .unwrap_err()
             .to_string()
-            .contains("porttest::test_archs")
+            .contains("no such file or directory")
     );
 }
 #[test]
@@ -150,4 +157,60 @@ fn metadata_cannot_run_tests_and_non_darwin_skips_architecture_checks() {
         .enable_system(&BTreeMap::new(), |_| panic!("no test requested"))
         .unwrap();
     assert_eq!(session.invoke("porttest::test_main", &[]).unwrap(), "0");
+}
+
+#[test]
+fn native_architecture_scan_allows_matching_staged_files_before_port_tests() {
+    let tree = tempfile::tempdir().unwrap();
+    let staged = tree.path().join("destroot");
+    std::fs::create_dir(&staged).unwrap();
+    let binary: Vec<_> = [0xfeedfacf_u32, 0x100000c, 0, 1, 0, 0, 0, 0]
+        .into_iter()
+        .flat_map(u32::to_le_bytes)
+        .collect();
+    std::fs::write(staged.join("program"), binary).unwrap();
+    std::fs::write(tree.path().join("Makefile"), "test:\n\t@touch tests-ran\n").unwrap();
+    let mut session = open("test.ignore_archs no\ntest.run yes\nset configure.build_arch arm64");
+    enable(&mut session, tree.path());
+    session
+        .invoke("set", &["destpath", staged.to_str().unwrap()])
+        .unwrap();
+    assert_eq!(session.invoke("porttest::test_main", &[]).unwrap(), "0");
+    assert!(tree.path().join("tests-ran").exists());
+}
+
+#[test]
+fn canonical_architectures_respect_noarch_universal_and_host_fallback() {
+    let mut session = open(
+        r#"
+        set os.arch hostarch
+        variant universal {}
+        default_variants +universal
+        set configure.universal_archs {x86_64 arm64}
+        set configure.build_arch arm64
+    "#,
+    );
+    assert_eq!(
+        session.invoke("get_canonical_archs", &[]).unwrap(),
+        "arm64 x86_64"
+    );
+    session
+        .invoke("set", &["supported_archs", "noarch"])
+        .unwrap();
+    assert_eq!(
+        session.invoke("get_canonical_archs", &[]).unwrap(),
+        "noarch"
+    );
+    session.invoke("set", &["supported_archs", ""]).unwrap();
+    session
+        .invoke("set", &["configure.universal_archs", "arm64"])
+        .unwrap();
+    assert_eq!(session.invoke("get_canonical_archs", &[]).unwrap(), "arm64");
+    session
+        .invoke("set", &["configure.build_arch", ""])
+        .unwrap();
+    assert_eq!(
+        session.invoke("get_canonical_archs", &[]).unwrap(),
+        "hostarch"
+    );
 }

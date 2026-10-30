@@ -1,4 +1,4 @@
-//! PortSystem test-command execution; staged Mach-O validation is still pending.
+//! PortSystem test-command execution after staged architecture checks.
 use super::*;
 use molt::MoltResult;
 
@@ -7,21 +7,6 @@ pub(super) fn install(interp: &mut Interp, id: ContextID) {
         commands::register(interp, id, name);
     }
     interp.add_context_command("porttest::test_main", main, id);
-    interp.add_context_command("porttest::test_archs", architectures, id);
-}
-
-fn architectures(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
-    molt::check_args(1, argv, 1, 1, "")?;
-    interp.with_global_scope(|interp| {
-        if interp.scalar("os.platform")?.as_str() != "darwin"
-            || interp.scalar("test.ignore_archs")?.as_bool()?
-        {
-            return Ok(Value::empty());
-        }
-        // Do not report a passing test phase while silently skipping the
-        // mandatory staged-binary checks performed by native PortSystem.
-        commands::unsupported(interp, id, argv)
-    })
 }
 
 fn main(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {

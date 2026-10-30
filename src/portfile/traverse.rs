@@ -209,3 +209,21 @@ fn latest_mtime(_: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
     })?;
     Ok(newest.into())
 }
+
+/// Visit a physical tree in post-order using the same rules as fs-traverse.
+pub(super) fn visit_paths(
+    paths: Vec<PathBuf>,
+    mut visit: impl FnMut(&Path) -> Result<(), Exception>,
+) -> Result<(), Exception> {
+    walk(
+        paths,
+        Options {
+            depth: true,
+            ..Options::default()
+        },
+        |path| {
+            visit(path)?;
+            Ok(Action::Next)
+        },
+    )
+}
