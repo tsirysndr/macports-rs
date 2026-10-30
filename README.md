@@ -437,14 +437,19 @@ The interpreter also implements `string map` for PortGroup-generated procedures
 and template values, including ordered substitutions and `-nocase` matching.
 `split`, `lrange`, and end-relative/arithmetic `lindex` indices support Portfile
 list and URL transformations without an external interpreter.
+The native `quotemeta` helper escapes non-word characters for livecheck patterns.
 
 This evaluator is connected to local-tree `variants`, `deps`, and `rdeps` queries,
 but not installation.
 The complete PortSystem API still needs implementation, including namespace
 commands and build-stage defaults used by larger PortGroups. Unsupported operations fail; guarded attempts to
 call unsupported I/O commands are recorded and cannot yield approved metadata.
-The synthetic evaluation tests do not establish compatibility with curl's complete
-Portfile or the wider ports tree.
+Pinned, unmodified [curl fixtures](tests/fixtures/curl/README.md) now test its
+default variants, explicit resolver/TLS variants, conflicts, dependency metadata,
+and local-tree CLI queries. These tests explicitly supply the deployment target,
+build job count, and universal architecture list. They do not run PortSystem
+initialization, universal-build setup, hooks, or installation, and do not establish
+compatibility with the wider ports tree.
 
 The installer library now includes streaming Signify/Ed25519 `.sig`
 authentication with the pinned MacPorts 2025 archive key. Verification reads
