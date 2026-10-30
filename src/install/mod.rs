@@ -5,3 +5,5 @@ mod variants;
 pub use plan::{Action, Item, plan};
 
 pub mod archive;
+
+pub mod inspect;

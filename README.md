@@ -367,8 +367,21 @@ Verified staging copies those exact bytes into an anonymous temporary file with
 a caller-specified size limit; later readers cannot accidentally reopen a changed
 source archive. Failed authentication or staging never publishes an archive.
 These are installer building blocks, not yet connected to `port install` or its
-preview. Legacy RSA `.rmd160` signatures, extraction, archive identity checks,
-and activation are still pending. No external signature tool is invoked.
+preview. Legacy RSA `.rmd160` signatures, extraction, and activation are still
+pending. No external signature tool is invoked.
+
+Authenticated `.tbz2` archives can now be inspected in Rust without extraction.
+Inspection validates `+CONTENTS` identity and inventory against tar entries,
+reads regular files and link metadata, and can match name/version/revision/epoch/
+variants to an installation-plan item. It bounds decompressed bytes, entry count,
+control-file size, and PAX metadata. The reader rejects traversal, duplicate and
+ASCII case-colliding paths, descendants of non-directories, special files, invalid
+hard links, malformed/truncated streams, and trailing archive data. Absolute
+symlink targets remain inert metadata and are never followed. `+PORTFILE` is not
+evaluated. Selected local PAX fields (including paths and macOS file flags) are
+supported; global PAX, GNU long-name/sparse entries, and PAX size overrides fail
+explicitly. Filesystem-specific collision checks, platform compatibility, and
+activation policy are still required before this can become an installer.
 
 ## Download engine and progress
 
