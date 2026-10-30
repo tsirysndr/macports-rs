@@ -357,3 +357,46 @@ fn unresolved_plan_variants_cannot_approve_an_archive() {
             .contains("unresolved")
     );
 }
+
+#[test]
+fn retains_cxx_runtime_metadata_and_rejects_invalid_or_duplicate_fields() {
+    for stdlib in ["none", "libc++", "libstdc++", "mixed"] {
+        for overridden in [false, true] {
+            let c = format!(
+                "{}@cxx_stdlib {stdlib}\n@cxx_stdlib_overridden {}\n",
+                contents(&["opt/local/app"]),
+                u8::from(overridden)
+            );
+            let inspected = inspect_records(&[
+                ("+CONTENTS", b'0', c.as_bytes(), ""),
+                ("opt/local/app", b'0', b"x", ""),
+            ])
+            .unwrap();
+            assert_eq!(inspected.contents.cxx_stdlib.as_deref(), Some(stdlib));
+            assert_eq!(inspected.contents.cxx_stdlib_overridden, Some(overridden));
+        }
+    }
+    let c = contents(&["opt/local/app"]);
+    let inspected = inspect_records(&[
+        ("+CONTENTS", b'0', c.as_bytes(), ""),
+        ("opt/local/app", b'0', b"x", ""),
+    ])
+    .unwrap();
+    assert_eq!(inspected.contents.cxx_stdlib, None);
+    assert_eq!(inspected.contents.cxx_stdlib_overridden, None);
+    for fields in [
+        "@cxx_stdlib unknown\n",
+        "@cxx_stdlib_overridden 2\n",
+        "@cxx_stdlib libc++\n@cxx_stdlib none\n",
+        "@cxx_stdlib_overridden 0\n@cxx_stdlib_overridden 1\n",
+    ] {
+        let c = format!("{}{fields}", contents(&["opt/local/app"]));
+        assert!(
+            inspect_records(&[
+                ("+CONTENTS", b'0', c.as_bytes(), ""),
+                ("opt/local/app", b'0', b"x", "")
+            ])
+            .is_err()
+        );
+    }
+}

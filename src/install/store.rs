@@ -189,6 +189,14 @@ impl StoredImage {
                 "registration location does not match stored archive"
             );
             record.location = location.to_owned();
+            // Binary archives describe the library actually linked at build
+            // time, which can differ from the current host's compiler defaults.
+            if let Some(stdlib) = &contents.cxx_stdlib {
+                record.cxx_stdlib = stdlib.clone();
+                if let Some(overridden) = contents.cxx_stdlib_overridden {
+                    record.cxx_stdlib_overridden = overridden;
+                }
+            }
             let mut transaction = writer.transaction()?;
             let id = transaction.register(&record)?;
             transaction.commit()?;

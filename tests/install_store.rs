@@ -551,3 +551,49 @@ fn prepared_inspection_reuse_is_bound_to_authenticated_bytes() {
     assert_eq!(fs::read(stored.location()).unwrap(), bytes());
     stored.rollback().unwrap();
 }
+
+#[test]
+fn registers_archived_cxx_runtime_instead_of_host_defaults() {
+    for (fields, stdlib, overridden) in [
+        ("", "libc++", false),
+        (
+            "@cxx_stdlib libstdc++\n@cxx_stdlib_overridden 1\n",
+            "libstdc++",
+            true,
+        ),
+        ("@cxx_stdlib_overridden 1\n", "libc++", false),
+    ] {
+        let software = tempfile::tempdir().unwrap();
+        let database = tempfile::tempdir().unwrap();
+        let db_path = database.path().join("registry.db");
+        let store = Store::open(software.path()).unwrap();
+        let mut writer = port_rs::registry::write::Writer::create(&db_path).unwrap();
+        let c = format!("{}{fields}", contents(&["opt/local/app"]));
+        let mut archive = stage(&compress(&tar(&[
+            ("+CONTENTS", b'0', c.as_bytes(), ""),
+            ("opt/local/app", b'0', b"payload", ""),
+        ])));
+        let port = port();
+        let stored = store
+            .stage(
+                &mut archive,
+                &item(&port),
+                &target("arm"),
+                Limits::default(),
+            )
+            .unwrap();
+        let mut record = registration();
+        record.cxx_stdlib = "libc++".into();
+        record.cxx_stdlib_overridden = false;
+        let id = stored.register(&mut writer, record).unwrap();
+        let db = rusqlite::Connection::open(&db_path).unwrap();
+        let actual: (String, bool) = db
+            .query_row(
+                "SELECT cxx_stdlib,cxx_stdlib_overridden FROM ports WHERE id=?",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(actual, (stdlib.into(), overridden));
+    }
+}

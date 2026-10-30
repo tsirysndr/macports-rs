@@ -12,6 +12,8 @@ pub struct Contents {
     pub archs: Vec<String>,
     pub dependencies: Vec<String>,
     pub files: BTreeSet<String>,
+    pub cxx_stdlib: Option<String>,
+    pub cxx_stdlib_overridden: Option<bool>,
 }
 impl Contents {
     pub(super) fn parse(text: &str) -> Result<Self> {
@@ -54,19 +56,20 @@ impl Contents {
                         ensure!(!value.is_empty(), "empty archive dependency");
                         dependencies.push(value.to_owned());
                     }
-                    "name" | "portname" | "portversion" | "portrevision" | "portepoch"
-                    | "archs" => {
+                    "name"
+                    | "portname"
+                    | "portversion"
+                    | "portrevision"
+                    | "portepoch"
+                    | "archs"
+                    | "cxx_stdlib"
+                    | "cxx_stdlib_overridden" => {
                         ensure!(
                             !value.is_empty() && fields.insert(key, value).is_none(),
                             "missing or duplicate archive field {key}"
                         );
                     }
-                    "comment"
-                    | "macports_version"
-                    | "ports_commit"
-                    | "source_date_epoch"
-                    | "cxx_stdlib"
-                    | "cxx_stdlib_overridden" => (),
+                    "comment" | "macports_version" | "ports_commit" | "source_date_epoch" => (),
                     _ => anyhow::bail!("unsupported +CONTENTS directive @{key}"),
                 }
             } else if !line.is_empty() {
@@ -102,6 +105,24 @@ impl Contents {
             .split_whitespace()
             .map(str::to_owned)
             .collect();
+        let cxx_stdlib = fields
+            .get("cxx_stdlib")
+            .map(|value| {
+                ensure!(
+                    matches!(*value, "none" | "libc++" | "libstdc++" | "mixed"),
+                    "invalid archive C++ standard library"
+                );
+                Ok((*value).to_owned())
+            })
+            .transpose()?;
+        let cxx_stdlib_overridden = fields
+            .get("cxx_stdlib_overridden")
+            .map(|value| match *value {
+                "0" => Ok(false),
+                "1" => Ok(true),
+                _ => anyhow::bail!("invalid archive C++ standard library override flag"),
+            })
+            .transpose()?;
         Ok(Self {
             name,
             version,
@@ -111,6 +132,8 @@ impl Contents {
             archs,
             dependencies,
             files,
+            cxx_stdlib,
+            cxx_stdlib_overridden,
         })
     }
     /// Bind authenticated metadata to the specific indexed installation item.

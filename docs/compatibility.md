@@ -1357,3 +1357,14 @@ does not infer missing state from PortIndex or replace a selected architecture w
 the host's native architecture. Tests cover universal enable/disable, platform
 independence, runtime changes, invalid lists, and binary-install/batch integration
 using targets resolved from retained sessions.
+
+Archive inspection now retains `@cxx_stdlib` and `@cxx_stdlib_overridden` instead
+of discarding them. The recognized runtime values are `none`, `libc++`,
+`libstdc++`, and `mixed`; override flags are 0 or 1. Malformed and duplicate fields
+fail inspection. During stored-image registration, recorded archive runtime data
+takes precedence over caller-supplied host defaults, matching the binary-install
+behavior in upstream portinstall_run.tcl. Archives without runtime information
+retain the caller's fallback values; a standalone override flag without a runtime
+does not override those defaults. Tests cover accepted values, absent/invalid
+metadata, and registry persistence when the archive runtime differs from the host.
+The live-session registration metadata builder remains pending.
