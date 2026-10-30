@@ -637,3 +637,136 @@ fn registry_dependent_walk_handles_deep_graphs_iteratively() {
     assert_eq!(count, 4999);
     assert_eq!(deepest, 4999);
 }
+
+fn outdated_fixture(records: &[(&str, &str)]) -> Fixture {
+    let f = Fixture::new();
+    let db = Connection::open(&f.path).unwrap();
+    db.execute_batch(
+        "ALTER TABLE ports ADD COLUMN epoch INTEGER DEFAULT 0; UPDATE ports SET os_platform='any';",
+    )
+    .unwrap();
+    let mut data = String::new();
+    for (name, fields) in records {
+        let body = format!("name {name} {fields}");
+        data.push_str(&format!(
+            "{name} {}\n{body}\n",
+            body.encode_utf16().count() + 1
+        ));
+    }
+    std::fs::write(f.dir.path().join("missing-index"), data).unwrap();
+    f
+}
+#[test]
+fn outdated_compares_only_active_versions_and_revisions() {
+    let f = outdated_fixture(&[
+        ("curl", "version 8.11 revision 0"),
+        ("pkg2", "version 2.0 revision 1"),
+        ("pkg10", "version 99 revision 0"),
+    ]);
+    let output = stdout(f.run(&["outdated"]));
+    assert!(output.starts_with("The following installed ports are outdated:\n"));
+    assert!(output.contains("8.10_0 < 8.11_0"));
+    assert!(output.contains("2.0_0 < 2.0_1"));
+    assert!(!output.contains("8.9_1"));
+    assert!(!output.contains("pkg10"));
+    let quiet = stdout(f.run(&["-q", "outdated", "CURL@8.10"]));
+    assert_eq!(
+        quiet,
+        format!("{:<30} {:<24}  \n", "curl", "8.10_0 < 8.11_0 ")
+    );
+}
+#[test]
+fn verbose_outdated_reports_newer_installed_versions_with_flag() {
+    let f = outdated_fixture(&[("curl", "version 8.1 revision 0"), ("pkg2", "version 2.0")]);
+    assert_eq!(
+        stdout(f.run(&["outdated"])),
+        "No installed ports are outdated.\n"
+    );
+    let output = stdout(f.run(&["-q", "-v", "outdated"]));
+    assert!(output.contains("8.10_0 > 8.1_0"));
+    assert!(output.trim_end().ends_with('!'));
+}
+#[test]
+fn outdated_epoch_overrides_version_only_when_version_strings_differ() {
+    let f = outdated_fixture(&[("curl", "version 7 epoch 1 revision 0")]);
+    let output = stdout(f.run(&["-q", "outdated", "curl"]));
+    assert!(output.contains("8.10_0 < 7_0  (epoch 0 < 1)"));
+    let f = outdated_fixture(&[("curl", "version 8.10 epoch 99 revision 0")]);
+    assert_eq!(
+        stdout(f.run(&["outdated", "curl"])),
+        "No installed ports are outdated.\n"
+    );
+    let f = outdated_fixture(&[("curl", "version 9 epoch 0 revision 0")]);
+    Connection::open(&f.path)
+        .unwrap()
+        .execute("UPDATE ports SET epoch=1 WHERE name='curl'", [])
+        .unwrap();
+    assert!(
+        stdout(f.run(&["-q", "-v", "outdated", "curl"])).contains("8.10_0 > 9_0  (epoch 1 > 0)")
+    );
+}
+#[cfg(target_os = "macos")]
+#[test]
+fn outdated_identifies_platform_rebuilds_for_otherwise_equal_versions() {
+    let f = outdated_fixture(&[("curl", "version 8.10 revision 0")]);
+    Connection::open(&f.path)
+        .unwrap()
+        .execute(
+            "UPDATE ports SET os_platform='darwin',os_major=1 WHERE name='curl'",
+            [],
+        )
+        .unwrap();
+    let major = port_rs::source::detect_platform().unwrap().darwin_major;
+    assert!(
+        stdout(f.run(&["-q", "outdated", "curl"])).contains(&format!(
+            "8.10_0 < 8.10_0  (platform darwin 1 != darwin {major})"
+        ))
+    );
+}
+#[test]
+fn outdated_skips_removed_ports_and_warns_about_missing_version_metadata() {
+    let f = outdated_fixture(&[("curl", "description unavailable")]);
+    let output = f.run(&["outdated"]);
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("curl has no version field"));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "No installed ports are outdated.\n"
+    );
+}
+#[test]
+fn empty_outdated_selections_do_not_initialize_the_catalog() {
+    let f = Fixture::new();
+    for selector in ["missing", "inactive", "curl@99"] {
+        assert_eq!(
+            stdout(f.run(&["outdated", selector])),
+            "None of the specified ports are outdated.\n"
+        );
+    }
+    let db = Connection::open(&f.path).unwrap();
+    db.create_collation("VERSION", |a, b| a.cmp(b)).unwrap();
+    db.execute("DELETE FROM ports", []).unwrap();
+    assert_eq!(stdout(f.run(&["outdated"])), "No ports are installed.\n");
+    assert!(!f.dir.path().join("missing-home").exists());
+}
+#[test]
+fn outdated_rejects_bad_numeric_metadata_before_printing_results() {
+    let f = outdated_fixture(&[
+        ("curl", "version 99"),
+        ("pkg2", "version 99 revision broken"),
+    ]);
+    let output = f.run(&["outdated"]);
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("pkg2: outdated comparison"));
+}
+#[test]
+fn outdated_globs_and_requested_filters_compose_with_command_chains() {
+    let f = outdated_fixture(&[("curl", "version 99"), ("pkg2", "version 99")]);
+    let output = stdout(f.run(&["-q", "outdated", "requested", ";", "outdated", "pkg*"]));
+    let names: Vec<_> = output
+        .lines()
+        .map(|line| line.split_whitespace().next().unwrap())
+        .collect();
+    assert_eq!(names, ["curl", "pkg2"]);
+}

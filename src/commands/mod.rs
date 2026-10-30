@@ -6,6 +6,7 @@ mod download;
 mod info;
 mod inspect;
 mod installed;
+mod outdated;
 mod provides;
 mod search;
 mod system;
@@ -20,6 +21,8 @@ use std::{
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Compare active installations with the available catalog
+    Outdated(outdated::Outdated),
     /// Show installed ports that depend on a port
     Dependents(dependents::Dependents),
     /// Show recursive installed-port dependents
@@ -111,7 +114,11 @@ impl Session {
         );
         let stdout = io::stdout();
         let mut out = io::BufWriter::new(stdout.lock());
-        if let Command::Dependents(args) = command {
+        if let Command::Outdated(args) = command {
+            outdated::run(&mut out, registry_file, args, quiet, verbose, || {
+                self.index(index_file, quiet)
+            })?;
+        } else if let Command::Dependents(args) = command {
             dependents::run(&mut out, registry_file, args, None, quiet, verbose)?;
         } else if let Command::Rdependents(args) = command {
             dependents::run(
@@ -163,7 +170,8 @@ impl Session {
                     quiet,
                     verbose,
                 )?,
-                Command::Dependents(_)
+                Command::Outdated(_)
+                | Command::Dependents(_)
                 | Command::Rdependents(_)
                 | Command::Provides(_)
                 | Command::Contents(_)

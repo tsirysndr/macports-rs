@@ -78,6 +78,7 @@ unimplemented; removing the platform cache file triggers a fresh download.
 | `contents` | Registered file lists, active-image preference, version selection, quiet and size/unit output |
 | `provides` | Active file ownership, quiet output, normalized paths and symlinks |
 | `dependents`, `rdependents` | Installed-registry reverse dependencies, verbose versions, full trees, cycle handling |
+| `outdated` | Active-version, revision, epoch, and Darwin-platform comparison against the catalog |
 | Other registry commands, `sync`, `selfupdate` | Not implemented |
 | Port specifications | Attached/separate `@version`, `+variant`, `-variant`, and `key=value`; canonical echo rendering |
 | Logical expressions | `and`, `or`, `not`, `!`, parentheses, and implicit union; preserves input order |
@@ -216,8 +217,8 @@ This first registry query supports names, globs, `all`, `installed`, `active`,
 `inactive`, `requested`, and `unrequested`, with adjacent selectors forming a
 union. Globs match registry names, including ports removed from the current
 catalog. Logical/field expressions are explicitly rejected here; catalog query
-expressions and registry selectors are not yet unified. `outdated` and all
-registry mutations remain unimplemented.
+expressions and registry selectors are not yet unified. All registry mutations
+remain unimplemented.
 
 `port contents curl` lists the active image's registered filesystem paths; if no
 active image matches, a single inactive image is used. When several inactive
@@ -259,6 +260,20 @@ image is used. Registry edges refer to names rather than specific target
 versions. Globs, logical expressions, and pseudo-port selectors remain
 unsupported for these actions. The dependency map is read once inside the same
 read transaction as the entries, and traversal is iterative for deep graphs.
+
+`port outdated` compares active installations with the current catalog, reusing
+`--registry-file` and `--index-file` overrides. It accepts the same simple name,
+glob, version, and state/requested filters as `installed`; inactive images are
+excluded. If no active entries match, the catalog is not loaded or downloaded.
+Removed catalog entries are skipped, and missing version fields produce warnings.
+
+Comparisons follow MacPorts version segments, revision, and epoch rules; epoch
+changes override ordering only when the version strings differ. Otherwise-equal
+entries built for another Darwin platform are reported for rebuilding. `-v` also
+shows newer installed versions with `>` and `!`; quiet mode suppresses notices
+but retains comparison rows. C++ standard-library mismatch checks and custom
+configuration discovery are not implemented yet. This command only reports
+available metadata; it does not evaluate Portfiles or perform upgrades.
 
 ## Download engine and progress
 

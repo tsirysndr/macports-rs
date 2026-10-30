@@ -12,6 +12,7 @@ pub const DEFAULT_PATH: &str = "/opt/local/var/macports/registry/registry.db";
 #[derive(Debug)]
 pub struct Entry {
     pub id: i64,
+    pub epoch: String,
     pub name: String,
     pub version: String,
     pub revision: i64,
@@ -115,6 +116,7 @@ fn read_entries(connection: &Connection) -> Result<Vec<Entry>> {
         "os_major",
         "archs",
         "date",
+        "epoch",
     ]
     .map(|column| {
         if columns.contains(column) {
@@ -136,7 +138,8 @@ fn read_entries(connection: &Connection) -> Result<Vec<Entry>> {
     let mut entries = query
         .query_map([], |row| {
             Ok(Entry {
-                id: row.get(11)?,
+                id: row.get(12)?,
+                epoch: row.get(11)?,
                 name: row.get(0)?,
                 version: row.get(1)?,
                 revision: row.get(2)?,
@@ -167,4 +170,8 @@ fn read_entries(connection: &Connection) -> Result<Vec<Entry>> {
             })
     });
     Ok(entries)
+}
+
+pub(crate) fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
+    version::compare(a, b)
 }

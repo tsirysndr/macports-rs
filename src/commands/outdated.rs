@@ -1,0 +1,171 @@
+use crate::{
+    index::{Index, Port},
+    query::Matcher,
+    registry::{self, Entry},
+    source,
+};
+use anyhow::{Context, Result};
+use clap::Args;
+use std::{cmp::Ordering, io::Write, path::Path};
+
+#[derive(Args)]
+pub struct Outdated {
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+    ports: Vec<String>,
+}
+
+pub(super) fn run<'a>(
+    out: &mut impl Write,
+    path: Option<&Path>,
+    args: Outdated,
+    quiet: bool,
+    verbose: bool,
+    load_index: impl FnOnce() -> Result<&'a Index>,
+) -> Result<()> {
+    let specs = registry::specifications(&args.ports)?;
+    let entries = registry::read(path)?;
+    let selectors = specs
+        .iter()
+        .map(|spec| {
+            Ok((
+                spec,
+                Matcher::new(
+                    &spec.name,
+                    !spec.name.contains(['*', '?', '[', ']']),
+                    false,
+                    false,
+                )?,
+                spec.composite_version(),
+            ))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let selected: Vec<_> = entries
+        .iter()
+        .filter(|entry| {
+            entry.active
+                && (selectors.is_empty()
+                    || selectors.iter().any(|(spec, matcher, version)| {
+                        let name_matches = match spec.name.as_str() {
+                            "all" | "installed" | "active" => true,
+                            "inactive" => false,
+                            "requested" => entry.requested,
+                            "unrequested" => !entry.requested,
+                            _ => matcher.matches(&entry.name),
+                        };
+                        name_matches
+                            && (version.is_empty()
+                                || *version == entry.version
+                                || *version == entry.full_version())
+                    }))
+        })
+        .collect();
+    if selected.is_empty() {
+        if !quiet {
+            writeln!(
+                out,
+                "{}",
+                if specs.is_empty() {
+                    "No ports are installed."
+                } else {
+                    "None of the specified ports are outdated."
+                }
+            )?;
+        }
+        return Ok(());
+    }
+    let index = load_index()?;
+    let mut lines = Vec::new();
+    let mut platform = None;
+    for entry in selected {
+        let Some(port) = index.lookup(&entry.name) else {
+            continue;
+        };
+        if !port.fields.contains_key("version") {
+            eprintln!("Warning: {} has no version field", port.name);
+            continue;
+        }
+        let (mut order, mut reason) =
+            compare(entry, port).with_context(|| format!("{}: outdated comparison", entry.name))?;
+        if order == Ordering::Equal
+            && !matches!(entry.platform.as_str(), "any" | "" | "0")
+            && !matches!(entry.os_major.as_str(), "" | "0")
+        {
+            if platform.is_none() {
+                platform = Some(source::detect_platform()?);
+            }
+            let host = platform.as_ref().unwrap();
+            if entry.platform != "darwin"
+                || (entry.os_major != "any"
+                    && entry
+                        .os_major
+                        .parse::<u32>()
+                        .context("invalid registry OS major")?
+                        != host.darwin_major)
+            {
+                order = Ordering::Less;
+                reason = format!(
+                    " (platform {} {} != darwin {})",
+                    entry.platform, entry.os_major, host.darwin_major
+                );
+            }
+        }
+        if order == Ordering::Less || (verbose && order == Ordering::Greater) {
+            let relation = if order == Ordering::Less { '<' } else { '>' };
+            let versions = format!(
+                "{}_{} {relation} {} {reason}",
+                entry.version,
+                entry.revision,
+                port.version()
+            );
+            lines.push(format!(
+                "{:<30} {:<24} {:1}",
+                port.name,
+                versions,
+                if order == Ordering::Greater { "!" } else { "" }
+            ));
+        }
+    }
+    if !quiet {
+        writeln!(
+            out,
+            "{}",
+            if lines.is_empty() {
+                "No installed ports are outdated."
+            } else {
+                "The following installed ports are outdated:"
+            }
+        )?;
+    }
+    for line in lines {
+        writeln!(out, "{line}")?;
+    }
+    Ok(())
+}
+fn number(raw: &str) -> Result<i64> {
+    if raw.is_empty() {
+        Ok(0)
+    } else {
+        raw.parse().context("invalid epoch or revision")
+    }
+}
+fn compare(entry: &Entry, port: &Port) -> Result<(Ordering, String)> {
+    let installed_epoch = number(&entry.epoch)?;
+    let latest_epoch = number(port.get("epoch"))?;
+    let latest_revision = number(port.get("revision"))?;
+    let mut order = registry::compare_versions(&entry.version, port.get("version"))
+        .then_with(|| entry.revision.cmp(&latest_revision));
+    let epoch = installed_epoch.cmp(&latest_epoch);
+    let mut reason = String::new();
+    if epoch != Ordering::Equal && entry.version != port.get("version") {
+        if (order != Ordering::Less && epoch == Ordering::Less)
+            || (order != Ordering::Greater && epoch == Ordering::Greater)
+        {
+            reason = format!(
+                " (epoch {installed_epoch} {} {latest_epoch})",
+                if epoch == Ordering::Less { '<' } else { '>' }
+            );
+        }
+        order = epoch;
+    }
+    Ok((order, reason))
+}
