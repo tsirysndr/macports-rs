@@ -2,6 +2,7 @@
 //! and Portfile stage scheduling belong to the installer, not this runner.
 pub(crate) mod directories;
 mod log;
+pub mod mtree;
 mod process;
 pub mod state;
 use crate::progress::Progress;

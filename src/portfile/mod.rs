@@ -24,6 +24,7 @@ pub use destroot_manpages::ManpageCompression;
 mod destroot_libtool;
 pub use destroot_layout::DestrootLayout;
 mod destroot_finish;
+mod destroot_mtree;
 mod destroot_phase;
 mod stage_context;
 pub use destroot_libtool::LibtoolCleanup;

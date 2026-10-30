@@ -487,7 +487,7 @@ Custom staging blocks can delegate through `do-destroot`. The host must provide
 `system_options(clonebin_path)` (empty disables wrappers); its temporary PATH
 prefix is restored on success and failure. Tests stage an executable into a
 temporary prefix with live logs. Native non-root destroot finish now performs
-staging cleanup and restores the saved mask. Destroot startup, mtree preparation,
+staging cleanup and restores the saved mask. The native hierarchy helper is described below; destroot startup orchestration,
 privilege transitions, startup items, and privileged ownership conversion remain
 unfinished.
 
@@ -983,3 +983,18 @@ verify that the prepared-target runtime records completion only after finish
 succeeds. Privileged finish fails before cleanup because build-account ownership
 conversion and the privilege worker are still missing; ordinary CLI installation
 remains unavailable.
+
+`Session::prepare_destroot_hierarchy` now prepares the directory hierarchy portion
+of non-root destroot startup in process. It reads the installed
+`portsharepath/install/{prefix,macosx}.mtree` specifications, creates the Darwin
+application/framework directories, and applies the prefix hierarchy. Both
+specifications are parsed before filesystem changes. The native directory reader
+supports `/set`, `/unset`, repeated root blocks, directory entries, octal modes,
+and ownership attributes from MacPorts' templates. Existing extra files remain
+untouched; directory modes are updated. Non-root staging retains caller ownership.
+Symlinks in hierarchy entries are rejected rather than followed. The caller must
+provide a private, already-created destroot and an initialized creation mask.
+This is a host API, not yet the complete `destroot_start` callback: cleanup, mask
+saving, startup items, and privileged ownership still need integration. General
+mtree file/link/checksum specifications, escaped filenames, and wildcard entries
+are explicitly rejected rather than silently interpreted as directory templates.
