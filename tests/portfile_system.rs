@@ -126,7 +126,7 @@ fn catch_receives_childstatus_and_signaled_errors_and_can_recover() {
 
 #[test]
 fn rejects_unimplemented_flags_before_dispatch_even_if_script_catches_them() {
-    for flag in ["-callback", "-notty", "-nodup", "-nice", "-unknown"] {
+    for flag in ["-callback", "-nodup", "-unknown"] {
         let mut session =
             open("name git; version 1; proc call {flag} {catch {system $flag {exit 0}}}");
         session
@@ -239,5 +239,56 @@ fn native_scheduler_stops_dependent_shell_commands_after_build_failure() {
     assert_eq!(
         output.lock().unwrap().as_slice(),
         b"-> building git: compiler failed\n"
+    );
+}
+
+#[test]
+fn system_parses_session_and_priority_options_with_native_integer_bounds() {
+    use std::os::unix::process::ExitStatusExt;
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let captured = requests.clone();
+    let mut session = open("name git; version 1");
+    session
+        .enable_system(&BTreeMap::new(), move |request| {
+            captured
+                .lock()
+                .unwrap()
+                .push((request.new_session, request.nice));
+            Ok(build::ProcessResult {
+                pid: 1,
+                status: std::process::ExitStatus::from_raw(0),
+            })
+        })
+        .unwrap();
+    for (value, expected) in [
+        ("19", Some(19)),
+        ("-20", Some(-20)),
+        ("0xffffffff", Some(-1)),
+        ("2147483647", None),
+        ("0x80000000", Some(i32::MIN)),
+    ] {
+        session
+            .invoke("system", &["-nice", value, "-notty", "exit 0"])
+            .unwrap();
+        assert_eq!(
+            requests.lock().unwrap().last().copied(),
+            Some((true, expected))
+        );
+    }
+    for value in ["invalid", "1.5", "4294967296", "-2147483649"] {
+        assert!(
+            session
+                .invoke("system", &["-nice", value, "exit 0"])
+                .is_err()
+        );
+    }
+    assert!(session.invoke("system", &["-nice", "exit 0"]).is_err());
+    assert_eq!(requests.lock().unwrap().len(), 5);
+    session
+        .invoke("system", &["-nice", "5", "-nice", "8", "exit 0"])
+        .unwrap();
+    assert_eq!(
+        requests.lock().unwrap().last().copied(),
+        Some((false, Some(8)))
     );
 }

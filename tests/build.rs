@@ -16,6 +16,8 @@ fn command(directory: &Path, script: &str) -> Command {
         directory: directory.into(),
         environment: BTreeMap::new(),
         clear_environment: false,
+        nice: None,
+        new_session: false,
     }
 }
 #[tokio::test]
@@ -202,11 +204,17 @@ async fn broken_output_stops_build_and_missing_executable_is_reported() {
 
 #[tokio::test]
 async fn cancellation_also_stops_compiler_children_in_the_build_group() {
+    for new_session in [false, true] {
+        assert_compiler_child_cancelled(new_session).await;
+    }
+}
+async fn assert_compiler_child_cancelled(new_session: bool) {
     let directory = tempfile::tempdir().unwrap();
-    let command = command(
+    let mut command = command(
         directory.path(),
         "sleep 30 & compiler=$!; printf '%s\\n' $compiler; wait",
     );
+    command.new_session = new_session;
     let (mut writer, reader) = tokio::io::duplex(1024);
     let task =
         tokio::spawn(
@@ -237,4 +245,53 @@ async fn cancellation_also_stops_compiler_children_in_the_build_group() {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     panic!("cancelled compiler child {pid} is still present");
+}
+
+#[tokio::test]
+async fn requested_session_and_priority_apply_only_to_the_child() {
+    use tokio::io::AsyncBufReadExt;
+    // SAFETY: querying this process's identifiers and priority changes no state.
+    let (parent_session, parent_priority) =
+        unsafe { (libc::getsid(0), libc::getpriority(libc::PRIO_PROCESS, 0)) };
+    for new_session in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let mut command = command(directory.path(), "printf '%s\\n' $$; exec /bin/sleep 30");
+        command.nice = Some(19);
+        command.new_session = new_session;
+        let (mut writer, reader) = tokio::io::duplex(1024);
+        let task =
+            tokio::spawn(
+                async move { build::run_to(&command, "git", Phase::Build, &mut writer).await },
+            );
+        let mut reader = tokio::io::BufReader::new(reader);
+        let mut line = String::new();
+        let read = tokio::time::timeout(Duration::from_secs(3), reader.read_line(&mut line)).await;
+        let pid = line
+            .trim()
+            .strip_prefix("-> building git: ")
+            .and_then(|pid| pid.parse::<i32>().ok());
+        let metadata = pid.map(|pid| {
+            // SAFETY: read-only queries of the child PID emitted by our fixture.
+            unsafe {
+                (
+                    libc::getsid(pid),
+                    libc::getpgid(pid),
+                    libc::getpriority(libc::PRIO_PROCESS, pid as _),
+                )
+            }
+        });
+        task.abort();
+        let _ = task.await;
+        read.unwrap().unwrap();
+        let pid = pid.unwrap();
+        let (session, group, priority) = metadata.unwrap();
+        assert_eq!(session, if new_session { pid } else { parent_session });
+        assert_eq!(group, pid);
+        assert!(priority >= 19, "child priority: {priority}");
+    }
+    // SAFETY: read-only queries verify no parent priority/session mutation.
+    unsafe {
+        assert_eq!(libc::getsid(0), parent_session);
+        assert_eq!(libc::getpriority(libc::PRIO_PROCESS, 0), parent_priority);
+    }
 }

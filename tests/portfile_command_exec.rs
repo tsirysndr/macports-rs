@@ -122,10 +122,16 @@ fn command_execution_creates_directory_applies_environment_and_restores_it() {
         build.cmd printf
         build.args {'%s\n'} {"$PWD"} {"$KEEP"} {"$MACOSX_DEPLOYMENT_TARGET"} {"$SDKROOT"} {"$DEVELOPER_DIR"} {"$SOURCE_DATE_EPOCH"} {"$CPATH"} {"$LIBRARY_PATH"}
         build.env KEEP=override
+        build.nice 19
     "#,
     );
     let output = executor(&mut session, tree.path().into());
-    assert_eq!(session.invoke("command_exec", &["build"]).unwrap(), "");
+    assert_eq!(
+        session
+            .invoke("command_exec", &["-notty", "build"])
+            .unwrap(),
+        ""
+    );
     assert!(tree.path().join("nested build").is_dir());
     let text = String::from_utf8(output.lock().unwrap().clone()).unwrap();
     for expected in [
@@ -329,4 +335,44 @@ fn native_build_compiles_c_and_streams_compiler_diagnostics() {
             .success()
     );
     assert_eq!(session.scalar("build.cmd").unwrap(), "/usr/bin/clang");
+}
+
+#[test]
+fn command_exec_uses_the_selected_variable_prefix_for_priority() {
+    use std::os::unix::process::ExitStatusExt;
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let captured = requests.clone();
+    let mut session = open(
+        r#"
+        commands custom
+        option custom.dir .
+        option build.dir .
+        build.cmd true
+        build.nice 1
+        custom.nice 8
+    "#,
+    );
+    session
+        .enable_system(&BTreeMap::new(), move |request| {
+            captured
+                .lock()
+                .unwrap()
+                .push((request.nice, request.new_session));
+            Ok(build::ProcessResult {
+                pid: 1,
+                status: std::process::ExitStatus::from_raw(0),
+            })
+        })
+        .unwrap();
+    session
+        .invoke("command_exec", &["-notty", "-varprefix", "custom", "build"])
+        .unwrap();
+    assert_eq!(*requests.lock().unwrap(), [(Some(8), true)]);
+    session.invoke("custom.nice", &["invalid"]).unwrap();
+    assert!(
+        session
+            .invoke("command_exec", &["-varprefix", "custom", "build"])
+            .is_err()
+    );
+    assert_eq!(requests.lock().unwrap().len(), 1);
 }

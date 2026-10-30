@@ -426,18 +426,21 @@ caller explicitly attaches a `system` executor.
 Metadata queries continue to discard the interpreter after extracting metadata.
 
 `Session::enable_system` supplies an explicit environment and a host executor.
-It supports `system command`, `system -W directory command`, and `--`, using
+It supports `system command`, `-W directory`, `-notty`, `-nice value`, and `--`, using
 `/bin/sh -c` as MacPorts does. Each call reads the live `env` array, including
 removed variables, without changing the Rust process environment or directory.
 The build runner streams both output streams with phase/port prefixes and returns
 PID/exit status for Tcl `CHILDSTATUS` and `CHILDKILLED` errors. Scripts can catch
-ordinary command failures. Callback, terminal, direct-I/O, and priority flags
-remain explicit errors. The synchronous interpreter must run on a worker when
+ordinary command failures. `-notty` starts a child session without a controlling
+terminal, and `-nice` requests an absolute child priority; denied priority changes
+are ignored as in MacPorts. Cancellation stops the child process group in either
+mode. Callback and direct-I/O flags remain explicit errors. The synchronous interpreter must run on a worker when
 using the async build runner; this does not yet wire ordinary CLI installation,
 PortSystem target scheduling, or cancellation of the interpreter itself.
 
 With execution enabled, `command_exec` assembles command/pre/post argument shell
-fragments, supports `-varprefix` and shell prefixes/suffixes, prepares the command
+fragments, supports `-varprefix`, `-notty`, per-command `.nice`, and shell
+prefixes/suffixes, prepares the command
 directory, applies the command environment and explicit compiler/SDK settings,
 and restores the session environment after success or failure. The executor uses
 fallible `SystemRequest::into_command` to prepare directories relative to its
@@ -448,8 +451,7 @@ working directory. `parse_environment`, `append_to_environment_value`, and
 make/ninja job arguments and make directory logging. `do-build` can delegate to
 it from a custom build block. Compiler discovery, default command/directory
 selection, and PortSystem initialization are still required; callers must supply
-the execution configuration. Priority/terminal flags and native progress callbacks
-remain unsupported. A macOS integration test compiles a C program and verifies
+the execution configuration. Native progress callbacks remain unsupported. A macOS integration test compiles a C program and verifies
 prefixed compiler diagnostics through this path.
 
 The `portfile` library now evaluates an initial set of Portfile metadata commands

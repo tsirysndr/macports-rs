@@ -117,9 +117,11 @@ fn command(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
 }
 fn execute(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     let mut prefix = None;
+    let mut new_session = false;
     let mut cursor = 1;
     while cursor < argv.len() && argv[cursor].as_str().starts_with('-') {
         match argv[cursor].as_str() {
+            "-notty" => new_session = true,
             "--" => {
                 cursor += 1;
                 break;
@@ -155,15 +157,11 @@ fn execute(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     if directory.as_str().is_empty() {
         return Err(error("command directory must not be empty"));
     }
-    if let Some(nice) = optional(interp, &format!("{prefix}.nice"))?
-        && !nice.as_str().is_empty()
-    {
-        interp
-            .context::<State>(id)
-            .unsupported
-            .insert("command_exec nice".into());
-        return Err(error("command_exec priority changes are not implemented"));
-    }
+    let nice = optional(interp, &format!("{prefix}.nice"))?
+        .filter(|value| !value.as_str().is_empty())
+        .map(|value| system::parse_nice(&value))
+        .transpose()?
+        .flatten();
     let array = format!("{prefix}.env_array");
     if !interp.array_exists(&array) {
         parse_environment(interp, &prefix)?;
@@ -234,6 +232,8 @@ fn execute(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
             script: format!("{before} {script} {after}"),
             directory: None,
             prepare_directory: Some(directory.as_str().into()),
+            nice,
+            new_session,
             environment,
         },
     );

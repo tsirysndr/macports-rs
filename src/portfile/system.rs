@@ -18,6 +18,8 @@ pub struct SystemRequest {
     pub environment: BTreeMap<String, String>,
     /// Directory command_exec must create before launching its shell.
     pub prepare_directory: Option<PathBuf>,
+    pub nice: Option<i32>,
+    pub new_session: bool,
 }
 impl SystemRequest {
     /// MacPorts explicitly runs system scripts via /bin/sh -c. Resolve relative
@@ -49,12 +51,14 @@ impl SystemRequest {
                 .map(|(k, v)| (k.into(), v.into()))
                 .collect(),
             clear_environment: true,
+            nice: self.nice,
+            new_session: self.new_session,
         })
     }
 }
 
 impl Session {
-    /// Enable `system command` and `system -W directory command` after metadata
+    /// Enable `system` with `-W`, `-notty`, and `-nice` after metadata
     /// evaluation. Supply the complete initial environment explicitly; changes
     /// to the Tcl env array are captured separately for every invocation.
     ///
@@ -82,11 +86,27 @@ impl Session {
 }
 
 fn command(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
-    check_args(1, argv, 2, 0, "?-W directory? ?--? command")?;
+    check_args(
+        1,
+        argv,
+        2,
+        0,
+        "?-notty? ?-nice value? ?-W directory? ?--? command",
+    )?;
     let mut directory = None;
+    let mut nice = None;
+    let mut new_session = false;
     let mut i = 1;
     while i < argv.len() - 1 {
         match argv[i].as_str() {
+            "-notty" => new_session = true,
+            "-nice" => {
+                i += 1;
+                if i >= argv.len() - 1 {
+                    return Err(error("system -nice requires a value and command"));
+                }
+                nice = parse_nice(&argv[i])?;
+            }
             "-W" => {
                 i += 1;
                 if i >= argv.len() - 1 {
@@ -99,8 +119,8 @@ fn command(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
             }
             "--" if i == argv.len() - 2 => break,
             option => {
-                // Flags affecting output routing, priority, terminal ownership,
-                // or callbacks must not be silently ignored, even when caught.
+                // Output-routing and callback flags must not be silently
+                // ignored, even when a Portfile catches the error.
                 interp
                     .context::<State>(id)
                     .unsupported
@@ -115,6 +135,8 @@ fn command(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
         script: argv.last().unwrap().to_string(),
         directory,
         prepare_directory: None,
+        nice,
+        new_session,
         environment: environment
             .as_chunks::<2>()
             .0
@@ -199,4 +221,15 @@ fn signal_description(signal: i32) -> (String, String) {
         _ => ("unknown signal", "unknown signal"),
     };
     (name.into(), description.into())
+}
+
+/// INT_MAX is the native system command's sentinel for no priority adjustment.
+pub(super) fn parse_nice(value: &Value) -> Result<Option<i32>, Exception> {
+    // Tcl_GetIntFromObj on macOS accepts INT_MIN..UINT_MAX, then casts to int.
+    let number = value
+        .as_int()
+        .ok()
+        .filter(|value| (i32::MIN as i64..=u32::MAX as i64).contains(value))
+        .ok_or_else(|| error("invalid value for -nice"))? as i32;
+    Ok((number != i32::MAX).then_some(number))
 }

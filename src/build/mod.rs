@@ -14,6 +14,10 @@ pub struct Command {
     pub environment: BTreeMap<OsString, OsString>,
     /// Clear inherited variables before applying `environment`.
     pub clear_environment: bool,
+    /// Requested absolute niceness; permission failures follow MacPorts and are ignored.
+    pub nice: Option<i32>,
+    /// Start a session without a controlling terminal (`system -notty`).
+    pub new_session: bool,
 }
 /// Completed process identity and status, retained for Tcl CHILDSTATUS errors.
 #[derive(Debug)]

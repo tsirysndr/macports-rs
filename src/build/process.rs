@@ -11,7 +11,7 @@ struct ProcessGroup {
 impl Drop for ProcessGroup {
     fn drop(&mut self) {
         if let Some(pid) = self.pid {
-            // SAFETY: the PID came from our child created with process_group(0).
+            // SAFETY: the PID came from our child created with process_group(0) or setsid().
             // A negative PID signals that group, never our own process group.
             unsafe {
                 libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
@@ -30,6 +30,28 @@ pub(super) async fn run(
     if command.clear_environment {
         builder.env_clear();
     }
+    let new_session = command.new_session;
+    let nice = command.nice;
+    if !new_session {
+        builder.process_group(0);
+    }
+    if new_session || nice.is_some() {
+        // SAFETY: this post-fork hook only uses captured Copy values and leaf OS
+        // calls. It does not allocate, acquire locks, or access the Tokio runtime.
+        unsafe {
+            builder.pre_exec(move || {
+                if new_session && libc::setsid() == -1 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                if let Some(priority) = nice {
+                    // Native MacPorts ignores setpriority failure (for example,
+                    // an unprivileged request to increase scheduling priority).
+                    libc::setpriority(libc::PRIO_PROCESS, 0, priority);
+                }
+                Ok(())
+            });
+        }
+    }
     let mut child = builder
         .args(&command.args)
         .current_dir(&command.directory)
@@ -37,7 +59,6 @@ pub(super) async fn run(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .process_group(0)
         .kill_on_drop(true)
         .spawn()
         .with_context(|| {
