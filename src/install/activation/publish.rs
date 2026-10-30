@@ -4,7 +4,7 @@ use crate::{
         inspect::Kind,
         publication::{PublishedDirectory, PublishedFile, Root},
     },
-    registry::write::{ActivationFile, WriteTransaction},
+    registry::write::{ActivationFile, WriteTransaction, Writer},
 };
 use anyhow::{Context, Result, ensure};
 use std::{collections::BTreeMap, fs::OpenOptions, os::unix::fs::OpenOptionsExt, path::Path};
@@ -66,6 +66,35 @@ impl Drop for PublishedImage {
     }
 }
 impl Plan<'_> {
+    /// Publish an already registered inactive image, activate its file mappings,
+    /// and retain the files only after the registry transaction commits. The
+    /// caller must exclusively manage destination paths for the entire call.
+    /// Recovery from process termination still requires a durable journal.
+    #[cfg(target_os = "macos")]
+    pub fn activate(&self, writer: &mut Writer, image_id: i64) -> Result<()> {
+        let mut transaction = writer.transaction()?;
+        let published = self.publish(&transaction, image_id)?;
+        if let Err(error) = transaction.activate(image_id, published.mappings()) {
+            // Keep the registry writer lock while undoing failed activation.
+            return match published.rollback() {
+                Ok(()) => Err(error),
+                Err(rollback) => {
+                    Err(error.context(format!("activation rollback also failed: {rollback:#}")))
+                }
+            };
+        }
+        if let Err(error) = transaction.commit() {
+            return match published.rollback() {
+                Ok(()) => Err(error),
+                Err(rollback) => {
+                    Err(error.context(format!("commit rollback also failed: {rollback:#}")))
+                }
+            };
+        }
+        published.persist();
+        Ok(())
+    }
+
     /// Recheck the filesystem and locked registry, then publish payload and
     /// metadata. The caller still owns registry activation/commit and must retain
     /// the returned receipt until both succeed. Control files are never executed.

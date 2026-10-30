@@ -283,3 +283,78 @@ fn rolls_back_the_whole_image_and_preserves_shared_directories() {
         b"retained"
     );
 }
+
+#[test]
+fn coordinated_activation_rolls_back_registry_and_files_on_update_or_commit_failure() {
+    for commit_failure in [false, true] {
+        let temp = tempfile::tempdir().unwrap();
+        let image = image(temp.path());
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir(root.path().join("opt")).unwrap();
+        fs::write(root.path().join("opt/unrelated"), b"retained").unwrap();
+        let plan = Plan::inspect(&image, root.path()).unwrap();
+        let db_path = temp.path().join("registry.db");
+        let mut writer = port_rs::registry::write::Writer::create(&db_path).unwrap();
+        let mut tx = writer.transaction().unwrap();
+        let id = tx.register(&registration(&plan)).unwrap();
+        tx.commit().unwrap();
+        let db = rusqlite::Connection::open(&db_path).unwrap();
+        if commit_failure {
+            // A deferred foreign-key violation occurs only at COMMIT, after
+            // every file mapping and the port state have been updated.
+            db.execute_batch("CREATE TABLE test_parent (id INTEGER PRIMARY KEY);
+                CREATE TABLE test_child (id INTEGER REFERENCES test_parent(id) DEFERRABLE INITIALLY DEFERRED);
+                CREATE TRIGGER reject_activation AFTER UPDATE OF state ON ports
+                WHEN NEW.state='installed' BEGIN INSERT INTO test_child VALUES (99); END;").unwrap();
+        } else {
+            db.execute_batch(
+                "CREATE TRIGGER reject_activation BEFORE UPDATE OF active ON files
+                WHEN NEW.path='/opt/local/bin/hard' AND NEW.active=1
+                BEGIN SELECT RAISE(FAIL,'forced activation failure'); END;",
+            )
+            .unwrap();
+        }
+        let error = plan.activate(&mut writer, id).unwrap_err();
+        let message = format!("{error:#}");
+        assert!(
+            message.contains(if commit_failure {
+                "FOREIGN KEY"
+            } else {
+                "forced activation failure"
+            }),
+            "{message}"
+        );
+        assert!(!root.path().join("opt/local").exists());
+        assert_eq!(
+            fs::read(root.path().join("opt/unrelated")).unwrap(),
+            b"retained"
+        );
+        let tx = writer.transaction().unwrap();
+        assert!(!tx.entries().unwrap()[0].active);
+        tx.check_activation(id, &plan.check_registry(&tx, id).unwrap())
+            .unwrap();
+        drop(tx);
+        assert_eq!(
+            db.query_row(
+                "SELECT count(*) FROM files WHERE active OR actual_path IS NOT NULL",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+            0
+        );
+        db.execute_batch("DROP TRIGGER reject_activation").unwrap();
+        plan.activate(&mut writer, id).unwrap();
+        assert!(writer.transaction().unwrap().entries().unwrap()[0].active);
+        assert_eq!(
+            fs::read(root.path().join("opt/local/bin/app")).unwrap(),
+            b"payload"
+        );
+        assert_eq!(
+            db.query_row("SELECT count(*) FROM files WHERE active", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            3
+        );
+    }
+}

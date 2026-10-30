@@ -1222,3 +1222,15 @@ rollback, shared directories, stale preflight conflicts, and missing staged data
 This API requires exclusive destination access and provides in-process recovery
 only; CLI wiring, file flags, privilege elevation, and durable crash recovery are
 still pending.
+
+`Plan::activate` coordinates the complete in-process activation of an already
+registered inactive image: it acquires the registry writer transaction, publishes
+and validates the image, activates its file mappings, commits, and only then
+retains the filesystem receipts. Registry-update failures roll back publication
+while the writer lock is held. Commit failures also roll back publication, and
+cleanup failures are returned alongside the original error. Integration tests
+inject both a mid-update trigger failure and a deferred foreign-key failure at
+COMMIT, verify inactive registry state with no active file mappings or new payload,
+and then retry successfully. This coordinator still requires exclusive destination
+access; it is not crash-atomic and does not yet connect CLI install to fetching,
+image registration, or privilege elevation.
