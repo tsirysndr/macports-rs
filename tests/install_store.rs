@@ -385,3 +385,128 @@ fn stored_registered_archive_can_be_prepared_and_activated_end_to_end() {
     assert_eq!(fs::read(location).unwrap(), bytes);
     assert!(writer.transaction().unwrap().entries().unwrap()[0].active);
 }
+
+#[test]
+fn reload_authenticates_private_bytes_and_rejects_corrupt_or_oversized_cache() {
+    use port_rs::install::store::LoadLimits;
+    use std::io::Read;
+    let software = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let store = Store::open(software.path()).unwrap();
+    let port = port();
+    let item = item(&port);
+    let target = target("arm");
+    let original = bytes();
+    let mut archive = stage(&original);
+    let stored = store
+        .stage(&mut archive, &item, &target, Limits::default())
+        .unwrap();
+    let location = stored.location().to_owned();
+    let signature = stored.signature_location().to_owned();
+    stored.persist();
+    let limits = || LoadLimits {
+        archive_bytes: 1024 * 1024,
+        inspection: Limits::default(),
+    };
+    let keys = [trusted_key()];
+    let mut loaded = store
+        .load(&item, &target, &keys, work.path(), limits())
+        .unwrap();
+    assert_eq!(loaded.verification(), archive.verification());
+    assert!(
+        store
+            .load(&item, &target, &[], work.path(), limits())
+            .is_err()
+    );
+    assert!(
+        store
+            .load(
+                &item,
+                &target,
+                &keys,
+                work.path(),
+                LoadLimits {
+                    archive_bytes: 1,
+                    inspection: Limits::default()
+                }
+            )
+            .is_err()
+    );
+    fs::write(&location, b"tampered").unwrap();
+    assert!(
+        store
+            .load(&item, &target, &keys, work.path(), limits())
+            .is_err()
+    );
+    let mut retained = Vec::new();
+    loaded.reader().unwrap().read_to_end(&mut retained).unwrap();
+    assert_eq!(retained, original);
+    assert_eq!(fs::read(&location).unwrap(), b"tampered");
+    fs::write(&location, &original).unwrap();
+    fs::write(&signature, "x".repeat(4097)).unwrap();
+    assert!(
+        store
+            .load(&item, &target, &keys, work.path(), limits())
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("signature exceeds")
+    );
+    assert_eq!(fs::read_dir(work.path()).unwrap().count(), 0);
+}
+
+#[test]
+fn reload_rejects_links_special_files_and_authentic_but_wrong_identity() {
+    use port_rs::install::store::LoadLimits;
+    let software = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let store = Store::open(software.path()).unwrap();
+    let port = port();
+    let item = item(&port);
+    let target = target("arm");
+    let mut archive = stage(&bytes());
+    let stored = store
+        .stage(&mut archive, &item, &target, Limits::default())
+        .unwrap();
+    let location = stored.location().to_owned();
+    let signature = stored.signature_location().to_owned();
+    stored.persist();
+    let load = || {
+        store.load(
+            &item,
+            &target,
+            &[trusted_key()],
+            work.path(),
+            LoadLimits {
+                archive_bytes: 1024 * 1024,
+                inspection: Limits::default(),
+            },
+        )
+    };
+    let saved = location.with_extension("saved");
+    fs::rename(&location, &saved).unwrap();
+    symlink(&saved, &location).unwrap();
+    assert!(load().is_err());
+    fs::remove_file(&location).unwrap();
+    // Opening a FIFO must reject immediately, even without any writer.
+    use std::os::unix::ffi::OsStrExt;
+    let name = std::ffi::CString::new(location.as_os_str().as_bytes()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+    assert!(load().is_err());
+    fs::remove_file(&location).unwrap();
+    fs::rename(&saved, &location).unwrap();
+    let c = contents(&["opt/local/app"])
+        .replace("app-1_0", "app-2_0")
+        .replace("@portversion 1", "@portversion 2");
+    let wrong = compress(&tar(&[
+        ("+CONTENTS", b'0', c.as_bytes(), ""),
+        ("opt/local/app", b'0', b"payload", ""),
+    ]));
+    let signed_wrong = stage(&wrong);
+    fs::write(&location, &wrong).unwrap();
+    fs::write(&signature, signed_wrong.signature()).unwrap();
+    assert!(load().err().unwrap().to_string().contains("does not match"));
+    fs::rename(software.path().join("app"), software.path().join("moved")).unwrap();
+    symlink("moved", software.path().join("app")).unwrap();
+    assert!(load().is_err());
+}

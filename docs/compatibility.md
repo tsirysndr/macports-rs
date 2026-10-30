@@ -1265,3 +1265,15 @@ files are absent, and retry successfully. An integration test runs authenticated
 storage, registration, preparation, and activation together, retaining the archive
 and active payload after temporary extraction cleanup. CLI orchestration and
 crash recovery remain pending.
+
+`Store::load` reopens cached archives and bounded signature sidecars through
+physical directory descriptors, rejecting symlink parents/leaves and nonregular
+entries. Nonblocking opens prevent a substituted FIFO from hanging the load. It
+copies the archive into private staging while authenticating with caller-trusted
+keys, then validates archive structure, identity, variants, and target architecture.
+Compressed-byte and expanded-inspection limits are independently configurable.
+The returned verified bytes remain stable if the cache file is later changed.
+Invalid cache entries are preserved for diagnosis rather than silently removed or
+replaced. Tests cover a valid reload, tampering after reload, missing trusted keys,
+size limits, oversized signatures, symlinks/FIFOs, and signed wrong identities.
+CLI cache selection and automatic reuse remain pending.

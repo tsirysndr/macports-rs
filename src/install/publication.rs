@@ -24,6 +24,29 @@ pub struct Root {
     directory: File,
 }
 impl Root {
+    /// Read a physical regular file through held parent descriptors. O_NONBLOCK
+    /// prevents a substituted FIFO from blocking before its type is checked.
+    pub(crate) fn open_file(&self, relative: &Path) -> Result<File> {
+        let (parent, name) = self.parent(relative)?;
+        // SAFETY: parent and the NUL-terminated name remain live for openat.
+        let fd = unsafe {
+            libc::openat(
+                parent.as_raw_fd(),
+                name.as_ptr(),
+                libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK,
+            )
+        };
+        if fd < 0 {
+            return Err(io::Error::last_os_error()).context("cannot open stored file");
+        }
+        // SAFETY: openat returned a newly owned descriptor.
+        let file = unsafe { File::from_raw_fd(fd) };
+        ensure!(
+            file.metadata()?.is_file(),
+            "stored entry is not a regular file"
+        );
+        Ok(file)
+    }
     pub fn open(path: &Path) -> Result<Self> {
         let path: PathBuf = path.components().collect();
         let directory = OpenOptions::new()

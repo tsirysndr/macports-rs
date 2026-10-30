@@ -60,6 +60,16 @@ pub fn stage(bytes: &[u8]) -> VerifiedArchive {
     )
     .unwrap()
 }
+pub fn trusted_key() -> TrustedKey {
+    let key = KeyPair::from_seed(Seed::new([1; 32]));
+    let mut packet = b"Ed12345678".to_vec();
+    packet.extend(key.pk.as_ref());
+    TrustedKey::parse(&format!(
+        "untrusted comment: fixture\n{}\n",
+        STANDARD.encode(packet)
+    ))
+    .unwrap()
+}
 pub fn inspect_records(records: &[(&str, u8, &[u8], &str)]) -> anyhow::Result<inspect::Inspection> {
     inspect::tbz2(&mut stage(&compress(&tar(records))), Limits::default())
 }

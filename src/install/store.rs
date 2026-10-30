@@ -4,12 +4,14 @@ use super::{
     archive::VerifiedArchive,
     inspect::{self, Inspection, Limits},
     publication::{PublishedDirectory, PublishedFile, Root},
+    signature::TrustedKey,
     target::Target,
 };
 use crate::registry::write::{NewImage, Writer};
 use anyhow::{Context, Result, ensure};
 use std::{
     collections::BTreeSet,
+    io::Read,
     path::{Path, PathBuf},
 };
 
@@ -17,7 +19,41 @@ pub struct Store {
     root: Root,
     path: PathBuf,
 }
+/// Separate bounds for stored compressed bytes and expanded archive inspection.
+pub struct LoadLimits {
+    pub archive_bytes: u64,
+    pub inspection: Limits,
+}
 impl Store {
+    /// Reauthenticate a stored image into private staging using caller-trusted
+    /// keys. Cache location and registry membership do not confer trust. Neither
+    /// parent nor leaf symlinks are followed, and corrupt cache entries stay put
+    /// so a caller can report or explicitly replace them.
+    pub fn load(
+        &self,
+        item: &Item<'_>,
+        target: &Target,
+        keys: &[TrustedKey],
+        staging: &Path,
+        limits: LoadLimits,
+    ) -> Result<VerifiedArchive> {
+        let relative = Path::new(&item.port.name).join(target.filename(item)?);
+        let signature_relative = PathBuf::from(format!("{}.sig", relative.display()));
+        let signature_file = self.root.open_file(&signature_relative)?;
+        let mut signature = String::new();
+        signature_file.take(4097).read_to_string(&mut signature)?;
+        ensure!(
+            signature.len() <= 4096,
+            "stored signature exceeds size limit"
+        );
+        let file = self.root.open_file(&relative)?;
+        let mut archive =
+            VerifiedArchive::stage(file, &signature, keys, staging, limits.archive_bytes)?;
+        let inspection = inspect::tbz2(&mut archive, limits.inspection)?;
+        inspection.contents.matches(item)?;
+        target.matches(&inspection.contents)?;
+        Ok(archive)
+    }
     /// Open an existing physical software directory. The caller must exclusively
     /// manage it until every returned storage receipt is retained or rolled back.
     pub fn open(path: &Path) -> Result<Self> {
