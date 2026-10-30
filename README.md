@@ -468,6 +468,16 @@ initialization remain unfinished.
 Native progress callbacks remain unsupported. A macOS integration test compiles a C program and verifies
 prefixed compiler diagnostics through this path.
 
+`portconfigure::configure_main` runs autoreconf, automake, and autoconf in order,
+then selects xmkmf/Makefiles generation or the configured configure command.
+It combines user environment values with compiler wrappers, pipe/SDK flags,
+tool and language options, pkg-config paths, canonical architecture flags, and
+universal or march/mtune settings. Custom configure blocks can delegate through
+`do-configure`. Failures stop subsequent commands, retain live logs, and restore
+the session environment. Callers must still initialize the compiler options;
+compiler discovery, option dependency traces, configure initialization/finish
+hooks, and full CLI phase scheduling remain unfinished.
+
 `porttest::test_main` runs configured test commands when `test.run` is true,
 using the inherited build command/directory and the default `test` target.
 Custom test blocks can delegate through `do-test`; child status and environment

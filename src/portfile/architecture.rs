@@ -8,6 +8,7 @@ use std::{
 
 pub(super) fn install(interp: &mut Interp, id: ContextID) {
     interp.add_context_command("get_canonical_archs", canonical, id);
+    interp.add_context_command("get_canonical_archflags", flags, id);
     interp.add_context_command("porttest::test_archs", check, id);
 }
 fn canonical(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
@@ -16,17 +17,7 @@ fn canonical(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
         if interp.scalar("supported_archs")?.as_str() == "noarch" {
             return Ok("noarch".into());
         }
-        let universal = ["variant_exists", "variant_isset"].into_iter().try_fold(
-            true,
-            |enabled, command| {
-                if !enabled {
-                    return Ok(false);
-                }
-                interp
-                    .eval_value(&Value::from(vec![command.into(), "universal".into()]))?
-                    .as_bool()
-            },
-        )?;
+        let universal = universal_enabled(interp)?;
         if universal {
             let value = interp.scalar("configure.universal_archs")?;
             let archs = value.as_list()?;
@@ -143,6 +134,39 @@ fn mismatch_warning(subport: &str, wanted: &[String], mut files: Files) -> Optio
     } else {
         None
     }
+}
+
+pub(super) fn universal_enabled(interp: &mut Interp) -> Result<bool, Exception> {
+    for command in ["variant_exists", "variant_isset"] {
+        if !interp
+            .eval_value(&Value::from(vec![command.into(), "universal".into()]))?
+            .as_bool()?
+        {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+fn flags(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(1, argv, 1, 2, "?tool?")?;
+    interp.with_global_scope(|interp| {
+        let tool = argv.get(1).map(Value::as_str).unwrap_or("cc");
+        let universal = universal_enabled(interp)?
+            && interp.scalar("configure.universal_archs")?.as_list()?.len() >= 2;
+        let (option, description) = if universal {
+            let tool = if tool == "cc" { "c" } else { tool };
+            (
+                format!("configure.universal_{tool}flags"),
+                format!("universal archflags do not exist for tool '{tool}'"),
+            )
+        } else {
+            (
+                format!("configure.{tool}_archflags"),
+                format!("archflags do not exist for tool '{tool}'"),
+            )
+        };
+        interp.scalar(&option).map_err(|_| error(description))
+    })
 }
 
 #[cfg(test)]
