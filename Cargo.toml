@@ -28,6 +28,7 @@ ed25519-compact = { version = "2.6", default-features = false, features = ["std"
 base64 = "0.22"
 tar = { version = "0.4", default-features = false }
 bzip2 = "0.6"
+ripemd = "0.2"
 
 [profile.release]
 lto = "thin"

@@ -272,3 +272,68 @@ async fn rejects_partial_and_truncated_http_responses() {
         );
     }
 }
+
+#[path = "support/archives.rs"]
+mod archives;
+
+#[tokio::test]
+async fn downloaded_archive_prepares_only_for_matching_package_and_target() {
+    use port_rs::{
+        index::Index,
+        install::{
+            self, extract,
+            inspect::Limits,
+            target::{Architecture, Target},
+        },
+        source::Platform,
+        spec::PortSpec,
+    };
+    let contents = archives::contents(&["opt/local/app"]);
+    let data = archives::compress(&archives::tar(&[
+        ("+CONTENTS", b'0', contents.as_bytes(), ""),
+        ("opt/local/app", b'0', b"verified payload", ""),
+    ]));
+    let (key, signature) = signed(&data);
+    let server = server(vec![
+        ("/app", response(&data)),
+        ("/app.sig", response(&signature)),
+    ])
+    .await;
+    let directory = tempfile::tempdir().unwrap();
+    let mut downloaded = fetch::run(
+        &[request(&server, &["/app"], 1024 * 1024)],
+        directory.path(),
+        &[key],
+        1,
+        &Progress::new(true),
+    )
+    .await
+    .unwrap();
+    let body = "name app version 1 revision 0 variants ssl vinfo {ssl {is_default +}}";
+    let index = Index::parse(&format!("app {}\n{body}\n", body.len() + 1)).unwrap();
+    let plan = install::plan(&index, &[PortSpec::named("app")], &[]).unwrap();
+    let target = Target::macos(
+        &Platform {
+            darwin_major: 24,
+            architecture: "arm",
+        },
+        "darwin",
+        Architecture::Native,
+    )
+    .unwrap();
+    let image = extract::prepare_for_target(
+        &mut downloaded[0],
+        &plan[0],
+        &target,
+        directory.path(),
+        Limits::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        std::fs::read(image.payload().join("opt/local/app")).unwrap(),
+        b"verified payload"
+    );
+    let path = image.payload();
+    drop(image);
+    assert!(!path.exists());
+}

@@ -182,3 +182,52 @@ fn filesystem_failure_cleans_up_partially_prepared_image() {
     assert!(result.is_err());
     assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
 }
+
+#[test]
+fn target_architectures_are_checked_before_extraction() {
+    use port_rs::{
+        install::target::{Architecture, Target},
+        source::Platform,
+    };
+    let c = contents(&["opt/local/app"]);
+    let data = compress(&tar(&[
+        ("+CONTENTS", b'0', c.as_bytes(), ""),
+        ("opt/local/app", b'0', b"hello", ""),
+    ]));
+    let index = index();
+    let plan = install::plan(&index, &[PortSpec::named("app")], &[]).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let platform = Platform {
+        darwin_major: 24,
+        architecture: "arm",
+    };
+    for architecture in [
+        Architecture::Build("x86_64"),
+        Architecture::Noarch,
+        Architecture::Universal(&["arm64", "x86_64"]),
+    ] {
+        let target = Target::macos(&platform, "darwin", architecture).unwrap();
+        let result = extract::prepare_for_target(
+            &mut stage(&data),
+            &plan[0],
+            &target,
+            directory.path(),
+            Limits::default(),
+        );
+        assert!(result.err().unwrap().to_string().contains("architectures"));
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
+    }
+    let target = Target::macos(&platform, "darwin", Architecture::Native).unwrap();
+    let image = extract::prepare_for_target(
+        &mut stage(&data),
+        &plan[0],
+        &target,
+        directory.path(),
+        Limits::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        std::fs::read(image.payload().join("opt/local/app")).unwrap(),
+        b"hello"
+    );
+}

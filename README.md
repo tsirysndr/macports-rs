@@ -404,6 +404,15 @@ savepoints; dropping a transaction rolls it back. Existing older or newer schema
 are refused without migration. This API does not yet coordinate live filesystem
 changes, and read-only commands never initialize a registry.
 
+Archive targets follow MacPorts' Darwin release, `darwin_any`, and `any_any`
+naming rules. Native targets use arm64 or x86_64 from machine detection; resolved
+build properties can select noarch, an explicit build architecture, or sorted
+universal architectures. Long variant suffixes use MacPorts' RIPEMD-160 filename
+fallback through the pure Rust `ripemd` crate. Target-aware preparation checks
+the signed `+CONTENTS` architecture set before extraction. Platform declarations
+and build architecture still require resolved metadata; missing PortIndex fields
+are not sufficient to approve a target.
+
 Signed archive transport now uses Tokio and reqwest with bounded parallel
 transfers and ordered mirror fallback. Each archive and its `.sig` are fetched
 under size limits; signature verification runs on a blocking worker and retains

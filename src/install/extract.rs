@@ -38,8 +38,32 @@ pub fn prepare(
     directory: &Path,
     limits: Limits,
 ) -> Result<PreparedImage> {
+    prepare_checked(archive, expected, None, directory, limits)
+}
+
+/// Prepare for a resolved build target, rejecting architecture mismatches before
+/// any filesystem output. The archive's platform is not recorded in +CONTENTS.
+pub fn prepare_for_target(
+    archive: &mut VerifiedArchive,
+    expected: &Item<'_>,
+    target: &super::target::Target,
+    directory: &Path,
+    limits: Limits,
+) -> Result<PreparedImage> {
+    prepare_checked(archive, expected, Some(target), directory, limits)
+}
+fn prepare_checked(
+    archive: &mut VerifiedArchive,
+    expected: &Item<'_>,
+    target: Option<&super::target::Target>,
+    directory: &Path,
+    limits: Limits,
+) -> Result<PreparedImage> {
     let inspection = inspect::tbz2(archive, limits)?;
     inspection.contents.matches(expected)?;
+    if let Some(target) = target {
+        target.matches(&inspection.contents)?;
+    }
     let prepared = PreparedImage {
         directory: tempfile::Builder::new()
             .prefix("port-rs-image-")
