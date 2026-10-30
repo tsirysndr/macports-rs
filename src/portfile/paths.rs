@@ -47,6 +47,9 @@ pub(super) fn join<'a>(paths: impl IntoIterator<Item = &'a str>) -> String {
 fn file(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 2, 0, "subcommand ?arg ...?")?;
     let operation = argv[1].as_str();
+    if operation == "attributes" {
+        return file_permissions::command(interp, id, argv);
+    }
     if operation == "link" {
         return file_link::command(interp, id, argv);
     }

@@ -617,6 +617,10 @@ not descended into. Paths currently require UTF-8. The native
 `portutil::get_latest_path_mtime` helper finds the latest regular-file timestamp
 using the same traversal. Automatic `source_date_epoch` still needs Git-history
 resolution before its full upstream default can be enabled.
+Native `file attributes path -permissions` reads Unix modes; execution-enabled
+sessions can update them with numeric, nine-character, or Tcl-style symbolic
+permission strings. Queries and updates follow symlinks. Other attributes and
+complete attribute listings remain explicitly unsupported.
 Other filesystem-backed `file` operations and subcommand abbreviations remain
 unimplemented.
 
