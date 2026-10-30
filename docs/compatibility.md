@@ -713,8 +713,10 @@ violet **`#8264FF`** arguments, green **`#64E882`** valid values, and coral
 **`#FF6464`** errors. Help retains automatic color detection and respects
 `NO_COLOR`; redirected help stays plain.
 
-The progress renderer uses cyan compact spinners,
-per-file bars, byte counts, throughput, and ETA. It handles unknown content
+On a TTY, concurrent transfers share an indicatif `MultiProgress` renderer with
+cyan compact spinners, per-file bars, byte counts, throughput, and ETA. An unset
+`TERM` still permits TTY progress; `TERM=dumb` disables it. Hidden progress does
+not start per-transfer tick timers. It handles unknown content
 lengths without inventing a percentage. Progress goes to stderr; redirected
 output uses plain phase messages. `NO_COLOR`, `TERM=dumb`, and `-q` are respected.
 Only real download and verification stages are shown. There is no simulated

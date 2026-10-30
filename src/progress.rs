@@ -19,7 +19,7 @@ pub struct Progress {
 impl Progress {
     pub fn new(quiet: bool) -> Self {
         let terminal = std::io::stderr().is_terminal()
-            && std::env::var("TERM").is_ok_and(|term| term != "dumb");
+            && std::env::var_os("TERM").is_none_or(|term| term != "dumb");
         Self {
             bars: MultiProgress::with_draw_target(if quiet || !terminal {
                 ProgressDrawTarget::hidden()
@@ -63,7 +63,9 @@ impl Progress {
         bar.set_prefix(sanitize(name));
         bar.set_style(style(self.color, false));
         bar.set_message("connecting");
-        bar.enable_steady_tick(Duration::from_millis(100));
+        if self.terminal && !self.quiet {
+            bar.enable_steady_tick(Duration::from_millis(100));
+        }
         TransferProgress {
             bar,
             color: self.color,
@@ -233,5 +235,42 @@ mod tests {
     #[test]
     fn untrusted_names_cannot_inject_terminal_controls() {
         assert_eq!(sanitize("hi\x1b[31m\n"), "hi [31m ");
+    }
+
+    #[test]
+    fn concurrent_transfers_share_terminal_rows_and_preserve_phase_messages() {
+        let capture = Capture::default();
+        let progress = Progress {
+            bars: MultiProgress::with_draw_target(ProgressDrawTarget::term_like(Box::new(
+                capture.clone(),
+            ))),
+            quiet: false,
+            color: false,
+            terminal: true,
+            pauses: Arc::new(Mutex::new(0)),
+        };
+        let first = progress.file("curl.tar.xz");
+        let second = progress.clone().file("git.tar.gz");
+        first.start(Some(100));
+        second.start(None);
+        first.advance(50);
+        second.advance(20);
+        capture.0.lock().unwrap().clear();
+        progress.phase("Verifying a completed transfer");
+        let output = capture.0.lock().unwrap().clone();
+        assert!(output.contains("curl.tar.xz"));
+        assert!(output.contains("git.tar.gz"));
+        assert!(output.contains("Verifying a completed transfer"));
+        assert!(output.contains("ETA"));
+        assert!(!output.contains('\x1b'));
+
+        first.verified();
+        drop(first);
+        capture.0.lock().unwrap().clear();
+        progress.phase("One transfer remains");
+        let output = capture.0.lock().unwrap().clone();
+        assert!(!output.contains("curl.tar.xz"));
+        assert!(output.contains("git.tar.gz"));
+        second.verified();
     }
 }
