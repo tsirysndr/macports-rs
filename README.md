@@ -360,6 +360,16 @@ files. Ordinary `port install` remains blocked before index/registry access unti
 archive verification, extraction, activation, and registry transactions are ready.
 `-y` currently applies only to `install`; other actions reject it.
 
+The installer library now includes streaming Signify/Ed25519 `.sig`
+authentication with the pinned MacPorts 2025 archive key. Verification reads
+64 KiB chunks, authenticates through EOF, and returns the byte count and SHA-256.
+Verified staging copies those exact bytes into an anonymous temporary file with
+a caller-specified size limit; later readers cannot accidentally reopen a changed
+source archive. Failed authentication or staging never publishes an archive.
+These are installer building blocks, not yet connected to `port install` or its
+preview. Legacy RSA `.rmd160` signatures, extraction, archive identity checks,
+and activation are still pending. No external signature tool is invoked.
+
 ## Download engine and progress
 
 Tokio and reqwest provide bounded concurrent HTTP(S) transfers with a shared

@@ -1,0 +1,67 @@
+//! Private staged archives retain the exact bytes that passed authentication.
+use super::signature::{self, TrustedKey, Verification};
+use anyhow::{Result, ensure};
+use std::{
+    fs::File,
+    io::{self, Read, Seek, SeekFrom, Write},
+    path::Path,
+};
+
+pub struct VerifiedArchive {
+    file: File,
+    verification: Verification,
+}
+impl VerifiedArchive {
+    /// Copy and authenticate into an anonymous temporary file. A failure drops the
+    /// staging file; the original is never renamed, modified, or extracted.
+    pub fn stage(
+        input: impl Read,
+        signature: &str,
+        keys: &[TrustedKey],
+        directory: &Path,
+        max_bytes: u64,
+    ) -> Result<Self> {
+        ensure!(max_bytes > 0, "archive size limit must be positive");
+        let mut file = tempfile::tempfile_in(directory)?;
+        let mut tee = StagingReader {
+            input,
+            output: &mut file,
+            remaining: max_bytes,
+        };
+        let verification = signature::verify(&mut tee, signature, keys)?;
+        file.flush()?;
+        file.seek(SeekFrom::Start(0))?;
+        Ok(Self { file, verification })
+    }
+    pub fn verification(&self) -> &Verification {
+        &self.verification
+    }
+    /// Rewind and borrow the staged bytes without exposing a writable handle or
+    /// reopening an attacker-replaceable source path.
+    pub fn reader(&mut self) -> Result<impl Read + '_> {
+        self.file.seek(SeekFrom::Start(0))?;
+        Ok(&mut self.file)
+    }
+}
+struct StagingReader<'a, R> {
+    input: R,
+    output: &'a mut File,
+    remaining: u64,
+}
+impl<R: Read> Read for StagingReader<'_, R> {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+        // Read at most one byte beyond the limit to distinguish exact-size EOF
+        // from a longer message; never authenticate a silently truncated prefix.
+        let limit = self.remaining.saturating_add(1).min(buffer.len() as u64) as usize;
+        let count = self.input.read(&mut buffer[..limit])?;
+        if count as u64 > self.remaining {
+            return Err(io::Error::other("archive exceeds configured size limit"));
+        }
+        self.output.write_all(&buffer[..count])?;
+        self.remaining -= count as u64;
+        Ok(count)
+    }
+}
