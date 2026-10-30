@@ -24,3 +24,5 @@ pub mod binary;
 pub mod publication;
 pub mod registration;
 pub mod store;
+
+pub mod environment;

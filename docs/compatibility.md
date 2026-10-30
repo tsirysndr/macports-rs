@@ -1449,3 +1449,12 @@ remain isolated. `enable_system_with_current_environment` later enables executio
 while retaining environment changes made during evaluation; the existing
 `enable_system` API still replaces the environment explicitly. Startup filtering,
 configuration loading, and CLI lifecycle integration remain caller responsibilities.
+
+`install::environment::Startup` filters explicitly inherited environment values
+using the upstream startup allowlist, sets the prefix-based default PATH (or the
+configured binpath), and forces LANG=en_US.UTF-8. It preserves extra_env entries
+and checks temporary paths with native writability and resolved-user ownership
+rules, including symlink targets. It does not mutate process environment or
+credentials. Configuration parsing, account resolution, and system/configured
+proxy overrides still belong to the startup driver; the filtered map can be
+passed directly to environment-aware Portfile loading.
