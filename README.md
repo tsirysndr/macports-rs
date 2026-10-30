@@ -163,6 +163,15 @@ Portfile commands fail explicitly, without falling back to cached metadata or
 fetching source code. The downloaded default index alone is insufficient for this
 mode. macports.conf and variants.conf defaults are not loaded yet.
 
+Local-tree queries detect the macOS product version, physical CPU architecture,
+active CPU count, and available memory through native system APIs. Deployment and
+default SDK versions follow the macOS product version (including macOS 26).
+Build jobs are resolved lazily from parallel-build settings, CPU count, and the
+per-job memory allowance; explicit `build.jobs` overrides remain authoritative.
+Build/universal architectures are filtered against the port and default SDK
+version, including MacPorts' architecture demotions. This does not locate an
+installed SDK or choose a compiler yet.
+
 `deps` and `rdeps` use the same local-tree selection as `variants`. Selected
 variants update dependency lists and appear in the full-name heading. Recursive
 queries evaluate each reachable port once per root, passing explicit variant and
@@ -446,8 +455,8 @@ commands and build-stage defaults used by larger PortGroups. Unsupported operati
 call unsupported I/O commands are recorded and cannot yield approved metadata.
 Pinned, unmodified [curl fixtures](tests/fixtures/curl/README.md) now test its
 default variants, explicit resolver/TLS variants, conflicts, dependency metadata,
-and local-tree CLI queries. These tests explicitly supply the deployment target,
-build job count, and universal architecture list. They do not run PortSystem
+and local-tree CLI queries. Library tests supply explicit build inputs; CLI tests
+cover both native host detection and explicit overrides. They do not run PortSystem
 initialization, universal-build setup, hooks, or installation, and do not establish
 compatibility with the wider ports tree.
 

@@ -128,7 +128,7 @@ fn real_curl_requirements_and_conflicts_are_enforced() {
 }
 
 #[test]
-fn cli_queries_real_curl_from_a_local_tree_with_explicit_build_inputs() {
+fn cli_queries_real_curl_with_detected_and_explicit_build_inputs() {
     let tree = tempfile::tempdir().unwrap();
     let portdir = tree.path().join("net/curl");
     let groupdir = tree.path().join("_resources/port1.0/group");
@@ -156,36 +156,40 @@ fn cli_queries_real_curl_from_a_local_tree_with_explicit_build_inputs() {
     )
     .unwrap();
     for action in ["variants", "deps"] {
-        let output = std::process::Command::new(env!("CARGO_BIN_EXE_port"))
-            .args([
-                action,
-                "curl",
-                "macosx_deployment_target=15.0",
-                "build.jobs=4",
-                "configure.universal_archs=arm64 x86_64",
-            ])
-            .current_dir(tree.path())
-            .env_remove("PORT_RS_INDEX")
-            .env("PATH", "")
-            .env("NO_COLOR", "1")
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        if action == "variants" {
-            assert!(stdout.contains("[+]ssl:"), "{stdout}");
-            assert!(stdout.contains("   ares:"), "{stdout}");
-            assert!(!stdout.contains("stale"));
-        } else {
+        for explicit in [false, true] {
+            let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_port"));
+            command.args([action, "curl"]);
+            if explicit {
+                command.args([
+                    "macosx_deployment_target=15.0",
+                    "build.jobs=4",
+                    "configure.universal_archs=arm64 x86_64",
+                ]);
+            }
+            let output = command
+                .current_dir(tree.path())
+                .env_remove("PORT_RS_INDEX")
+                .env("PATH", "")
+                .env("NO_COLOR", "1")
+                .output()
+                .unwrap();
             assert!(
-                stdout.contains("curl @8.23.0_0+brotli+http2+idn+psl+ssl+zstd"),
-                "{stdout}"
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
             );
-            assert!(stdout.contains("openssl"));
+            let stdout = String::from_utf8(output.stdout).unwrap();
+            if action == "variants" {
+                assert!(stdout.contains("[+]ssl:"), "{stdout}");
+                assert!(stdout.contains("   ares:"), "{stdout}");
+                assert!(!stdout.contains("stale"));
+            } else {
+                assert!(
+                    stdout.contains("curl @8.23.0_0+brotli+http2+idn+psl+ssl+zstd"),
+                    "{stdout}"
+                );
+                assert!(stdout.contains("openssl"));
+            }
         }
     }
 }

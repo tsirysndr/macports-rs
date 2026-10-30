@@ -36,7 +36,12 @@ fn command(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 3, 3, "option value")?;
     interp.with_global_scope(|interp| register(interp, id, argv[1].as_str(), argv[2].as_str()))
 }
-fn register(interp: &mut Interp, id: ContextID, name: &str, template: &str) -> MoltResult {
+pub(super) fn register(
+    interp: &mut Interp,
+    id: ContextID,
+    name: &str,
+    template: &str,
+) -> MoltResult {
     if !interp.context::<State>(id).lazy_defaults.contains_key(name)
         && interp.var_exists(&Value::from(name))
     {

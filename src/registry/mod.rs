@@ -4,7 +4,7 @@ pub mod expression;
 mod leaves;
 pub mod path;
 mod selection;
-mod version;
+pub(crate) mod version;
 pub mod write;
 use anyhow::{Context, Result, ensure};
 use rusqlite::{Connection, OpenFlags, OptionalExtension};

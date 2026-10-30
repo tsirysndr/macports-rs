@@ -1,6 +1,7 @@
 //! Native Portfile metadata evaluation. No tclsh, libtcl, or subprocess fallback.
 //! This is an incremental MacPorts command implementation, not yet a complete
 //! PortSystem. Unsupported commands fail; deferred build hooks are retained.
+mod build_settings;
 mod command_options;
 mod commands;
 mod defaults;
@@ -151,6 +152,7 @@ pub fn evaluate_with_groups(
     interp.add_context_command("PortGroup", groups::command, id);
     interp.add_context_command("platform", platform::command, id);
     defaults::install(&mut interp, id).map_err(failure)?;
+    build_settings::install(&mut interp, id).map_err(failure)?;
     interp.eval(source).map_err(failure)?;
     for (name, _) in &requested.options {
         ensure!(

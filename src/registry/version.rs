@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 
 // MacPorts compares alternating ASCII numeric/alphabetic segments, ignoring
 // separators. Numbers sort after letters; leading numeric zeroes are ignored.
-pub(super) fn compare(a: &str, b: &str) -> Ordering {
+pub(crate) fn compare(a: &str, b: &str) -> Ordering {
     let (mut a, mut b) = (a.as_bytes(), b.as_bytes());
     while !a.is_empty() && !b.is_empty() {
         a = &a[a.iter().take_while(|c| !c.is_ascii_alphanumeric()).count()..];
