@@ -211,3 +211,191 @@ fn rejects_unresolved_plans_before_mutation_and_retains_registered_image_on_acti
         2
     );
 }
+
+fn download_job<'a>(
+    port: &'a Port,
+    url: &str,
+    dependencies: Vec<String>,
+) -> port_rs::install::binary::Job<'a> {
+    let mut registration = record();
+    registration.name = port.name.clone();
+    registration.dependencies = dependencies;
+    port_rs::install::binary::Job {
+        item: item(port),
+        target: target(),
+        registration,
+        request: port_rs::install::fetch::Request {
+            name: port.name.clone(),
+            urls: vec![format!("{url}/{}", port.name)],
+            max_bytes: 1024 * 1024,
+        },
+    }
+}
+
+#[tokio::test]
+async fn batch_downloads_concurrently_then_installs_dependencies_in_order() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+    };
+    for corrupt in [false, true] {
+        let software = tempfile::tempdir().unwrap();
+        let work = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let database = tempfile::tempdir().unwrap();
+        let store = Store::open(software.path()).unwrap();
+        let mut registry = Writer::create(&database.path().join("registry.db")).unwrap();
+        let mut base = port();
+        base.name = "base".into();
+        let app = port();
+        let mut routes = std::collections::HashMap::new();
+        for name in ["base", "app"] {
+            let c = format!(
+                "@name {name}-1_0+ssl\n@portname {name}\n@portversion 1\n@portrevision 0\n@portepoch 0\n@archs arm64\n@portvariant +ssl\nopt/local/{name}\n"
+            );
+            let bytes = compress(&tar_with_owner(
+                &[
+                    ("+CONTENTS", b'0', c.as_bytes(), ""),
+                    (&format!("opt/local/{name}"), b'0', name.as_bytes(), ""),
+                ],
+                unsafe { libc::geteuid() }.into(),
+                unsafe { libc::getegid() }.into(),
+            ));
+            let signed = stage(&bytes);
+            routes.insert(
+                format!("/{name}.sig"),
+                signed.signature().as_bytes().to_vec(),
+            );
+            routes.insert(
+                format!("/{name}"),
+                if corrupt && name == "app" {
+                    b"tampered".to_vec()
+                } else {
+                    bytes
+                },
+            );
+        }
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let calls = Arc::new(AtomicUsize::new(0));
+        let active = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let (task_calls, task_peak) = (calls.clone(), peak.clone());
+        let routes = Arc::new(routes);
+        let server = tokio::spawn(async move {
+            let mut handlers = tokio::task::JoinSet::new();
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let (routes, calls, active, peak) = (
+                    routes.clone(),
+                    task_calls.clone(),
+                    active.clone(),
+                    task_peak.clone(),
+                );
+                handlers.spawn(async move {
+                    let mut header = Vec::new();
+                    loop {
+                        let mut buffer = [0; 1024];
+                        let count = socket.read(&mut buffer).await.unwrap();
+                        if count == 0 {
+                            return;
+                        }
+                        header.extend_from_slice(&buffer[..count]);
+                        if header.windows(4).any(|part| part == b"\r\n\r\n") {
+                            break;
+                        }
+                    }
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    peak.fetch_max(active.fetch_add(1, Ordering::SeqCst) + 1, Ordering::SeqCst);
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    let text = String::from_utf8(header).unwrap();
+                    let body = &routes[text.split_whitespace().nth(1).unwrap()];
+                    let header = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    socket.write_all(header.as_bytes()).await.unwrap();
+                    socket.write_all(body).await.unwrap();
+                    active.fetch_sub(1, Ordering::SeqCst);
+                });
+            }
+        });
+        let progress = Progress::new(true);
+        let keys = [trusted_key()];
+        // Invalid order is rejected before the first HTTP request.
+        assert!(
+            port_rs::install::binary::fetch_batch(
+                vec![
+                    download_job(&app, &url, vec!["base".into()]),
+                    download_job(&base, &url, vec![])
+                ],
+                work.path(),
+                &keys,
+                2,
+                &progress
+            )
+            .await
+            .is_err()
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        let batch = port_rs::install::binary::fetch_batch(
+            vec![
+                download_job(&base, &url, vec![]),
+                download_job(&app, &url, vec!["base".into()]),
+            ],
+            work.path(),
+            &keys,
+            2,
+            &progress,
+        )
+        .await;
+        assert_eq!(fs::read_dir(software.path()).unwrap().count(), 0);
+        assert_eq!(fs::read_dir(root.path()).unwrap().count(), 0);
+        assert!(
+            registry
+                .transaction()
+                .unwrap()
+                .entries()
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(peak.load(Ordering::SeqCst), 2);
+        assert_eq!(calls.load(Ordering::SeqCst), 4);
+        if corrupt {
+            assert!(batch.is_err());
+        } else {
+            let installed = batch
+                .unwrap()
+                .install(&mut Installer {
+                    store: &store,
+                    registry: &mut registry,
+                    staging: work.path(),
+                    root: root.path(),
+                    limits: Limits::default(),
+                    progress: &progress,
+                })
+                .unwrap();
+            assert_eq!(installed.len(), 2);
+            assert!(installed[0].id < installed[1].id);
+            assert_eq!(
+                fs::read(root.path().join("opt/local/base")).unwrap(),
+                b"base"
+            );
+            assert_eq!(fs::read(root.path().join("opt/local/app")).unwrap(), b"app");
+            assert!(
+                registry
+                    .transaction()
+                    .unwrap()
+                    .entries()
+                    .unwrap()
+                    .iter()
+                    .all(|entry| entry.active)
+            );
+        }
+        assert_eq!(fs::read_dir(work.path()).unwrap().count(), 0);
+        server.abort();
+    }
+}

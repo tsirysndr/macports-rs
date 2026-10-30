@@ -1,5 +1,6 @@
 //! Binary image installation after the caller has resolved metadata and run the
 //! required Portfile lifecycle. This backend does not execute hooks or source builds.
+mod batch;
 use super::{
     Action, Item, activation::Plan, archive::VerifiedArchive, extract, inspect::Limits,
     store::Store, target::Target,
@@ -9,6 +10,7 @@ use crate::{
     registry::write::{NewImage, Writer},
 };
 use anyhow::{Context, Result, ensure};
+pub use batch::{Batch, Job, fetch_batch};
 use std::path::{Path, PathBuf};
 
 pub struct Installer<'a> {
@@ -38,14 +40,7 @@ impl Installer<'_> {
         target: &Target,
         mut registration: NewImage,
     ) -> Result<InstalledImage> {
-        ensure!(
-            item.action == Action::Install,
-            "binary installation requires an install plan step"
-        );
-        ensure!(
-            item.variants_resolved && item.provider_fallbacks.is_empty(),
-            "binary installation requires resolved variants and dependency providers"
-        );
+        validate(item)?;
         self.progress.phase(&format!(
             "Preparing {} @{}{}",
             item.port.name,
@@ -85,4 +80,15 @@ impl Installer<'_> {
         ));
         Ok(InstalledImage { id, location })
     }
+}
+fn validate(item: &Item<'_>) -> Result<()> {
+    ensure!(
+        item.action == Action::Install,
+        "binary installation requires an install plan step"
+    );
+    ensure!(
+        item.variants_resolved && item.provider_fallbacks.is_empty(),
+        "binary installation requires resolved variants and dependency providers"
+    );
+    Ok(())
 }

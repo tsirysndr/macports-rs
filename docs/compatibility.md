@@ -1333,3 +1333,16 @@ limit, deterministic result/error order, signature validation, or cleanup behavi
 A gated local HTTP regression test makes the first payload wait for the third
 request with only two transfer slots, then checks ordered results and the observed
 concurrency limit. This is a scheduling regression test, not a performance benchmark.
+
+`binary::fetch_batch` now connects bounded concurrent archive fetching to the
+binary installer. Jobs retain their resolved plan items, targets, and registration
+metadata. Duplicate ports, unresolved steps, and dependencies ordered after their
+dependents are rejected before fetching. All downloads must authenticate before a
+Batch is returned; no image-store, registry, or prefix changes occur during fetching.
+`Batch::install` performs blocking installation sequentially in dependency order,
+separately from the async fetch operation. It stops on the first install failure,
+retains already installed dependencies, and drops unprocessed staged archives.
+Integration tests use a concurrent local HTTP server to verify download concurrency,
+ordered activation, pre-network order validation, and zero installation side effects
+when one archive fails authentication. Caller-managed hooks, evaluated metadata,
+external dependency checks, and exclusive filesystem management remain required.
