@@ -76,7 +76,7 @@ unimplemented; removing the platform cache file triggers a fresh download.
 | `variants --index` | Sorted variant details, defaults/requested markers, descriptions, conflicts, and requirements |
 | `variants` | Native evaluation of supported local Portfiles and PortGroups alongside a selected PortIndex |
 | Index data | Serialized Tcl list data is parsed in Rust; no Tcl code is evaluated |
-| `install` | `-y` / `--dry-run` previews indexed binary dependencies; actual installation is blocked |
+| `install` | `-y` / `--dry-run` previews local Portfile or indexed binary dependencies; actual installation is blocked |
 | `upgrade`, `uninstall`, activation | Not implemented; fail explicitly before filesystem changes |
 | `installed` | Read-only SQLite registry, names/globs, version filters, active/inactive and requested/unrequested selectors |
 | `contents` | Registered file lists, active-image preference, version selection, quiet and size/unit output |
@@ -368,7 +368,8 @@ available metadata; it does not evaluate Portfiles or perform upgrades.
 ## Installation planning
 
 `port -y install curl` (or `port install --dry-run curl`) previews a binary
-installation plan using the index and the read-only registry. It supports
+installation plan using local Portfiles when available, otherwise indexed metadata,
+and the read-only registry. It supports
 multiple roots and indexed expressions, deduplicates shared dependencies, and
 orders `depends_lib`/`depends_run` ports before their dependents. Build and test
 dependencies are excluded from this binary-only preview. Rows distinguish new
@@ -376,16 +377,27 @@ installs, matching inactive images needing activation, and already-active images
 Explicit roots remain marked requested even when another root depends on them.
 
 This is a preliminary plan, not an installer: archive availability, signatures,
-platform compatibility, and activation hooks have not been checked. Non-default
-variants, port options, replaced ports, and conflicting fully-resolved active
-images fail explicitly. Official indexes often omit default-variant metadata:
+platform compatibility, and activation hooks have not been checked. Replaced ports
+and conflicting fully-resolved active images fail explicitly.
+
+When the selected index has a local source tree alongside it, previews evaluate
+supported Portfiles and PortGroups for the requested ports and their runtime
+dependencies. Explicit variants and port options are passed to dependencies;
+an explicitly requested dependency uses its own inputs. Version checks use the
+evaluated version. Shared dependencies with conflicting evaluated metadata fail
+before output. Missing or unsupported sources fail instead of mixing stale index
+metadata into an evaluated plan. PortSystem initialization and deferred build or
+activation hooks are not executed.
+
+Without local sources, non-default variants and port options still fail explicitly.
+Official indexes often omit default-variant metadata:
 these entries now appear as `resolve ... [default variants unresolved]`, allowing
 `port -y install curl` to preview its dependency graph. Provider dependencies
 (`bin:`, `lib:`, `path:`) use their indexed fallback port with an explicit
 `provider checks pending` annotation; existing external providers are not probed.
 Unresolved defaults never approve an active image or an archive identity, and
-explicit variant requests still require sufficient metadata. Only the indexed
-version is supported.
+explicit variant requests still require sufficient metadata. In index-only mode,
+only the indexed version is supported.
 Cycles and missing dependencies are rejected before any plan is printed.
 
 Use `--index-file PATH` and `--registry-file PATH` for an entirely local preview.

@@ -284,3 +284,239 @@ fn incomplete_variant_metadata_does_not_approve_matching_images() {
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("cannot validate requested variant"));
 }
+
+fn portfile(f: &Fixture, name: &str, body: &str) {
+    let path = f.dir.path().join("net").join(name);
+    std::fs::create_dir_all(&path).unwrap();
+    std::fs::write(
+        path.join("Portfile"),
+        format!("name {name}; version 2; {body}"),
+    )
+    .unwrap();
+}
+
+#[test]
+fn local_install_preview_uses_evaluated_variants_and_runtime_dependencies() {
+    let f = Fixture::new(&[
+        (
+            "app",
+            "version 1 portdir net/app variants stale depends_run port:missing",
+        ),
+        ("base", "version 1 portdir net/base"),
+        ("secure", "version 1 portdir net/secure"),
+    ]);
+    portfile(
+        &f,
+        "app",
+        "depends_lib port:base; depends_build port:missing; variant tls {depends_run-append port:secure}; pre-activate {exec must-not-run}",
+    );
+    portfile(&f, "base", "");
+    portfile(&f, "secure", "");
+    let before = std::fs::read(f.dir.path().join("registry.db")).unwrap();
+    let output = stdout(f.run(&["-q", "-y", "install", "app@2", "+tls"]));
+    assert_eq!(
+        output,
+        "install  base @2_0 (dependency)\ninstall  secure @2_0 (dependency)\ninstall  app @2_0+tls (requested)\n"
+    );
+    assert_eq!(
+        before,
+        std::fs::read(f.dir.path().join("registry.db")).unwrap()
+    );
+    let output = stdout(f.run(&["-y", "install", "app"]));
+    assert!(output.contains("evaluated local Portfiles"));
+    assert!(output.contains("hooks are not executed"));
+    assert!(!output.contains("secure @"));
+}
+
+#[test]
+fn local_install_preview_propagates_explicit_inputs_to_dependencies() {
+    let f = Fixture::new(&[
+        ("app", "version 1 portdir net/app"),
+        ("base", "version 1 portdir net/base"),
+        ("extra", "version 1 portdir net/extra"),
+    ]);
+    portfile(&f, "app", "depends_lib port:base; variant tls {}");
+    portfile(&f, "base", "variant tls {depends_run port:extra}");
+    portfile(&f, "extra", "");
+    assert_eq!(
+        stdout(f.run(&["-q", "-y", "install", "app", "+tls"])),
+        "install  extra @2_0 (dependency)\ninstall  base @2_0+tls (dependency)\ninstall  app @2_0+tls (requested)\n"
+    );
+}
+
+#[test]
+fn local_matching_active_images_skip_their_source_dependency_closure() {
+    let f = Fixture::new(&[("app", "version 1 portdir net/app")]);
+    portfile(
+        &f,
+        "app",
+        "depends_run port:missing; variant tls {}; default_variants +tls",
+    );
+    Connection::open(f.dir.path().join("registry.db"))
+        .unwrap()
+        .execute(
+            "INSERT INTO ports VALUES(1,'app','2',0,'+tls','installed')",
+            [],
+        )
+        .unwrap();
+    assert_eq!(
+        stdout(f.run(&["-q", "-y", "install", "app"])),
+        "active   app @2_0+tls (requested)\n"
+    );
+}
+
+#[test]
+fn local_install_preview_never_mixes_failed_sources_with_index_metadata() {
+    let f = Fixture::new(&[
+        ("app", "version 1 portdir net/app"),
+        ("base", "version 1 portdir net/base"),
+    ]);
+    portfile(&f, "app", "depends_run port:base");
+    for body in [
+        None,
+        Some("unsupported_command"),
+        Some("depends_run port:app"),
+    ] {
+        if let Some(body) = body {
+            portfile(&f, "base", body);
+        }
+        let output = f.run(&["-y", "install", "app"]);
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+    }
+}
+
+#[test]
+fn shared_dependencies_reject_incompatible_evaluations_but_allow_equal_results() {
+    let f = Fixture::new(&[
+        ("left", "version 1 portdir net/left"),
+        ("right", "version 1 portdir net/right"),
+        ("shared", "version 1 portdir net/shared"),
+    ]);
+    for name in ["left", "right"] {
+        portfile(&f, name, "depends_run port:shared; variant tls {}");
+    }
+    portfile(&f, "shared", "variant tls {}");
+    let output = f.run(&["-y", "install", "left", "+tls", "right", "-tls"]);
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("conflicting evaluated build inputs"));
+    portfile(&f, "shared", "");
+    let output = stdout(f.run(&["-q", "-y", "install", "left", "+tls", "right", "-tls"]));
+    assert_eq!(output.matches("shared @").count(), 1);
+}
+
+#[test]
+fn explicit_dependency_roots_override_inherited_variant_choices() {
+    let f = Fixture::new(&[
+        ("app", "version 1 portdir net/app"),
+        ("base", "version 1 portdir net/base"),
+    ]);
+    portfile(&f, "app", "depends_run port:base; variant tls {}");
+    portfile(&f, "base", "variant tls {}");
+    let output = stdout(f.run(&["-q", "-y", "install", "app", "+tls", "base", "-tls"]));
+    assert_eq!(
+        output,
+        "install  base @2_0 (requested)\ninstall  app @2_0+tls (requested)\n"
+    );
+}
+
+#[test]
+fn equal_shared_metadata_still_propagates_each_context_to_descendants() {
+    let f = Fixture::new(&[
+        ("left", "version 1 portdir net/left"),
+        ("right", "version 1 portdir net/right"),
+        ("shared", "version 1 portdir net/shared"),
+        ("leaf", "version 1 portdir net/leaf"),
+    ]);
+    for name in ["left", "right"] {
+        portfile(&f, name, "depends_run port:shared");
+    }
+    portfile(&f, "shared", "depends_run port:leaf");
+    portfile(&f, "leaf", "variant tls {}");
+    let output = f.run(&["-y", "install", "left", "+tls", "right", "-tls"]);
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("leaf: conflicting evaluated build inputs")
+    );
+}
+
+#[test]
+fn local_install_options_reach_dependencies_and_version_checks_use_source() {
+    let f = Fixture::new(&[
+        ("app", "version 1 portdir net/app"),
+        ("base", "version 1 portdir net/base"),
+    ]);
+    portfile(&f, "app", "depends_run port:base");
+    portfile(&f, "base", "if {[option build.jobs] == 7} {revision 3}");
+    assert_eq!(
+        stdout(f.run(&["-qy", "install", "app@2", "build.jobs=7"])),
+        "install  base @2_3 (dependency)\ninstall  app @2_0 (requested)\n"
+    );
+    let output = f.run(&["-qy", "install", "app@1"]);
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+}
+
+#[test]
+fn real_curl_portfile_resolves_missing_index_defaults_in_install_preview() {
+    // Curl and its PortGroups are pinned upstream sources. Dependency Portfiles
+    // are deliberately minimal: this tests planning, not building those ports.
+    let f = Fixture::new(&[
+        (
+            "curl",
+            "version 8.23.0 portdir net/curl variants {ares ssl universal}",
+        ),
+        ("zlib", "version 1 portdir net/zlib"),
+        ("brotli", "version 1 portdir net/brotli"),
+        ("nghttp2", "version 1 portdir net/nghttp2"),
+        ("libidn2", "version 1 portdir net/libidn2"),
+        ("libpsl", "version 1 portdir net/libpsl"),
+        ("openssl", "version 1 portdir net/openssl"),
+        ("curl-ca-bundle", "version 1 portdir net/curl-ca-bundle"),
+        ("zstd", "version 1 portdir net/zstd"),
+        ("c-ares", "version 1 portdir net/c-ares"),
+    ]);
+    for name in [
+        "curl",
+        "zlib",
+        "brotli",
+        "nghttp2",
+        "libidn2",
+        "libpsl",
+        "openssl",
+        "curl-ca-bundle",
+        "zstd",
+        "c-ares",
+    ] {
+        portfile(&f, name, "");
+    }
+    std::fs::write(
+        f.dir.path().join("net/curl/Portfile"),
+        include_str!("fixtures/curl/Portfile"),
+    )
+    .unwrap();
+    let groups = f.dir.path().join("_resources/port1.0/group");
+    std::fs::create_dir_all(&groups).unwrap();
+    for (name, source) in [
+        (
+            "clang_dependency-1.0.tcl",
+            include_str!("fixtures/curl/clang_dependency-1.0.tcl"),
+        ),
+        (
+            "muniversal-1.0.tcl",
+            include_str!("fixtures/curl/muniversal-1.0.tcl"),
+        ),
+    ] {
+        std::fs::write(groups.join(name), source).unwrap();
+    }
+    let output = stdout(f.run(&["-qy", "install", "curl"]));
+    assert!(output.contains("curl @8.23.0_0+brotli+http2+idn+psl+ssl+zstd (requested)"));
+    assert!(!output.contains("unresolved"));
+    assert!(!output.contains("c-ares @"));
+    let output = stdout(f.run(&["-qy", "install", "curl", "+ares"]));
+    assert!(output.contains("install  c-ares @2_0 (dependency)"));
+    assert!(output.contains("curl @8.23.0_0+ares+brotli+http2+idn+psl+ssl+zstd (requested)"));
+}

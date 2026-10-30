@@ -1,4 +1,6 @@
-//! Preliminary binary installation planning from indexed metadata, without Portfile evaluation.
+//! Preliminary binary installation planning from indexed or evaluated metadata.
+mod evaluated;
+pub use evaluated::{EvaluatedPlan, plan_evaluated};
 mod plan;
 pub mod signature;
 mod variants;

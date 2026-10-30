@@ -21,15 +21,56 @@ pub(super) fn run(
     registry_file: Option<&Path>,
     args: Install,
     quiet: bool,
+    root: Option<&Path>,
 ) -> Result<()> {
     let specs = query::specifications(index, &args.ports)?;
     let entries = registry::read(registry_file)?;
-    let items = install::plan(index, &specs, &entries)?;
+    let local = if let Some(root) = root {
+        let mut available = root.join("_resources/port1.0/group").try_exists()?;
+        for spec in &specs {
+            let port = query::lookup(index, &spec.name)?;
+            let relative = Path::new(port.get("portdir"));
+            if !relative.as_os_str().is_empty()
+                && relative
+                    .components()
+                    .all(|part| matches!(part, std::path::Component::Normal(_)))
+            {
+                available |= root.join(relative).join("Portfile").try_exists()?;
+            }
+        }
+        available.then_some(root)
+    } else {
+        None
+    };
+    let evaluated = local
+        .map(|root| {
+            let variables = super::local::variables(Some(root))?;
+            install::plan_evaluated(index, &specs, &entries, |port, spec| {
+                crate::portfile::evaluate_from_tree(root, port, &variables, spec)
+            })
+        })
+        .transpose()?;
+    let items = if let Some(evaluated) = &evaluated {
+        evaluated.items().collect()
+    } else {
+        install::plan(index, &specs, &entries)?
+    };
     if !quiet {
         writeln!(
             out,
-            "Preliminary binary installation plan (indexed metadata):"
+            "Preliminary binary installation plan ({}):",
+            if evaluated.is_some() {
+                "evaluated local Portfiles"
+            } else {
+                "indexed metadata"
+            }
         )?;
+        if evaluated.is_some() {
+            writeln!(
+                out,
+                "PortSystem initialization and build/activation hooks are not executed."
+            )?;
+        }
         writeln!(
             out,
             "Archive availability and signatures are not checked; no packages will be installed."

@@ -32,6 +32,20 @@ pub fn plan<'a>(
     specs: &[PortSpec],
     installed: &[Entry],
 ) -> Result<Vec<Item<'a>>> {
+    plan_with(
+        |name| query::lookup(index, name),
+        variants::defaults,
+        specs,
+        installed,
+    )
+}
+
+pub(super) fn plan_with<'a>(
+    lookup: impl Fn(&str) -> Result<&'a Port>,
+    select: impl Fn(&Port, Option<&PortSpec>) -> Result<variants::Selection>,
+    specs: &[PortSpec],
+    installed: &[Entry],
+) -> Result<Vec<Item<'a>>> {
     let mut images: HashMap<String, Vec<&Entry>> = HashMap::new();
     for entry in installed {
         images
@@ -41,16 +55,16 @@ pub fn plan<'a>(
     }
     let mut requested = HashMap::new();
     for spec in specs {
-        let port = query::lookup(index, &spec.name)?;
+        let port = lookup(&spec.name)?;
         if let Some(version) = &spec.version {
             ensure!(
                 version == port.get("version") || version == &port.version(),
-                "{}: requested version {version} is not the indexed version {}; historical installation requires a matching index",
+                "{}: requested version {version} does not match available metadata version {}; historical installation requires matching metadata",
                 port.name,
                 port.version()
             );
         }
-        let selected = variants::defaults(port, Some(spec))
+        let selected = select(port, Some(spec))
             .with_context(|| format!("{}: installation variants", port.name))?;
         requested.insert(port.name.clone(), selected);
     }
@@ -60,7 +74,7 @@ pub fn plan<'a>(
     }
     let mut stack = Vec::new();
     for spec in specs.iter().rev() {
-        stack.push(Event::Enter(query::lookup(index, &spec.name)?));
+        stack.push(Event::Enter(lookup(&spec.name)?));
     }
     let mut visiting = HashSet::new();
     let mut complete = HashSet::new();
@@ -83,7 +97,7 @@ pub fn plan<'a>(
                 );
                 ensure!(
                     !port.get("version").is_empty(),
-                    "{}: index has no version",
+                    "{}: port metadata has no version",
                     port.name
                 );
                 let revision: i64 = if port.get("revision").is_empty() {
@@ -91,9 +105,9 @@ pub fn plan<'a>(
                 } else {
                     port.get("revision")
                         .parse()
-                        .context("invalid indexed revision")?
+                        .context("invalid port revision")?
                 };
-                ensure!(revision >= 0, "{}: negative indexed revision", port.name);
+                ensure!(revision >= 0, "{}: negative port revision", port.name);
                 ensure!(
                     port.get("replaced_by").is_empty(),
                     "{} is replaced by {}; replacement handling is not implemented for install",
@@ -104,7 +118,7 @@ pub fn plan<'a>(
                     .get(&port.name)
                     .cloned()
                     .map(Ok)
-                    .unwrap_or_else(|| variants::defaults(port, None))
+                    .unwrap_or_else(|| select(port, None))
                     .with_context(|| format!("{}: installation variants", port.name))?;
                 let variants = selection.enabled;
                 let epoch = if port.get("epoch").is_empty() {
@@ -112,7 +126,7 @@ pub fn plan<'a>(
                 } else {
                     port.get("epoch")
                         .parse::<i64>()
-                        .context("invalid indexed epoch")?
+                        .context("invalid port epoch")?
                 };
                 let candidates = images
                     .get(&port.name.to_ascii_lowercase())
@@ -158,7 +172,7 @@ pub fn plan<'a>(
                     action,
                 };
                 // Active images already have a registered dependency graph; don't
-                // pretend their indexed dependencies need reinstalling.
+                // pretend their declared dependencies need reinstalling.
                 if action == Action::AlreadyActive {
                     visiting.remove(&port.name);
                     complete.insert(port.name.clone());
@@ -184,7 +198,7 @@ pub fn plan<'a>(
                                 dependency.specification
                             ),
                         }
-                        let target = query::lookup(index, &dependency.name).with_context(|| {
+                        let target = lookup(&dependency.name).with_context(|| {
                             format!("{}: {field} {}", port.name, dependency.specification)
                         })?;
                         if seen.insert(target.name.clone()) {

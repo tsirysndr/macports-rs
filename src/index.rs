@@ -6,7 +6,7 @@ use std::{
     sync::OnceLock,
 };
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Port {
     pub name: String,
     pub fields: BTreeMap<String, String>,

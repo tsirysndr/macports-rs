@@ -19,18 +19,19 @@ use anyhow::{Result, ensure};
 use molt::{ContextID, Exception, Interp, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Variant {
     pub description: String,
     pub requires: Vec<String>,
     pub conflicts: Vec<String>,
     pub body: String,
 }
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Hook {
     pub phase: String,
     pub body: String,
 }
+#[derive(PartialEq, Eq)]
 pub struct Evaluation {
     pub groups: Vec<LoadedGroup>,
     pub port: Port,

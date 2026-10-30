@@ -187,7 +187,18 @@ impl Session {
             let index = self.index(index_file, quiet)?;
             match command {
                 Command::Install(args) => {
-                    install::run(&mut out, index, registry_file, args, quiet)?
+                    let root = if let Some(path) = index_file {
+                        Some(
+                            path.parent()
+                                .filter(|p| !p.as_os_str().is_empty())
+                                .unwrap_or(Path::new(".")),
+                        )
+                    } else if Path::new("PortIndex").try_exists()? {
+                        Some(Path::new("."))
+                    } else {
+                        None
+                    };
+                    install::run(&mut out, index, registry_file, args, quiet, root)?
                 }
                 Command::List { ports } => {
                     let ports = if ports.is_empty() {
