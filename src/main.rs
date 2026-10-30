@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use clap::{Args, Parser, Subcommand};
 use port_rs::{
     download::{self, Manifest},
@@ -29,7 +29,10 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     /// List ports from a local MacPorts PortIndex
-    List { ports: Vec<String> },
+    List {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        ports: Vec<String>,
+    },
     /// Search names and descriptions (case insensitive by default)
     Search(Search),
     /// Display indexed port metadata
@@ -54,7 +57,7 @@ enum Command {
 }
 #[derive(Args)]
 struct Selection {
-    #[arg(required = true)]
+    #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
     ports: Vec<String>,
 }
 #[derive(Args)]
@@ -79,7 +82,7 @@ struct Info {
     /// Read metadata from PortIndex (currently the only supported info source)
     #[arg(long)]
     index: bool,
-    #[arg(required = true)]
+    #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
     ports: Vec<String>,
     #[arg(long)]
     name: bool,
@@ -243,7 +246,13 @@ fn run(cli: Cli) -> Result<()> {
                 (s.maintainers, "maintainers"),
                 (s.variants, "variants"),
             ];
-            for port in query::select(&index, &s.ports)? {
+            let specs = query::specifications(&index, &s.ports)?;
+            ensure!(
+                s.index || specs.iter().all(|spec| !spec.has_modifiers()),
+                "evaluating version/variant/option-specific metadata requires the Portfile engine; use info --index for available indexed metadata"
+            );
+            for spec in specs {
+                let port = query::lookup(&index, &spec.name)?;
                 if fields.iter().any(|(enabled, _)| *enabled) {
                     for (_, field) in fields.iter().filter(|(enabled, _)| *enabled) {
                         if cli.quiet {
@@ -287,10 +296,50 @@ fn render_selection(
     quiet: bool,
     action: &str,
 ) -> Result<()> {
-    for port in query::select(index, selectors)? {
+    let specs = query::specifications(index, selectors)?;
+    if action == "list" && specs.iter().any(|spec| spec.version.is_some()) {
+        eprintln!(
+            "Warning: The 'list' action only shows the currently available version of each port. To see installed versions, use the 'installed' action."
+        );
+    }
+    if matches!(action, "deps" | "variants") {
+        ensure!(
+            specs.iter().all(|spec| !spec.has_modifiers()),
+            "{action} with version, variant, or option overrides requires Portfile evaluation, which is not implemented"
+        );
+    }
+    // Resolve the entire selection before producing output on lookup-based actions.
+    let ports = if action == "echo" {
+        Vec::new()
+    } else {
+        specs
+            .iter()
+            .map(|spec| query::lookup(index, &spec.name))
+            .collect::<Result<Vec<_>>>()?
+    };
+    for (i, spec) in specs.iter().enumerate() {
+        if action == "echo" {
+            if quiet {
+                writeln!(out, "{}", spec.name)?;
+            } else {
+                let version = spec.composite_version();
+                let version = if version.is_empty() {
+                    String::new()
+                } else {
+                    format!("@{version}")
+                };
+                let options = spec
+                    .options
+                    .iter()
+                    .map(|(k, v)| format!("{k}={v}"))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                writeln!(out, "{:<30} {} {}", spec.name, version, options)?;
+            }
+            continue;
+        }
+        let port = ports[i];
         match action {
-            "echo" if quiet => writeln!(out, "{}", port.name)?,
-            "echo" => writeln!(out, "{:<30}  ", port.name)?,
             "list" => writeln!(
                 out,
                 "{:<30} @{:<14} {}",

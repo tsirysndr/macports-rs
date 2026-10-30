@@ -25,6 +25,8 @@ cargo build --release --locked
 ./target/release/port search --exact --line curl
 ./target/release/port -q info --index --version curl
 ./target/release/port -q echo category:net
+./target/release/port -q echo '(' category:net or zlib ')' and not 'name:ish$'
+./target/release/port echo curl@8.0_1 +ssl -universal build.jobs=8
 ```
 
 Index selection uses this order:
@@ -58,12 +60,33 @@ unimplemented; removing the platform cache file triggers a fresh download.
 | `list [ports...]`, `list all` | Native, including upstream column formatting and no-argument default |
 | `search` | Native name/description search; exact/glob/regex, case sensitivity, quiet and line modes |
 | `info --index` | Selected metadata fields; default pretty formatting and full flag set are incomplete |
-| `echo` | Simple names, globs, and supported indexed field selectors; compound specs are incomplete |
+| `echo` | Names/globs, regex field selectors, logical expressions, versions, variants, and options |
 | `deps`, `variants` | Indexed metadata only; **not** evaluated Portfile results |
 | Index data | Serialized Tcl list data is parsed in Rust; no Tcl code is evaluated |
 | `install`, `upgrade`, `uninstall`, activation | Not implemented; fail explicitly before filesystem changes |
 | Registry queries, `sync`, `selfupdate` | Not implemented |
-| Full selector grammar, `@version`, `+variant`, command chaining, interactive mode | Not implemented |
+| Port specifications | Attached/separate `@version`, `+variant`, `-variant`, and `key=value`; canonical echo rendering |
+| Logical expressions | `and`, `or`, `not`, `!`, parentheses, and implicit union; preserves input order |
+| Registry/dependency selectors, current directory, Portfile URLs | Not implemented |
+| Command chaining, interactive mode | Not implemented |
+
+Place command flags before the first port expression. Field selectors use
+case-insensitive regular expressions, including singular/plural aliases such as
+`category:`/`categories:` and `variant:`/`variants:`. For example,
+`name:^curl$` matches an exact name, and `depends:zlib$` searches the indexed
+dependency fields. An unmatched glob or field selector produces an empty set.
+Adjacent expressions form a union; `not` binds tighter than `and`, and `and`
+binds tighter than `or`. Quote globs and shell parentheses.
+
+Specs can be attached (`curl@8.0_1+ssl`) or separated
+(`curl @8.0_1 +ssl -universal build.jobs=8`). Negative variants following a
+version can use a slash (`@8.0/-ssl`) to distinguish them from version suffixes
+such as `@8.0-beta`. Echo sorts enabled variants before disabled variants,
+retains distinct explicit versions, and preserves the first duplicate spec.
+`list` still shows the available indexed version and warns when a version is
+requested. `info --index` explicitly reads available indexed metadata; it does
+not evaluate requested variants. `deps`/`variants` with overrides are rejected
+until native Portfile evaluation exists.
 
 Search regexes currently use Rust regex semantics, which differ from Tcl's
 advanced regular expressions. Glob behavior, dictionary sorting, description
@@ -162,3 +185,7 @@ memory measurements and differential benchmarks on the same machine remain requi
 Original interface references: [MacPorts guide](https://guide.macports.org/#using.port),
 [port implementation](https://github.com/macports/macports-base/blob/master/src/port/port.tcl),
 and [PortIndex writer](https://github.com/macports/macports-base/blob/master/src/port/portindex.tcl).
+
+## License
+
+[MIT](LICENSE) — Copyright (c) 2026 Tsiry Sandratraina <tsiry.sndr@rocksky.app>.

@@ -248,3 +248,135 @@ fn default_index_uses_the_detected_platform_cache_offline() {
     assert_eq!(stdout(&output), "curl\n");
     assert!(output.stderr.is_empty());
 }
+
+#[test]
+fn echo_renders_versions_variants_and_options_in_canonical_order() {
+    let fixture = Fixture::new();
+    assert_eq!(
+        stdout(&fixture.run(&[
+            "echo",
+            "curl",
+            "@8.0_1",
+            "+zstd+ssl",
+            "-universal",
+            "build.jobs=4",
+            "build.jobs=8"
+        ])),
+        format!("{:<30} @8.0_1+ssl+zstd-universal build.jobs=8\n", "curl")
+    );
+    assert_eq!(
+        stdout(&fixture.run(&["echo", "curl@8.0_1+ssl-universal"])),
+        format!("{:<30} @8.0_1+ssl-universal \n", "curl")
+    );
+    assert_eq!(
+        stdout(&fixture.run(&["echo", "curl", "@8.0/-ssl"])),
+        format!("{:<30} @8.0-ssl \n", "curl")
+    );
+}
+
+#[test]
+fn echo_preserves_input_order_and_distinct_versions() {
+    let fixture = Fixture::new();
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "echo", "zlib", "curl", "zlib"])),
+        "zlib\ncurl\n"
+    );
+    assert_eq!(
+        stdout(&fixture.run(&["echo", "curl@1", "curl@2"])),
+        format!("{:<30} @1 \n{:<30} @2 \n", "curl", "curl")
+    );
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "echo", "unknown-port"])),
+        "unknown-port\n"
+    );
+}
+
+#[test]
+fn cli_accepts_logical_port_expressions() {
+    let fixture = Fixture::new();
+    assert_eq!(
+        stdout(&fixture.run(&[
+            "-q",
+            "echo",
+            "(",
+            "category:net",
+            "or",
+            "zlib",
+            ")",
+            "and",
+            "not",
+            "name:ish$"
+        ])),
+        "curl\nzlib\n"
+    );
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "echo", "!", "curl*"])),
+        "zlib\n"
+    );
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "echo", "curl", "or", "zlib", "and", "curlish"])),
+        "curl\n"
+    );
+}
+
+#[test]
+fn cli_field_selectors_use_regex_and_aliases() {
+    let fixture = Fixture::new();
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "echo", "categories:^net$"])),
+        "curlish\n"
+    );
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "echo", "version:^1\\."])),
+        "curlish\nzlib\n"
+    );
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "echo", "depends:zlib$"])),
+        "curl\n"
+    );
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "echo", "name:^CURL$"])),
+        "curl\n"
+    );
+    assert_eq!(stdout(&fixture.run(&["-q", "echo", "name:no-match"])), "");
+}
+
+#[test]
+fn list_warns_about_requested_version_but_returns_available_version() {
+    let fixture = Fixture::new();
+    let output = fixture.run(&["list", "curl@99.0+ssl"]);
+    assert_eq!(
+        stdout(&output),
+        format!("{:<30} @{:<14} {}\n", "curl", "8.0", "net/curl")
+    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("currently available version"));
+}
+
+#[test]
+fn info_index_queries_available_metadata_with_a_qualified_selection() {
+    let fixture = Fixture::new();
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "info", "--index", "--version", "curl@99.0+ssl"])),
+        "8.0\n"
+    );
+    assert!(!fixture.run(&["info", "curl", "+ssl"]).status.success());
+    assert!(!fixture.run(&["deps", "curl", "+ssl"]).status.success());
+    assert!(!fixture.run(&["variants", "curl", "-ssl"]).status.success());
+}
+
+#[test]
+fn invalid_expressions_fail_before_output() {
+    let fixture = Fixture::new();
+    for expression in [
+        vec!["echo", "curl", "and"],
+        vec!["echo", "(", "curl"],
+        vec!["echo", "curl", "+"],
+        vec!["echo", "curl", "+ssl", "@1"],
+        vec!["echo", "name:["],
+    ] {
+        let output = fixture.run(&expression);
+        assert!(!output.status.success(), "{expression:?}");
+        assert!(output.stdout.is_empty());
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("panicked"));
+    }
+}
