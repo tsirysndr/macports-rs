@@ -208,17 +208,22 @@ fn native_start_cleans_only_when_requested_and_saves_the_mask() {
 }
 
 #[test]
-fn startup_failure_restores_mask_and_requested_services_fail_before_cleanup() {
+fn startup_failure_restores_mask_and_invalid_services_fail_before_cleanup() {
     let temp = tempfile::tempdir().unwrap();
     let (mut s, stage) = setup(temp.path());
     fs::remove_file(temp.path().join("share/install/prefix.mtree")).unwrap();
     assert!(s.invoke("portdestroot::destroot_start", &[]).is_err());
     assert_eq!(s.invoke("umask", &["0077"]).unwrap(), "0077");
     put(&stage, "preserve", "payload");
-    s.invoke("startupitem.create", &["yes"]).unwrap();
+    s.invoke("startupitem.type", &["launchd"]).unwrap();
+    s.invoke(
+        "startupitem.custom_file",
+        &["/missing/port-rs-service.plist"],
+    )
+    .unwrap();
     s.invoke("destroot.clean", &["yes"]).unwrap();
     let error = s.invoke("portdestroot::destroot_start", &[]).unwrap_err();
-    assert!(error.to_string().contains("startup item generation"));
+    assert!(error.to_string().contains("cannot read custom plist"));
     assert_eq!(
         fs::read_to_string(stage.join("preserve")).unwrap(),
         "payload"
@@ -280,6 +285,7 @@ fn generated_launchd_plist_and_pid_directory_survive_native_finish() {
     s.invoke("startupitem.executable", &["/opt/local/bin/app"])
         .unwrap();
     s.invoke("startupitem.pidfile", &["auto"]).unwrap();
+    s.invoke("startupitem.start", &["echo startup"]).unwrap();
     let item = s.scalar("org.macports.destroot").unwrap();
     assert_eq!(
         s.run_prepared_target(&item, false).unwrap(),
@@ -291,5 +297,10 @@ fn generated_launchd_plist_and_pid_directory_survive_native_finish() {
             .is_file()
     );
     assert!(stage.join("opt/local/var/run/.turd_app").is_file());
+    assert!(
+        stage
+            .join("opt/local/etc/LaunchDaemons/org.macports.app/app.wrapper")
+            .is_file()
+    );
     assert_eq!(s.invoke("umask", &["0077"]).unwrap(), "0077");
 }

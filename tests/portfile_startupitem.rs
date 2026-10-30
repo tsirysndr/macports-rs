@@ -368,7 +368,7 @@ fn pidfile_modes_translate_and_default_run_directory_is_kept_once() {
     );
 }
 #[test]
-fn invalid_xml_and_wrapper_requests_do_not_write_partial_plists() {
+fn invalid_xml_and_malformed_wrapper_lists_do_not_write_partial_plists() {
     let temp = tempfile::tempdir().unwrap();
     let mut s = generated_session(temp.path());
     s.invoke(
@@ -383,12 +383,143 @@ fn invalid_xml_and_wrapper_requests_do_not_write_partial_plists() {
     assert_eq!(fs::read_dir(temp.path().join("stage")).unwrap().count(), 0);
     s.invoke("startupitem.executable", &["/bin/server"])
         .unwrap();
-    s.invoke("startupitem.start", &["echo custom"]).unwrap();
+    s.invoke("set", &["startupitem.start", "{"]).unwrap();
     assert!(
         s.invoke("portstartupitem::startupitem_create", &[])
-            .unwrap_err()
-            .to_string()
-            .contains("startup item generation")
+            .is_err()
     );
     assert_eq!(fs::read_dir(temp.path().join("stage")).unwrap().count(), 0);
+}
+
+#[test]
+fn generated_wrapper_runs_init_and_selected_phases_and_default_restart() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut s = generated_session(temp.path());
+    s.invoke("startupitem.init", &["echo init"]).unwrap();
+    s.invoke("startupitem.start", &["echo start"]).unwrap();
+    s.invoke("startupitem.stop", &["echo stop"]).unwrap();
+    s.invoke("portstartupitem::startupitem_create", &[])
+        .unwrap();
+    let directory = temp
+        .path()
+        .join("stage/opt/local/etc/LaunchDaemons/org.macports.app");
+    let wrapper = directory.join("app.wrapper");
+    assert_eq!(
+        fs::metadata(&wrapper).unwrap().permissions().mode() & 0o777,
+        0o755
+    );
+    for (phase, expected) in [
+        ("start", "init\nstart\n"),
+        ("stop", "init\nstop\n"),
+        ("restart", "init\nstop\nstart\n"),
+    ] {
+        let output = std::process::Command::new(&wrapper)
+            .arg(phase)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8(output.stdout).unwrap(), expected);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let json = plist_json(&directory.join("org.macports.app.plist"));
+        let path = "/opt/local/etc/LaunchDaemons/org.macports.app/app.wrapper";
+        assert_eq!(
+            json["ProgramArguments"],
+            serde_json::json!([
+                "/opt/local/bin/daemondo",
+                "--label=app",
+                "--start-cmd",
+                path,
+                "start",
+                ";",
+                "--stop-cmd",
+                path,
+                "stop",
+                ";",
+                "--restart-cmd",
+                path,
+                "restart",
+                ";",
+                "--pid=exec"
+            ])
+        );
+    }
+    s.invoke("startupitem.restart", &["echo custom-restart"])
+        .unwrap();
+    s.invoke("portstartupitem::startupitem_create", &[])
+        .unwrap();
+    let output = std::process::Command::new(wrapper)
+        .arg("restart")
+        .output()
+        .unwrap();
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "init\ncustom-restart\n"
+    );
+}
+
+#[test]
+fn default_wrapper_uses_subport_script_and_handles_quoted_prefix() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut s = generated_session(temp.path());
+    s.invoke("unset", &["startupitem.executable"]).unwrap();
+    let prefix = temp.path().join("prefix with ' quote");
+    fs::create_dir_all(prefix.join("etc/startup")).unwrap();
+    fs::write(prefix.join("etc/startup/app.sh"), "printf '%s\\n' \"$1\"\n").unwrap();
+    s.invoke("set", &["prefix", prefix.to_str().unwrap()])
+        .unwrap();
+    s.invoke("portstartupitem::startupitem_create", &[])
+        .unwrap();
+    let directory = temp
+        .path()
+        .join("stage")
+        .join(prefix.strip_prefix("/").unwrap())
+        .join("etc/LaunchDaemons/org.macports.app");
+    let output = std::process::Command::new(directory.join("app.wrapper"))
+        .arg("restart")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "stop\nstart\n");
+    #[cfg(target_os = "macos")]
+    assert_eq!(
+        plist_json(&directory.join("org.macports.app.plist"))["ProgramArguments"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap(),
+        "--pid=none"
+    );
+}
+
+#[test]
+fn wrapper_links_and_colliding_filenames_cannot_overwrite_other_files() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut s = generated_session(temp.path());
+    s.invoke("startupitem.start", &["echo start"]).unwrap();
+    s.invoke("startupitem.plist", &["app.wrapper"]).unwrap();
+    assert!(
+        s.invoke("portstartupitem::startupitem_create", &[])
+            .is_err()
+    );
+    assert_eq!(fs::read_dir(temp.path().join("stage")).unwrap().count(), 0);
+    s.invoke("startupitem.plist", &["app.plist"]).unwrap();
+    let directory = temp
+        .path()
+        .join("stage/opt/local/etc/LaunchDaemons/org.macports.app");
+    fs::create_dir_all(&directory).unwrap();
+    let outside = temp.path().join("outside");
+    fs::write(&outside, "preserve").unwrap();
+    symlink(&outside, directory.join("app.wrapper")).unwrap();
+    assert!(
+        s.invoke("portstartupitem::startupitem_create", &[])
+            .is_err()
+    );
+    assert_eq!(fs::read_to_string(outside).unwrap(), "preserve");
+    assert!(!directory.join("app.plist").exists());
 }

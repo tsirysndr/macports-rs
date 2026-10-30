@@ -3,6 +3,7 @@ use super::*;
 
 pub(super) struct Generated {
     pub xml: String,
+    pub wrapper: Option<(String, String)>,
     pub keep_run: bool,
     pub warnings: Vec<String>,
 }
@@ -45,22 +46,33 @@ pub(super) fn generate(
     attrs: &Attributes,
     name: &str,
     unique: &str,
+    location: &str,
 ) -> Result<Generated> {
     let prefix = interp.scalar("prefix").map_err(failure)?.to_string();
     let executable = attr_text(interp, attrs, "executable", "")?;
-    let mut args = vec![
-        format!("{prefix}/bin/daemondo"),
-        format!("--label={name}"),
-        "--start-cmd".into(),
-    ];
-    args.extend(
-        Value::from(executable)
-            .as_list()
-            .map_err(failure)?
-            .iter()
-            .map(ToString::to_string),
-    );
-    args.push(";".into());
+    let wrapper = wrapper::generate(interp, attrs, name, &prefix, &executable)?;
+    let mut args = vec![format!("{prefix}/bin/daemondo"), format!("--label={name}")];
+    if let Some((filename, _)) = &wrapper {
+        let path = format!("{prefix}/etc/{location}/{unique}/{filename}");
+        for phase in ["start", "stop", "restart"] {
+            args.extend([
+                format!("--{phase}-cmd"),
+                path.clone(),
+                phase.into(),
+                ";".into(),
+            ]);
+        }
+    } else {
+        args.push("--start-cmd".into());
+        args.extend(
+            Value::from(executable.clone())
+                .as_list()
+                .map_err(failure)?
+                .iter()
+                .map(ToString::to_string),
+        );
+        args.push(";".into());
+    }
     if flag(interp, attrs, "netchange")? {
         args.push("--restart-netchange".into());
     }
@@ -79,7 +91,14 @@ pub(super) fn generate(
     let keep_run = pid.len() == 1;
     let mut warnings = Vec::new();
     if pid.is_empty() {
-        args.push("--pid=exec".into());
+        args.push(
+            if executable.is_empty() {
+                "--pid=none"
+            } else {
+                "--pid=exec"
+            }
+            .into(),
+        );
     } else {
         if pid.len() > 2 {
             warnings.push(format!(
@@ -138,6 +157,7 @@ pub(super) fn generate(
     xml.push_str("</dict>\n</plist>\n");
     Ok(Generated {
         xml,
+        wrapper,
         keep_run,
         warnings,
     })

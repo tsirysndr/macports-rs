@@ -488,8 +488,7 @@ Custom staging blocks can delegate through `do-destroot`. The host must provide
 prefix is restored on success and failure. Tests stage an executable into a
 temporary prefix with live logs. Native non-root destroot finish now performs
 staging cleanup and restores the saved mask. Native non-root startup now prepares the hierarchy and mask for ports without
-startup items and for supported custom or executable-based launchd services. Privilege transitions, startup wrapper scripts, and privileged
-ownership conversion remain unfinished.
+startup items and for supported custom or executable-based launchd services. Privilege transitions and privileged ownership conversion remain unfinished.
 
 The CLI captures and restores its inherited creation mask at the start of
 `main`, before starting runtimes or concurrent work. New Portfile sessions inherit
@@ -1000,7 +999,7 @@ cleanup (`destroot.clean` exactly `yes`) and staging-mask setup. It checks root
 requirements and unsupported startup-item requests before cleanup. Ports without
 startup items, with an explicitly disabled single item, or with a supported
 custom launchd plist can complete the non-root staging lifecycle. Executable-based generated plists and port-supplied custom plists are supported
-for single and multiple startup items; wrapper scripts still fail explicitly. The default staging mask comes
+for single and multiple startup items, including generated phase wrappers. The default staging mask comes
 from `system_options(destroot_umask)`; the host must supply it or an explicit
 `destroot.umask`. Startup errors restore the prior mask. General
 mtree file/link/checksum specifications, escaped filenames, and wildcard entries
@@ -1017,7 +1016,7 @@ when `startupitem.install` is enabled. Existing links are replaced without
 following their targets. No service is loaded and no external command is run.
 A disabled type skips staging. When type is omitted, creation must be enabled
 and the host supplies `system_options(startupitem_type)` for type selection.
-Generated wrapper scripts and privileged placement still fail explicitly. Custom source symlinks, path components containing slashes or
+Privileged placement still fails explicitly. Custom source symlinks, path components containing slashes or
 parent references, and symlinked hierarchy directories are rejected. Tests cover
 metadata preservation, names, link replacement, disabled items, collision handling,
 and custom-plist staging through the complete native non-root destroot lifecycle.
@@ -1050,3 +1049,18 @@ files are truncated in place, retaining mode, ownership, and hard links. Existin
 symlinks are rejected. Tests parse generated XML using macOS plutil, check exact
 argument arrays and optional fields, and run generation through native destroot
 finish, including its keepdir marker. Generation never starts the service.
+
+
+Startup items with init/start/stop/restart fragments, or without a direct
+executable, now generate the daemondo shell wrapper natively. Script fragments
+are Tcl lists of shell lines. Default start/stop phases invoke the subport's
+`${prefix}/etc/startup/${subport}.sh`; default restart calls Stop then Start.
+The plist receives separate start, stop, and restart command arrays. The default
+PID style remains exec when an executable was supplied and none otherwise.
+Wrappers use mode 0755 subject to the staging mask and retain existing-file
+metadata when regenerated. Prefix assignments and default script paths are
+shell-quoted when needed. User shell fragments are preserved. Malformed lists,
+NUL bytes, wrapper/plist filename collisions, and symlink destinations fail
+explicitly. Tests execute harmless phase scripts, validate plist arguments, cover
+custom/default restart and quoted prefixes, and verify that wrappers survive the
+native destroot finish lifecycle. Staging itself does not execute the scripts.

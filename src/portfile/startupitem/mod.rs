@@ -1,6 +1,7 @@
 //! Native generation and staging of launchd property lists.
 use super::*;
 mod plist;
+mod wrapper;
 use anyhow::{Context, bail};
 use molt::MoltResult;
 use std::{
@@ -76,7 +77,7 @@ fn attribute(interp: &mut Interp, attrs: &Attributes, key: &str) -> Result<Optio
 fn attr_text(interp: &mut Interp, attrs: &Attributes, key: &str, default: &str) -> Result<String> {
     Ok(attribute(interp, attrs, key)?.map_or_else(|| default.into(), |value| value.to_string()))
 }
-fn plan(interp: &mut Interp, id: ContextID) -> Result<Vec<Item>> {
+fn plan(interp: &mut Interp) -> Result<Vec<Item>> {
     let raw = text(interp, "startupitems", "")?;
     let groups = if raw.is_empty() {
         vec![Attributes::new()]
@@ -112,13 +113,13 @@ fn plan(interp: &mut Interp, id: ContextID) -> Result<Vec<Item>> {
     };
     let mut items = Vec::new();
     for attrs in groups {
-        if let Some(item) = plan_item(interp, id, &attrs)? {
+        if let Some(item) = plan_item(interp, &attrs)? {
             items.push(item);
         }
     }
     Ok(items)
 }
-fn plan_item(interp: &mut Interp, id: ContextID, attrs: &Attributes) -> Result<Option<Item>> {
+fn plan_item(interp: &mut Interp, attrs: &Attributes) -> Result<Option<Item>> {
     let enabled = attribute(interp, attrs, "create")?
         .map(|v| v.as_bool().map_err(failure))
         .transpose()?
@@ -136,16 +137,6 @@ fn plan_item(interp: &mut Interp, id: ContextID, attrs: &Attributes) -> Result<O
             .unwrap_or(false);
         if !global_enabled {
             return Ok(None);
-        }
-    }
-    if custom.is_empty() {
-        let executable = attr_text(interp, attrs, "executable", "")?;
-        let mut wrapper = executable.is_empty();
-        for key in ["init", "start", "stop", "restart"] {
-            wrapper |= !attr_text(interp, attrs, key, "")?.is_empty();
-        }
-        if wrapper {
-            return unsupported(interp, id);
         }
     }
     let kind = match kind {
@@ -182,7 +173,14 @@ fn plan_item(interp: &mut Interp, id: ContextID, attrs: &Attributes) -> Result<O
         "unsupported launchd location {location}"
     );
     let source = if custom.is_empty() {
-        Source::Generated(plist::generate(interp, attrs, &name, &unique)?)
+        let generated = plist::generate(interp, attrs, &name, &unique, &location)?;
+        if let Some((filename, _)) = &generated.wrapper {
+            ensure!(
+                filename != &plist,
+                "startup wrapper and plist filenames must differ"
+            );
+        }
+        Source::Generated(generated)
     } else {
         let source = PathBuf::from(custom);
         ensure!(
@@ -200,15 +198,8 @@ fn plan_item(interp: &mut Interp, id: ContextID, attrs: &Attributes) -> Result<O
         location,
     }))
 }
-fn unsupported<T>(interp: &mut Interp, id: ContextID) -> Result<T> {
-    interp
-        .context::<State>(id)
-        .unsupported
-        .insert("startup item generation".into());
-    bail!("native startup item generation is not implemented")
-}
-pub(super) fn preflight(interp: &mut Interp, id: ContextID) -> MoltResult {
-    plan(interp, id)
+pub(super) fn preflight(interp: &mut Interp, _id: ContextID) -> MoltResult {
+    plan(interp)
         .map(|_| Value::empty())
         .map_err(|e| error(e.to_string()))
 }
@@ -218,7 +209,7 @@ fn create(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     }
     interp.with_global_scope(|interp| {
         let result = (|| -> Result<()> {
-            let items = plan(interp, id)?;
+            let items = plan(interp)?;
             if items.is_empty() {
                 return Ok(());
             }
@@ -255,7 +246,10 @@ fn create(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
                 match &item.source {
                     Source::Custom(source) => copy(source, &destination)?,
                     Source::Generated(generated) => {
-                        write_generated(&destination, &generated.xml, mask)?;
+                        if let Some((filename, script)) = &generated.wrapper {
+                            write_generated(&directory.join(filename), script, 0o755 & !mask)?;
+                        }
+                        write_generated(&destination, &generated.xml, 0o644 & !mask)?;
                         if generated.keep_run {
                             let directory = format!("{}{}/var/run", root.display(), prefix);
                             let value = interp.scalar("destroot.keepdirs").map_err(failure)?;
@@ -316,7 +310,7 @@ fn replace_link(link: &Path, target: &Path) -> Result<()> {
     Ok(())
 }
 
-fn write_generated(destination: &Path, xml: &str, mask: u32) -> Result<()> {
+fn write_generated(destination: &Path, xml: &str, mode: u32) -> Result<()> {
     use std::io::Write;
     match fs::symlink_metadata(destination) {
         Ok(metadata) => {
@@ -342,7 +336,7 @@ fn write_generated(destination: &Path, xml: &str, mask: u32) -> Result<()> {
     temporary.write_all(xml.as_bytes())?;
     temporary
         .as_file()
-        .set_permissions(fs::Permissions::from_mode(0o644 & !mask))?;
+        .set_permissions(fs::Permissions::from_mode(mode))?;
     temporary.persist_noclobber(destination)?;
     Ok(())
 }
