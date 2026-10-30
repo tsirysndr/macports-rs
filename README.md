@@ -27,6 +27,8 @@ cargo build --release --locked
 ./target/release/port search --depends zlib
 ./target/release/port info --index --line --name --version --categories curl zlib
 ./target/release/port -q info --index --version curl
+./target/release/port deps --index curl
+./target/release/port rdeps --index --no-build --no-test curl
 ./target/release/port -q echo category:net
 ./target/release/port -q echo '(' category:net or zlib ')' and not 'name:ish$'
 ./target/release/port echo curl@8.0_1 +ssl -universal build.jobs=8
@@ -64,7 +66,8 @@ unimplemented; removing the platform cache file triggers a fresh download.
 | `search` | Name/description defaults, explicit metadata field filters, `--depends`, exact/glob/regex, quiet and line modes |
 | `info --index` | Ordered fields, `--line`, `--pretty`, metadata summaries, maintainer decoding, and dependency formatting |
 | `echo` | Names/globs, regex field selectors, logical expressions, versions, variants, and options |
-| `deps`, `variants` | Indexed metadata only; **not** evaluated Portfile results |
+| `deps --index`, `rdeps --index` | Direct/recursive indexed dependencies, build/test filters, full trees, cycle handling |
+| `variants` | Indexed variant names only; **not** evaluated Portfile results |
 | Index data | Serialized Tcl list data is parsed in Rust; no Tcl code is evaluated |
 | `install`, `upgrade`, `uninstall`, activation | Not implemented; fail explicitly before filesystem changes |
 | Registry queries, `sync`, `selfupdate` | Not implemented |
@@ -102,8 +105,20 @@ such as `@8.0-beta`. Echo sorts enabled variants before disabled variants,
 retains distinct explicit versions, and preserves the first duplicate spec.
 `list` still shows the available indexed version and warns when a version is
 requested. `info --index` explicitly reads available indexed metadata; it does
-not evaluate requested variants. `deps`/`variants` with overrides are rejected
-until native Portfile evaluation exists.
+not evaluate requested variants. `variants` with overrides is rejected until
+native Portfile evaluation exists.
+
+Dependency inspection requires explicit `--index` while the native Portfile
+engine is unavailable. `deps --index` groups dependencies by phase; `rdeps --index`
+walks their complete indexed graph. `--no-build` removes fetch, extract, patch,
+and build edges; `--no-test` removes test edges at every level. Library/runtime
+edges remain. `--full` repeats shared subtrees and annotates cycles; the default
+prints each dependency once. `-v` retains `port:`, `bin:`, `lib:`, and `path:`
+specifications, while `-q` suppresses headings. Recursive traversal validates
+reachable ports before printing and uses an explicit stack for deep graphs.
+As in `info --index`, version/variant overrides do not change indexed dependency
+metadata. These commands list fallback ports; they do not check whether a
+`bin:`, `lib:`, or `path:` requirement is already satisfied on the machine.
 
 Search regexes currently use Rust regex semantics, which differ from Tcl's
 advanced regular expressions. Glob behavior, dictionary sorting, description
@@ -184,6 +199,18 @@ exclude startup, disk I/O, and real-world Portfile evaluation.
 **No speed claim against the original `port` has been established**: MacPorts is
 not installed in the development environment. A real Darwin 24 ARM index has been downloaded and parsed successfully. Peak
 memory measurements and differential benchmarks on the same machine remain required.
+
+## Code organization
+
+- `src/main.rs`: global CLI options, dispatch entry point, and exit handling.
+- `src/commands/`: action-specific arguments and handlers for search, info,
+  dependency queries, downloads, and basic index inspection.
+- `src/dependencies/`: dependency specifications, phase filters, graph traversal,
+  and direct/tree output.
+- `src/index.rs`, `src/source.rs`, `src/tcl_list.rs`: catalog parsing and discovery.
+- `src/query.rs`, `src/spec.rs`: selectors, expressions, and port specifications.
+- `src/info.rs`, `src/fields.rs`, `src/output.rs`: metadata and text formatting.
+- `src/download.rs`, `src/progress.rs`, `src/theme.rs`: transfers and terminal UI.
 
 ## Next compatibility gates
 
