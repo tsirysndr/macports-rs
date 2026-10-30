@@ -556,3 +556,37 @@ fn local_install_preview_reads_user_configuration_and_filtered_environment() {
     );
     assert!(!home.join("prefix").exists());
 }
+
+#[test]
+fn local_install_applies_configured_variants_to_roots_and_dependencies() {
+    let f = Fixture::new(&[
+        ("app", "version 1 portdir net/app"),
+        ("base", "version 1 portdir net/base"),
+    ]);
+    let home = f.dir.path().join("home");
+    std::fs::create_dir_all(home.join(".macports")).unwrap();
+    std::fs::write(
+        home.join(".macports/macports.conf"),
+        "variants_conf ~/.macports/variants.conf\n",
+    )
+    .unwrap();
+    std::fs::write(home.join(".macports/variants.conf"), "+ssl -docs\n-ssl\n").unwrap();
+    portfile(
+        &f,
+        "app",
+        "variant ssl {}; variant docs {}; default_variants +docs; depends_run port:base",
+    );
+    portfile(
+        &f,
+        "base",
+        "variant ssl {}; variant docs {}; default_variants +docs",
+    );
+    assert_eq!(
+        stdout(f.run(&["-qy", "install", "app"])),
+        "install  base @2_0+ssl (dependency)\ninstall  app @2_0+ssl (requested)\n"
+    );
+    assert_eq!(
+        stdout(f.run(&["-qy", "install", "app", "-ssl", "base", "+docs"])),
+        "install  base @2_0+docs+ssl (requested)\ninstall  app @2_0 (requested)\n"
+    );
+}

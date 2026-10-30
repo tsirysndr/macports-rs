@@ -12,6 +12,7 @@ pub struct Context {
     pub environment: BTreeMap<String, String>,
     pub proxies: Resolved,
     pub warnings: Vec<String>,
+    pub variants: super::Variants,
 }
 impl Context {
     /// Host variables supply standalone defaults; explicit configuration wins.
@@ -48,7 +49,9 @@ impl Context {
             .entry("macportsuser".into())
             .or_insert_with(|| "macports".into())
             .clone();
-        let mut warnings = Vec::new();
+        let mut variants =
+            super::Variants::read(config.get("variants_conf").map(std::path::Path::new))?;
+        let mut warnings = std::mem::take(&mut variants.warnings);
         let build_uid = if real_uid != 0 || user == "root" {
             0
         } else {
@@ -92,6 +95,7 @@ impl Context {
             environment,
             proxies,
             warnings,
+            variants,
         })
     }
 }

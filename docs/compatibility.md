@@ -1499,3 +1499,11 @@ Portfiles may then modify their isolated environment. Indexed-only previews rema
 conservative. This does not initialize PortSystem targets, discover system proxies,
 create installation directories, or execute installation; source configuration,
 global variants, and full lifecycle wiring remain incomplete.
+
+Local install previews now read the configured variants_conf file. Its first
+choice for a variant wins; explicit per-port CLI choices take precedence, and
+global choices propagate to dependency evaluation. Blank/comment lines are
+ignored, malformed tokens produce warnings without discarding valid choices,
+and missing files are ignored. The parser preserves upstream literal variant
+names and split-token behavior. Indexed-only previews do not yet load global
+configuration, and install execution remains unavailable.

@@ -23,7 +23,7 @@ pub(super) fn run(
     quiet: bool,
     root: Option<&Path>,
 ) -> Result<()> {
-    let specs = query::specifications(index, &args.ports)?;
+    let mut specs = query::specifications(index, &args.ports)?;
     let entries = registry::read(registry_file)?;
     let local = if let Some(root) = root {
         let mut available = root.join("_resources/port1.0/group").try_exists()?;
@@ -72,8 +72,12 @@ pub(super) fn run(
                 uid,
                 &crate::install::proxy::Settings::default(),
             )?;
+            let progress = crate::progress::Progress::new(quiet);
             for warning in &context.warnings {
-                eprintln!("Warning: {warning}");
+                progress.warning(warning);
+            }
+            for spec in &mut specs {
+                context.variants.apply(spec);
             }
             install::plan_evaluated(index, &specs, &entries, |port, spec| {
                 Ok(crate::portfile::open_from_tree_with_environment(
