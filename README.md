@@ -468,6 +468,15 @@ initialization remain unfinished.
 Native progress callbacks remain unsupported. A macOS integration test compiles a C program and verifies
 prefixed compiler diagnostics through this path.
 
+`porttest::test_main` runs configured test commands when `test.run` is true,
+using the inherited build command/directory and the default `test` target.
+Custom test blocks can delegate through `do-test`; child status and environment
+cleanup use the same execution path as builds. Native staged Mach-O architecture
+validation is not implemented yet: on macOS the test phase fails explicitly
+unless the Portfile selects `test.ignore_archs yes` or supplies its own
+`porttest::test_archs` implementation. Disabling `test.run` does not bypass this
+architecture check. Full CLI test scheduling remains unfinished.
+
 The `portfile` library now evaluates an initial set of Portfile metadata commands
 in Rust using [Molt](https://docs.rs/molt/latest/molt/), without `tclsh` or libtcl.
 It supports language substitutions, expressions, procedures and loops, option

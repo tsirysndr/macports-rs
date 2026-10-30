@@ -22,6 +22,7 @@ pub use source::{evaluate_from_tree, open_from_tree};
 mod system;
 pub use system::SystemRequest;
 mod targets;
+mod test_phase;
 mod traverse;
 mod utilities;
 pub use groups::{LoadedGroup, PortGroups};
@@ -181,6 +182,7 @@ fn open(
     defaults::install(&mut interp, id).map_err(failure)?;
     build_settings::install(&mut interp, id).map_err(failure)?;
     build_phase::install(&mut interp, id);
+    test_phase::install(&mut interp, id);
     build_defaults::install(&mut interp, id);
     binaries::install(&mut interp, id);
     interp.eval(source).map_err(failure)?;
