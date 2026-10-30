@@ -13,6 +13,22 @@ pub struct Paths {
     pub portsrc: Option<PathBuf>,
 }
 impl Paths {
+    /// Load configured Signify keys together with already selected site keys.
+    pub fn archive_keys(
+        &self,
+        config: &Config,
+        site_keys: Vec<crate::install::signature::TrustedKey>,
+    ) -> Result<crate::install::pubkeys::Trust> {
+        let path = config
+            .get("pubkeys_conf")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                self.absolute(&self.configuration_directory)
+                    .join("pubkeys.conf")
+            });
+        crate::install::pubkeys::load_signify(&path, &self.working_directory, site_keys)
+    }
+
     /// Resolve the startup home without shell utilities. Caller supplies the
     /// real uid and captured environment; HOME precedes SUDO_USER and uid lookup.
     pub fn discover(

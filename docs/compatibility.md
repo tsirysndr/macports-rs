@@ -1540,3 +1540,12 @@ removal follows aliases and preserves empty arrays; missing arrays and scalars
 retain upstream no-op/query behavior. Tests cover literal values, Unicode keys,
 argument errors, Portfile environment filtering, and the existing Tcl regression
 suite. `array names -regexp` remains explicitly unsupported.
+
+`config::Paths::archive_keys` reads the configured pubkeys_conf (or the system
+configuration directory's pubkeys.conf) and combines Signify .pub entries with
+explicitly selected archive-site keys. Relative entries use the startup working
+directory, duplicate paths are ignored, and unusable keys produce warnings while
+remaining valid keys are retained. Inputs are bounded and only regular files are
+read. Tests authenticate archive bytes using configured keys and reject tampering.
+.pem entries belong to legacy .rmd160 verification, which remains unsupported;
+archive-site selection and full install execution are still incomplete.

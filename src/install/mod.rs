@@ -27,3 +27,5 @@ pub mod store;
 
 pub mod environment;
 pub mod proxy;
+
+pub mod pubkeys;
