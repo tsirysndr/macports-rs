@@ -656,3 +656,51 @@ fn local_preview_accepts_active_dependencies_without_fallback_index_metadata() {
     assert!(!output.status.success());
     assert!(output.stdout.is_empty());
 }
+
+#[test]
+fn local_preview_uses_configured_registry_and_preserves_explicit_overrides() {
+    let f = Fixture::new(&[("app", "version 1 portdir net/app")]);
+    portfile(&f, "app", "");
+    let home = f.dir.path().join("home");
+    std::fs::create_dir_all(home.join(".macports")).unwrap();
+    std::fs::write(
+        home.join(".macports/macports.conf"),
+        "portdbpath ~/database\n",
+    )
+    .unwrap();
+    let run = || {
+        Command::new(env!("CARGO_BIN_EXE_port"))
+            .args(["-qy", "install", "app"])
+            .env("PORT_RS_INDEX", f.dir.path().join("PortIndex"))
+            .env_remove("PORT_RS_REGISTRY")
+            .env("HOME", &home)
+            .env("PATH", "")
+            .env("NO_COLOR", "1")
+            .current_dir(f.dir.path())
+            .output()
+            .unwrap()
+    };
+    // A dry run against a missing configured registry never creates its parent.
+    assert_eq!(stdout(run()), "install  app @2_0 (requested)\n");
+    assert!(!home.join("database").exists());
+    std::fs::create_dir_all(home.join("database/registry")).unwrap();
+    let database = home.join("database/registry/registry.db");
+    std::fs::copy(f.dir.path().join("registry.db"), &database).unwrap();
+    let db = Connection::open(&database).unwrap();
+    db.execute_batch("INSERT INTO ports VALUES(1,'app','2',0,'','installed');")
+        .unwrap();
+    drop(db);
+    let before = std::fs::read(&database).unwrap();
+    assert_eq!(stdout(run()), "active   app @2_0 (requested)\n");
+    assert_eq!(std::fs::read(&database).unwrap(), before);
+    // Fixture.run selects the original empty registry explicitly.
+    assert_eq!(
+        stdout(f.run(&["-qy", "install", "app"])),
+        "install  app @2_0 (requested)\n"
+    );
+    std::fs::write(&database, b"not a database").unwrap();
+    let output = run();
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert_eq!(std::fs::read(&database).unwrap(), b"not a database");
+}

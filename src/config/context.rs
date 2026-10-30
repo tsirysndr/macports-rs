@@ -15,6 +15,29 @@ pub struct Context {
     pub variants: super::Variants,
 }
 impl Context {
+    /// Open a fresh read-only snapshot from the configured database directory.
+    /// Explicit overrides remain strict: a missing override is an error. An
+    /// absent configured registry represents an empty installation, and is never
+    /// created by evaluation or previews.
+    pub fn open_registry(
+        &self,
+        explicit: Option<&std::path::Path>,
+    ) -> Result<Option<crate::registry::Registry>> {
+        if let Some(path) = explicit {
+            return crate::registry::Registry::open(Some(path));
+        }
+        let path = std::path::Path::new(
+            self.variables
+                .get("portdbpath")
+                .context("startup portdbpath is missing")?,
+        )
+        .join("registry/registry.db");
+        if !path.try_exists()? {
+            return Ok(None);
+        }
+        crate::registry::Registry::open(Some(&path))
+    }
+
     /// Host variables supply standalone defaults; explicit configuration wins.
     /// This assembles evaluation inputs, not PortSystem target initialization.
     pub fn new(

@@ -1517,3 +1517,11 @@ contexts share an immutable active-name set rather than rereading all registry
 entries for every port. Missing providers remain planned dependencies. Indexed
 previews retain pending provider checks, and no archive fetch or installation is
 performed by these previews.
+
+Local install previews open a consistent read-only registry snapshot under the
+configured portdbpath/registry/registry.db. An explicit registry override takes
+precedence and remains an error when missing. A missing configured database is
+an empty installation for preview purposes; neither it nor its parent directories
+are created. Corrupt configured databases produce errors rather than falling
+back to another installation. Indexed-only previews and other registry commands
+still use their existing registry-selection path.
