@@ -1,5 +1,6 @@
 //! Terminal presentation shared by real fetch/build/install phases.
 //! Output stays on stderr; no terminal escapes are emitted into redirected logs.
+use crate::theme::ACCENT_RGB;
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use std::{io::IsTerminal, time::Duration};
 
@@ -28,7 +29,7 @@ impl Progress {
     pub fn phase(&self, message: &str) {
         if !self.quiet {
             let arrow = console::style("--->")
-                .true_color(117, 23, 252)
+                .true_color(ACCENT_RGB.0, ACCENT_RGB.1, ACCENT_RGB.2)
                 .bold()
                 .force_styling(self.color);
             let message = format!("{arrow}  {}", sanitize(message));
@@ -106,7 +107,7 @@ fn style(color: bool, known: bool) -> ProgressStyle {
                     writer,
                     "{}",
                     console::style(frame)
-                        .true_color(117, 23, 252)
+                        .true_color(ACCENT_RGB.0, ACCENT_RGB.1, ACCENT_RGB.2)
                         .force_styling(true)
                 );
             },
@@ -119,7 +120,7 @@ fn style(color: bool, known: bool) -> ProgressStyle {
                     writer,
                     "{}{}",
                     console::style("━".repeat(filled))
-                        .true_color(117, 23, 252)
+                        .true_color(ACCENT_RGB.0, ACCENT_RGB.1, ACCENT_RGB.2)
                         .force_styling(true),
                     console::style("─".repeat(24 - filled))
                         .dim()

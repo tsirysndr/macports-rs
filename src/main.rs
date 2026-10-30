@@ -15,16 +15,12 @@ use std::{
 #[command(
     name = "port",
     version,
+    styles = port_rs::theme::help_styles(),
     about = "Standalone Rust port CLI (early implementation; no Tcl required)"
 )]
 struct Cli {
-    #[arg(
-        long = "index-file",
-        global = true,
-        env = "PORT_RS_INDEX",
-        default_value = "PortIndex"
-    )]
-    index_file: PathBuf,
+    #[arg(long = "index-file", global = true, env = "PORT_RS_INDEX")]
+    index_file: Option<PathBuf>,
     #[arg(short, long, global = true)]
     quiet: bool,
     #[command(subcommand)]
@@ -158,7 +154,7 @@ fn run(cli: Cli) -> Result<()> {
         out.flush()?;
         return Ok(());
     }
-    let index = Index::read(&cli.index_file)?;
+    let index = port_rs::source::load(cli.index_file.as_deref(), cli.quiet)?;
     let action = match &cli.command {
         Command::List { .. } => "list",
         Command::Echo(_) => "echo",
@@ -329,4 +325,26 @@ fn render_selection(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+    #[test]
+    fn help_uses_exact_accent_including_subcommands() {
+        let mut command = Cli::command();
+        command.build();
+        let help = command.render_long_help();
+        assert!(help.ansi().to_string().contains("\x1b[38;2;117;23;252m"));
+        assert!(!help.to_string().contains('\x1b'));
+        for subcommand in command.get_subcommands_mut() {
+            let help = subcommand.render_long_help().ansi().to_string();
+            assert!(
+                help.contains("\x1b[38;2;117;23;252m"),
+                "{}",
+                subcommand.get_name()
+            );
+        }
+    }
 }

@@ -18,8 +18,7 @@ existing MacPorts registry, or forward commands to another executable.
 cargo build --release --locked
 ./target/release/port --help
 
-# Use an existing, uncompressed MacPorts PortIndex.
-export PORT_RS_INDEX=/path/to/PortIndex
+# First query downloads the correct index for this Mac's CPU and Darwin version.
 ./target/release/port list
 ./target/release/port list 'curl*'
 ./target/release/port search --name curl
@@ -28,9 +27,29 @@ export PORT_RS_INDEX=/path/to/PortIndex
 ./target/release/port -q echo category:net
 ```
 
-The index path defaults to `./PortIndex`. `--index-file PATH` is a configuration
-extension; it is deliberately distinct from MacPorts' `info --index` flag.
-There is no automatic index synchronization yet.
+Index selection uses this order:
+
+1. `--index-file PATH`, or `PORT_RS_INDEX` when the flag is absent.
+2. An existing `./PortIndex` for project-local queries.
+3. A platform-specific default at
+   `~/Library/Caches/port-rs/PortIndex_darwin_<major>_<arch>/PortIndex`.
+
+The default is initialized automatically from the official MacPorts HTTPS endpoint
+on the first index query. Subsequent queries use the cached file offline. The
+machine's Darwin major version and CPU architecture determine the source: Apple
+Silicon uses `arm`, Intel uses `i386` (including x86_64), and PowerPC uses
+`powerpc`. Hardware detection also recognizes Apple Silicon under Rosetta; it
+does not use subprocesses or assume the binary's compilation target is the CPU.
+There is no silent fallback to a different architecture or OS version. Automatic
+selection requires macOS; other systems can use an explicit or local index.
+
+Downloads are size-limited, parsed, and checked for nonempty content before atomic
+publication. Failed downloads leave no partial index, and concurrent first runs
+do not overwrite each other's published files. Index authenticity currently
+relies on HTTPS; detached MacPorts signatures are not verified. Explicit paths
+are never initialized or overwritten automatically. `--index-file` is distinct
+from MacPorts' `info --index` flag. Automatic refresh and `port sync` remain
+unimplemented; removing the platform cache file triggers a fresh download.
 
 ## Current compatibility boundary
 
@@ -61,7 +80,11 @@ checks run before atomic, no-clobber publication. Verified files are reused;
 corrupt existing files are reported and preserved. Retries and alternative
 mirrors are supported. A batch failure still drains other pending downloads.
 
-The progress renderer uses the requested **`#7517fc`** accent, compact spinners,
+Clap help headings, usage, command names, and option names share the **`#7517fc`**
+accent with progress output. Help retains automatic color detection and respects
+`NO_COLOR`; redirected help stays plain.
+
+The progress renderer uses that accent, compact spinners,
 per-file bars, byte counts, throughput, and ETA. It handles unknown content
 lengths without inventing a percentage. Progress goes to stderr; redirected
 output uses plain phase messages. `NO_COLOR`, `TERM=dumb`, and `-q` are respected.
@@ -111,15 +134,15 @@ unsafe paths, symlinks, temporary-file cleanup, and exact RGB progress output.
 CLI tests run with an empty `PATH` to detect accidental subprocess dependencies.
 CI runs formatting, lint, tests, and a release build on macOS and Linux.
 
-Read-only commands do not initialize Tokio or reqwest. The benchmark reports
+Cached and explicitly configured index queries do not initialize Tokio or reqwest. The benchmark reports
 index parsing and in-memory search separately using 50,000 synthetic ports.
 One local optimized run parsed the 9.4 MiB synthetic index in **101.78 ms**
 and searched the loaded index in **1.53 ms** per iteration. These measurements
 exclude startup, disk I/O, and real-world Portfile evaluation.
 
 **No speed claim against the original `port` has been established**: MacPorts is
-not installed in the development environment. Real-index measurements, peak
-memory, and differential benchmarks on the same machine remain required.
+not installed in the development environment. A real Darwin 24 ARM index has been downloaded and parsed successfully. Peak
+memory measurements and differential benchmarks on the same machine remain required.
 
 ## Next compatibility gates
 

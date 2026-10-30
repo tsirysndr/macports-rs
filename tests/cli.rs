@@ -33,6 +33,7 @@ impl Fixture {
             .args(args)
             .current_dir(self.directory.path())
             .env_remove("PORT_RS_INDEX")
+            .env("HOME", self.directory.path().join("home"))
             .env("PATH", "")
             .env("NO_COLOR", "1")
             .output()
@@ -213,4 +214,37 @@ fn quiet_and_redirected_progress_emit_no_escape_codes() {
     let output = fixture.run(&["-q", "download", "--manifest", "empty.json"]);
     assert!(output.stderr.is_empty());
     assert!(output.stdout.is_empty());
+}
+
+#[test]
+fn explicit_missing_index_does_not_trigger_network_initialization() {
+    let fixture = Fixture::new();
+    let output = fixture.run(&["--index-file", "missing-index", "list"]);
+    assert!(!output.status.success());
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("Initializing"));
+    assert!(!fixture.directory.path().join("missing-index").exists());
+}
+
+#[test]
+fn redirected_help_honors_no_color() {
+    let fixture = Fixture::new();
+    for args in [vec!["--help"], vec!["search", "--help"]] {
+        let output = fixture.run(&args);
+        let text = stdout(&output);
+        assert!(text.contains("Usage:"));
+        assert!(!text.contains('\x1b'));
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn default_index_uses_the_detected_platform_cache_offline() {
+    let fixture = Fixture::new();
+    let platform = port_rs::source::detect_platform().unwrap();
+    let cache = platform.cache_path(&fixture.directory.path().join("home"));
+    std::fs::create_dir_all(cache.parent().unwrap()).unwrap();
+    std::fs::rename(fixture.directory.path().join("PortIndex"), &cache).unwrap();
+    let output = fixture.run(&["-q", "search", "--exact", "curl"]);
+    assert_eq!(stdout(&output), "curl\n");
+    assert!(output.stderr.is_empty());
 }
