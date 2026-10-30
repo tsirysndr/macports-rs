@@ -157,7 +157,10 @@ fn metadata_cannot_change_permissions_and_unsupported_attributes_are_explicit() 
     );
     assert!(
         session(false)
-            .invoke("file", &["attributes", file.to_str().unwrap(), "-owner"])
+            .invoke(
+                "file",
+                &["attributes", file.to_str().unwrap(), "-unsupported"]
+            )
             .is_err()
     );
 }

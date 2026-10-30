@@ -1,6 +1,7 @@
 //! Native Portfile metadata evaluation. No tclsh, libtcl, or subprocess fallback.
 //! This is an incremental MacPorts command implementation, not yet a complete
 //! PortSystem. Unsupported commands fail; deferred build hooks are retained.
+mod accounts;
 mod architecture;
 mod binaries;
 mod build_defaults;
@@ -18,6 +19,7 @@ mod dlist;
 mod file_delete;
 mod file_link;
 mod file_normalize;
+mod file_ownership;
 mod file_permissions;
 mod file_rename;
 mod file_times;

@@ -16,6 +16,31 @@ pub(super) fn command(interp: &mut Interp, id: ContextID, argv: &[Value]) -> Mol
     let mut index = 3;
     while index < argv.len() {
         let option = argv[index].as_str();
+        if !option.is_empty()
+            && option != "-"
+            && let Some(group) = if "-owner".starts_with(option) {
+                Some(false)
+            } else if "-group".starts_with(option) {
+                Some(true)
+            } else {
+                None
+            }
+        {
+            let value = if setter {
+                Some(
+                    argv.get(index + 1)
+                        .ok_or_else(|| error(format!("value for \"{option}\" missing")))?,
+                )
+            } else {
+                None
+            };
+            let result = file_ownership::attribute(path, group, value)?;
+            if !setter {
+                return Ok(result);
+            }
+            index += 2;
+            continue;
+        }
         // Other attributes must not silently yield incomplete metadata.
         if option.is_empty() || !"-permissions".starts_with(option) || option == "-" {
             return unsupported(interp, id);
