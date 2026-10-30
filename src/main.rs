@@ -18,6 +18,11 @@ fn run() -> anyhow::Result<()> {
     Ok(())
 }
 fn main() {
+    // SAFETY: this is the first operation in main, before CLI dispatch creates
+    // runtimes or starts concurrent downloads/build work.
+    unsafe {
+        port_rs::source::capture_creation_mask_before_threads();
+    }
     if let Err(error) = run() {
         if error
             .downcast_ref::<io::Error>()

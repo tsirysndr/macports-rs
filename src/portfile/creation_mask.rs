@@ -6,8 +6,8 @@ pub(super) fn install(interp: &mut Interp, id: ContextID) {
     interp.add_context_command("umask", command, id);
 }
 impl Session {
-    /// Supply the initial creation mask captured by the host before concurrent
-    /// work starts. Native umask commands and child requests then use this state.
+    /// Override the captured startup mask, or supply a mask when the embedding
+    /// host did not capture one. Native umask commands and child requests use it.
     pub fn initialize_creation_mask(&mut self, mask: u32) -> Result<()> {
         ensure!(
             mask <= 0o777,

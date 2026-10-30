@@ -57,6 +57,12 @@ impl BuildHost {
             ("universal_archs".into(), universal.into()),
             ("port_rs.active_cpus".into(), self.active_cpus.to_string()),
         ]);
+        if let Some(mask) = startup_creation_mask() {
+            variables.insert(
+                "port_rs.initial_creation_mask".into(),
+                format!("{mask:04o}"),
+            );
+        }
         if let Some(memory) = self.memory_bytes {
             variables.insert("port_rs.memory_bytes".into(), memory.to_string());
         }

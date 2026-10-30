@@ -487,13 +487,16 @@ temporary prefix with live logs. This is command execution only: destroot start
 and finish hooks, mtree preparation, privilege transitions, the mask lifecycle, startup items,
 ownership adjustments, and staging cleanup are not implemented yet.
 
-The host can initialize a session's creation mask with
-`Session::initialize_creation_mask`. Native `umask mode` then accepts BSD octal
+The CLI captures and restores its inherited creation mask at the start of
+`main`, before starting runtimes or concurrent work. New Portfile sessions inherit
+that immutable startup value. Embedding hosts can instead supply or override it
+with `Session::initialize_creation_mask`. Native `umask mode` accepts BSD octal
 and symbolic modes and returns the previous mask. Each child applies the mask
 after fork, and newly prepared command directories receive the same permissions;
 existing directories retain theirs. The Rust process's global umask is never
-changed. The initial mask must be supplied explicitly; automatic host capture
-and destroot start/finish integration are still pending.
+changed during evaluation or execution. Library hosts without a startup capture
+must supply the initial mask explicitly. Destroot start/finish integration is
+still pending.
 
 `porttest::test_main` runs configured test commands when `test.run` is true,
 using the inherited build command/directory and the default `test` target.

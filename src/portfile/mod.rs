@@ -135,6 +135,7 @@ fn open(
     interp.set_recursion_limit(128);
     interp.eval("unset env").map_err(failure)?;
     let id = interp.save_context(State {
+        creation_mask: crate::source::startup_creation_mask(),
         groups,
         selected: requested.variants.clone(),
         requested: requested.variants.clone(),
