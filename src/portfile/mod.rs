@@ -10,6 +10,7 @@ mod platform;
 mod source;
 pub use source::evaluate_from_tree;
 mod targets;
+mod utilities;
 pub use groups::{LoadedGroup, PortGroups};
 mod variants;
 use crate::{index::Port, spec::PortSpec};
@@ -144,6 +145,7 @@ pub fn evaluate_with_groups(
             .map_err(failure)?;
     }
     commands::install(&mut interp, id);
+    utilities::install(&mut interp, id);
     ditems::install(&mut interp, id);
     targets::install(&mut interp, id).map_err(failure)?;
     interp.add_context_command("PortGroup", groups::command, id);
