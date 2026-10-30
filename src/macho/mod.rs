@@ -6,6 +6,33 @@ use std::{
     io::{Read, Seek, SeekFrom},
 };
 
+/// MacPorts fileIsBinary classification for registry metadata, not structural
+/// validation. Matches pextlib's native Mach-O, ar, and FAT_MAGIC header probe,
+/// including its 1..20 architecture-count heuristic to exclude Java classes.
+pub fn is_binary(reader: &mut impl Read) -> Result<bool> {
+    fn word(reader: &mut impl Read) -> std::io::Result<Option<[u8; 4]>> {
+        let mut bytes = [0; 4];
+        match reader.read_exact(&mut bytes) {
+            Ok(()) => Ok(Some(bytes)),
+            Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+    let Some(magic) = word(reader)? else {
+        return Ok(false);
+    };
+    if matches!(u32::from_ne_bytes(magic), 0xfeedface | 0xfeedfacf) {
+        return Ok(true);
+    }
+    if &magic == b"!<ar" {
+        return Ok(word(reader)?.as_ref() == Some(b"ch>\n"));
+    }
+    if u32::from_be_bytes(magic) == 0xcafebabe {
+        return Ok(word(reader)?.is_some_and(|count| (1..20).contains(&u32::from_be_bytes(count))));
+    }
+    Ok(false)
+}
+
 /// Return CPU architecture names, deduplicated and sorted. Non-Mach-O data
 /// returns an empty set; malformed recognized containers return an error.
 pub fn architectures(reader: &mut (impl Read + Seek)) -> Result<BTreeSet<String>> {

@@ -190,3 +190,53 @@ fn inspects_real_cross_compiled_objects_and_static_library() {
         ["arm64"]
     );
 }
+
+#[test]
+fn registry_binary_probe_matches_macports_header_heuristics() {
+    use port_rs::macho::is_binary;
+    for magic in [0xfeedfaceu32, 0xfeedfacf] {
+        assert!(is_binary(&mut &magic.to_ne_bytes()[..]).unwrap());
+    }
+    assert!(is_binary(&mut &b"!<arch>\n"[..]).unwrap());
+    for count in [0u32, 1, 19, 20, 65_536] {
+        let mut data = 0xcafebabeu32.to_be_bytes().to_vec();
+        data.extend(count.to_be_bytes());
+        assert_eq!(
+            is_binary(&mut data.as_slice()).unwrap(),
+            (1..20).contains(&count)
+        );
+    }
+    for data in [
+        b"".as_slice(),
+        b"text",
+        b"\xcf\xfa\xed",
+        b"!<arch>",
+        b"!<arNOPE",
+        b"\xca\xfe\xba\xbe",
+    ] {
+        assert!(!is_binary(&mut &data[..]).unwrap());
+    }
+}
+
+#[test]
+fn registry_binary_probe_propagates_io_errors_and_reads_only_needed_header() {
+    use std::io::{self, Read};
+    struct HeaderThenError {
+        bytes: &'static [u8],
+    }
+    impl Read for HeaderThenError {
+        fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+            if self.bytes.is_empty() {
+                return Err(io::Error::other("read failed"));
+            }
+            self.bytes.read(output)
+        }
+    }
+    assert!(
+        port_rs::macho::is_binary(&mut HeaderThenError {
+            bytes: b"\xca\xfe\xba\xbe"
+        })
+        .is_err()
+    );
+    assert!(!port_rs::macho::is_binary(&mut HeaderThenError { bytes: b"text" }).unwrap());
+}

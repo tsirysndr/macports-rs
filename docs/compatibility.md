@@ -1277,3 +1277,17 @@ Invalid cache entries are preserved for diagnosis rather than silently removed o
 replaced. Tests cover a valid reload, tampering after reload, missing trusted keys,
 size limits, oversized signatures, symlinks/FIFOs, and signed wrong identities.
 CLI cache selection and automatic reuse remain pending.
+
+`PreparedImage::registry_files` builds the complete registry inventory from staged
+payload members, including binary flags for regular files and hardlinks. Control
+files and directories are excluded; symlinks are recorded as nonbinary without
+opening their targets. Regular files are opened through physical parent descriptors
+with no-follow leaf checks. Classification follows MacPorts' pextlib
+`fileIsBinaryCmd` header heuristic: native-endian Mach-O magic, complete Unix ar
+magic, or FAT_MAGIC with an architecture count from 1 through 19 (excluding the
+usual Java class header). This classification is deliberately separate from the
+stricter Mach-O architecture parser. It reads only the necessary four or eight
+bytes and propagates I/O errors. Tests cover thin/universal/static headers, short
+and ordinary files, Java-like counts, hardlinks, external symlinks, and replaced
+staged paths. The registration/activation integration test now uses this generated
+inventory; CLI install orchestration remains pending.

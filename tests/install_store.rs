@@ -371,10 +371,12 @@ fn stored_registered_archive_can_be_prepared_and_activated_end_to_end() {
         .stage(&mut archive, &item, &target, Limits::default())
         .unwrap();
     let location = stored.location().to_owned();
-    let id = stored.register(&mut writer, registration()).unwrap();
     let prepared =
         extract::prepare_for_target(&mut archive, &item, &target, work.path(), Limits::default())
             .unwrap();
+    let mut record = registration();
+    record.files = prepared.registry_files().unwrap();
+    let id = stored.register(&mut writer, record).unwrap();
     let plan = Plan::inspect(&prepared, root.path()).unwrap();
     plan.activate(&mut writer, id).unwrap();
     drop(prepared);

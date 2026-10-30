@@ -17,6 +17,32 @@ pub struct PreparedImage {
     inspection: Inspection,
 }
 impl PreparedImage {
+    /// Build native registry paths and binary classifications from the private
+    /// image. Symlinks are recorded but never opened; hardlinks classify their
+    /// regular inode, and archive control files/directories are excluded.
+    pub fn registry_files(&self) -> Result<Vec<crate::registry::write::ImageFile>> {
+        let root = super::publication::Root::open(&self.payload())?;
+        let mut files = Vec::new();
+        for (name, member) in &self.inspection.members {
+            if name.is_empty() || name.starts_with('+') || member.kind == Kind::Directory {
+                continue;
+            }
+            let binary = match member.kind {
+                Kind::File | Kind::Hardlink(_) => {
+                    let mut file = root.open_file(Path::new(name))?;
+                    crate::macho::is_binary(&mut file)
+                        .with_context(|| format!("cannot classify image file {name}"))?
+                }
+                Kind::Symlink(_) => false,
+                Kind::Directory => unreachable!(),
+            };
+            files.push(crate::registry::write::ImageFile {
+                path: format!("/{name}"),
+                binary,
+            });
+        }
+        Ok(files)
+    }
     pub fn payload(&self) -> PathBuf {
         self.directory.path().join("payload")
     }

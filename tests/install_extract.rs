@@ -231,3 +231,54 @@ fn target_architectures_are_checked_before_extraction() {
         b"hello"
     );
 }
+
+#[test]
+fn builds_registry_inventory_with_binary_flags_without_following_symlinks() {
+    let c = contents(&[
+        "opt/local/app",
+        "opt/local/hard",
+        "opt/local/link",
+        "opt/local/text",
+        "opt/local/static.a",
+    ]);
+    let binary = 0xfeedfacfu32.to_ne_bytes();
+    let data = compress(&tar(&[
+        ("+CONTENTS", b'0', c.as_bytes(), ""),
+        ("+PORTFILE", b'0', &binary, ""),
+        ("opt/local/empty", b'5', b"", ""),
+        ("opt/local/app", b'0', &binary, ""),
+        ("opt/local/hard", b'1', b"", "opt/local/app"),
+        ("opt/local/link", b'2', b"", "/nonexistent/outside"),
+        ("opt/local/text", b'0', b"hello", ""),
+        ("opt/local/static.a", b'0', b"!<arch>\n", ""),
+    ]));
+    let directory = tempfile::tempdir().unwrap();
+    let index = index();
+    let plan = install::plan(&index, &[PortSpec::named("app")], &[]).unwrap();
+    let image = extract::prepare(
+        &mut stage(&data),
+        &plan[0],
+        directory.path(),
+        Limits::default(),
+    )
+    .unwrap();
+    let files: std::collections::BTreeMap<_, _> = image
+        .registry_files()
+        .unwrap()
+        .into_iter()
+        .map(|f| (f.path, f.binary))
+        .collect();
+    assert_eq!(
+        files,
+        std::collections::BTreeMap::from([
+            ("/opt/local/app".into(), true),
+            ("/opt/local/hard".into(), true),
+            ("/opt/local/link".into(), false),
+            ("/opt/local/text".into(), false),
+            ("/opt/local/static.a".into(), true),
+        ])
+    );
+    std::fs::remove_file(image.payload().join("opt/local/text")).unwrap();
+    std::os::unix::fs::symlink("app", image.payload().join("opt/local/text")).unwrap();
+    assert!(image.registry_files().is_err());
+}
