@@ -194,8 +194,8 @@ behavior; they are not a complete differential compatibility suite.
 
 ## Installed-port registry
 
-`port installed` reads `/opt/local/var/macports/registry/registry.db` without
-loading a PortIndex. Override the path with `--registry-file PATH` or
+`port installed` reads `/opt/local/var/macports/registry/registry.db`. Most
+selectors do not load a PortIndex; `obsolete` needs one to check catalog membership. Override the path with `--registry-file PATH` or
 `PORT_RS_REGISTRY`. Custom `macports.conf` paths are not discovered yet.
 The database is opened read-only, never initialized or migrated. A missing
 default registry reports no installed ports; a missing explicit path is an
@@ -218,12 +218,21 @@ platform, architectures, and local installation timestamps. Version filters
 match a plain version or the complete version/revision/variant string.
 
 Registry queries support names, globs, `all`, `installed`, `active`, `inactive`,
-`actinact`, `requested`, `unrequested`, `leaves`, and `rleaves`. Combine selectors with `not` (or `!`), `and`,
+`actinact`, `obsolete`, `requested`, `unrequested`, `leaves`, and `rleaves`. Combine selectors with `not` (or `!`), `and`,
 and `or`, in that precedence order; parentheses override precedence and adjacent
 expressions form a union. Set operations preserve distinct installed images.
 Complements and globs use the installed registry, including ports removed from
 the catalog. Nesting is limited to 128 levels. Field/path selectors still require
 catalog queries; registry mutations remain unimplemented.
+
+`port installed obsolete` selects installed images whose names are absent from
+the current catalog, including inactive images. Lookup is case-insensitive;
+`replaced_by` metadata alone does not make a port obsolete. Logical expressions
+and version filters apply normally. The catalog uses `--index-file` or the
+usual default index, and is loaded only when `obsolete` is evaluated against a
+nonempty registry. Empty registries and other registry selectors stay index-free.
+`outdated obsolete` has no comparison rows because obsolete ports have no catalog
+entry to compare; `outdated not obsolete` compares the remaining active images.
 
 `port installed actinact` selects every image of names that have both active
 and inactive installations. Combine it with `and inactive` to list just their

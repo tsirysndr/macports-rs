@@ -1425,3 +1425,93 @@ fn outdated_actinact_selects_active_images_and_chains_with_installed() {
         ""
     );
 }
+
+#[test]
+fn obsolete_selects_all_images_absent_from_catalog() {
+    let f = outdated_fixture(&[("pkg2", "version 99"), ("pkg10", "version 99")]);
+    assert_eq!(
+        stdout(f.run(&["-q", "installed", "obsolete"])),
+        "  curl @8.9_1+ssl\n  curl @8.10_0+ssl (active)\n"
+    );
+    assert_eq!(
+        stdout(f.run(&["-q", "installed", "obsolete", "and", "inactive"])),
+        "  curl @8.9_1+ssl\n"
+    );
+    assert_eq!(
+        stdout(f.run(&["-q", "installed", "obsolete@8.10_0+ssl"])),
+        "  curl @8.10_0+ssl (active)\n"
+    );
+    assert_eq!(stdout(f.run(&["-q", "installed", "obsolete@99"])), "");
+}
+#[test]
+fn obsolete_uses_case_insensitive_lookup_and_not_replaced_by_metadata() {
+    let f = outdated_fixture(&[
+        ("CURL", "version 1 replaced_by newcurl"),
+        ("pkg2", "version 1"),
+    ]);
+    assert_eq!(
+        stdout(f.run(&["-q", "installed", "obsolete"])),
+        "  pkg10 @1.0_0\n"
+    );
+    assert_eq!(
+        stdout(f.run(&["-q", "installed", "not", "obsolete", "and", "active"])),
+        "  curl @8.10_0+ssl (active)\n  pkg2 @2.0_0 (active)\n"
+    );
+}
+#[test]
+fn obsolete_requires_catalog_only_for_nonempty_registry() {
+    let f = Fixture::new();
+    assert!(f.run(&["installed", "active"]).status.success());
+    let result = f.run(&["installed", "pkg2", "obsolete"]);
+    assert!(!result.status.success());
+    assert!(result.stdout.is_empty());
+    let db = Connection::open(&f.path).unwrap();
+    db.create_collation("VERSION", |a, b| a.cmp(b)).unwrap();
+    db.execute("DELETE FROM ports", []).unwrap();
+    assert_eq!(
+        stdout(f.run(&["installed", "obsolete"])),
+        "None of the specified ports are installed.\n"
+    );
+    assert_eq!(stdout(f.run(&["-q", "outdated", "obsolete"])), "");
+    assert!(!f.dir.path().join("missing-home").exists());
+}
+#[test]
+fn obsolete_expression_reuses_catalog_for_outdated_comparisons() {
+    let f = outdated_fixture(&[("pkg2", "version 99")]);
+    assert_eq!(stdout(f.run(&["-q", "outdated", "obsolete"])), "");
+    let output = stdout(f.run(&["-q", "outdated", "not", "obsolete"]));
+    assert!(output.contains("pkg2"));
+    assert!(!output.contains("curl"));
+    assert_eq!(
+        stdout(f.run(&["-q", "outdated", "obsolete", "or", "not", "obsolete"])),
+        output
+    );
+}
+#[test]
+fn obsolete_honors_index_overrides_in_command_chains() {
+    let f = outdated_fixture(&[("curl", "version 99"), ("pkg2", "version 99")]);
+    let other = outdated_fixture(&[("curl", "version 99"), ("pkg10", "version 99")]);
+    let index = other.dir.path().join("missing-index");
+    assert_eq!(
+        stdout(f.run(&[
+            "-q",
+            "installed",
+            "obsolete",
+            ";",
+            "--index-file",
+            index.to_str().unwrap(),
+            "installed",
+            "obsolete"
+        ])),
+        "  pkg10 @1.0_0\n  pkg2 @2.0_0 (active)\n"
+    );
+}
+#[test]
+fn obsolete_catalog_errors_do_not_print_partial_registry_results() {
+    let f = outdated_fixture(&[("pkg2", "version 99")]);
+    std::fs::write(f.dir.path().join("missing-index"), "broken index").unwrap();
+    let result = f.run(&["installed", "active", "or", "obsolete"]);
+    assert!(!result.status.success());
+    assert!(result.stdout.is_empty());
+    assert!(f.run(&["installed", "active"]).status.success());
+}

@@ -145,7 +145,9 @@ impl Session {
         } else if let Command::Contents(args) = command {
             contents::run(&mut out, registry_file, args, quiet)?;
         } else if let Command::Installed(args) = command {
-            installed::run(&mut out, registry_file, args, quiet, verbose)?;
+            installed::run(&mut out, registry_file, args, quiet, verbose, || {
+                self.index(index_file, quiet)
+            })?;
         } else if matches!(command, Command::Version | Command::Platform) {
             match command {
                 Command::Version => system::version(&mut out, quiet)?,

@@ -18,6 +18,7 @@ pub fn select<'a>(
     tokens: &[String],
     missing: Missing,
     registry: Option<&Registry>,
+    obsolete: impl FnOnce() -> Result<HashSet<String>>,
 ) -> Result<Vec<&'a Entry>> {
     if tokens.is_empty() {
         return Ok(entries.iter().collect());
@@ -32,6 +33,8 @@ pub fn select<'a>(
         leaves: None,
         dependents: None,
         actinact: None,
+        obsolete: None,
+        load_obsolete: Some(obsolete),
     };
     let selected = parser.sequence()?;
     ensure!(
@@ -41,7 +44,7 @@ pub fn select<'a>(
     );
     Ok(selected.into_iter().map(|i| &entries[i]).collect())
 }
-struct Expression<'a> {
+struct Expression<'a, F> {
     entries: &'a [Entry],
     tokens: &'a [String],
     cursor: usize,
@@ -51,8 +54,10 @@ struct Expression<'a> {
     leaves: Option<Leaves>,
     dependents: Option<Graph<'a>>,
     actinact: Option<HashSet<String>>,
+    obsolete: Option<HashSet<String>>,
+    load_obsolete: Option<F>,
 }
-impl Expression<'_> {
+impl<F: FnOnce() -> Result<HashSet<String>>> Expression<'_, F> {
     fn peek(&self) -> Option<&str> {
         self.tokens.get(self.cursor).map(String::as_str)
     }
@@ -133,11 +138,22 @@ impl Expression<'_> {
                 | "active"
                 | "inactive"
                 | "actinact"
+                | "obsolete"
                 | "requested"
                 | "unrequested"
                 | "leaves"
                 | "rleaves"
         );
+        if spec.name == "obsolete" && self.obsolete.is_none() {
+            // An empty registry cannot contain obsolete images and needs no catalog.
+            self.obsolete = Some(if self.entries.is_empty() {
+                HashSet::new()
+            } else {
+                self.load_obsolete
+                    .take()
+                    .expect("obsolete loader used once")()?
+            });
+        }
         if spec.name == "actinact" && self.actinact.is_none() {
             let active: HashSet<_> = self
                 .entries
@@ -169,6 +185,11 @@ impl Expression<'_> {
                     "all" | "installed" => true,
                     "active" => entry.active,
                     "inactive" => !entry.active,
+                    "obsolete" => self
+                        .obsolete
+                        .as_ref()
+                        .unwrap()
+                        .contains(&entry.name.to_ascii_lowercase()),
                     "actinact" => self
                         .actinact
                         .as_ref()
@@ -260,4 +281,13 @@ impl Expression<'_> {
             .map(|(i, _)| i)
             .collect())
     }
+}
+
+/// Obsolete means absent from the catalog, not merely replaced or outdated.
+pub fn obsolete_names(entries: &[Entry], index: &crate::index::Index) -> HashSet<String> {
+    entries
+        .iter()
+        .filter(|entry| index.lookup(&entry.name).is_none())
+        .map(|entry| entry.name.to_ascii_lowercase())
+        .collect()
 }

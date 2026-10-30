@@ -9,12 +9,13 @@ pub struct Installed {
     ports: Vec<String>,
 }
 
-pub(super) fn run(
+pub(super) fn run<'a>(
     out: &mut impl Write,
     path: Option<&Path>,
     args: Installed,
     quiet: bool,
     verbose: bool,
+    load_index: impl FnOnce() -> Result<&'a crate::index::Index>,
 ) -> Result<()> {
     let registry = registry::Registry::open(path)?;
     let entries = registry
@@ -27,6 +28,12 @@ pub(super) fn run(
         &args.ports,
         registry::expression::Missing::Error,
         registry.as_ref(),
+        || {
+            Ok(registry::expression::obsolete_names(
+                &entries,
+                load_index()?,
+            ))
+        },
     )?;
     let lines = selected
         .into_iter()

@@ -27,11 +27,18 @@ pub(super) fn run<'a>(
         .map(registry::Registry::entries)
         .transpose()?
         .unwrap_or_default();
+    let mut load_index = Some(load_index);
+    let mut cached_index = None;
     let selected: Vec<_> = registry::expression::select(
         &entries,
         &args.ports,
         registry::expression::Missing::Empty,
         registry.as_ref(),
+        || {
+            let index = load_index.take().expect("index loader used once")()?;
+            cached_index = Some(index);
+            Ok(registry::expression::obsolete_names(&entries, index))
+        },
     )?
     .into_iter()
     .filter(|entry| entry.active)
@@ -50,7 +57,10 @@ pub(super) fn run<'a>(
         }
         return Ok(());
     }
-    let index = load_index()?;
+    let index = match cached_index {
+        Some(index) => index,
+        None => load_index.take().expect("index loader used once")()?,
+    };
     let mut lines = Vec::new();
     let mut platform = None;
     for entry in selected {
