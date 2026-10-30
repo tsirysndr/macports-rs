@@ -6,7 +6,7 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use clap::Args;
-use std::{fmt::Write as _, io::Write};
+use std::{collections::BTreeMap, fmt::Write as _, io::Write, path::Path};
 
 #[derive(Args)]
 pub struct Variants {
@@ -17,13 +17,35 @@ pub struct Variants {
     ports: Vec<String>,
 }
 
-pub(super) fn run(out: &mut impl Write, index: &Index, args: Variants, quiet: bool) -> Result<()> {
+pub(super) fn run(
+    out: &mut impl Write,
+    index: &Index,
+    args: Variants,
+    quiet: bool,
+    root: Option<&Path>,
+) -> Result<()> {
     let specs = query::specifications(index, &args.ports)?;
+    let variables = if root.is_some() {
+        let platform = crate::source::detect_platform()?;
+        BTreeMap::from([
+            ("os.platform".into(), "darwin".into()),
+            ("os.subplatform".into(), "macosx".into()),
+            ("os.major".into(), platform.darwin_major.to_string()),
+            ("os.arch".into(), platform.architecture.into()),
+            ("prefix".into(), "/opt/local".into()),
+        ])
+    } else {
+        BTreeMap::new()
+    };
     let width = usize::from(console::Term::stdout().size().1).max(40);
     let rendered = specs
         .iter()
         .map(|spec| {
             let port = query::lookup(index, &spec.name)?;
+            let evaluated = root
+                .map(|root| crate::portfile::evaluate_from_tree(root, port, &variables, spec))
+                .transpose()?;
+            let port = evaluated.as_ref().map(|value| &value.port).unwrap_or(port);
             render(port, spec, quiet, width)
                 .with_context(|| format!("{}: variant metadata", port.name))
         })

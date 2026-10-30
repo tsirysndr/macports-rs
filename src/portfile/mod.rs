@@ -5,6 +5,8 @@ mod commands;
 mod defaults;
 mod groups;
 mod platform;
+mod source;
+pub use source::evaluate_from_tree;
 mod targets;
 pub use groups::{LoadedGroup, PortGroups};
 mod variants;

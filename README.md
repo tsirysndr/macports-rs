@@ -10,7 +10,8 @@ command or separately installed SQLite library is needed.
 
 **This is not yet a drop-in replacement. Installation is not implemented.**
 It currently provides native index and installed-registry queries, a tested parallel download engine,
-and terminal progress rendering. It does not evaluate Portfiles, mutate an
+and terminal progress rendering. It evaluates a subset of local Portfiles for
+variant inspection. It does not mutate an
 existing MacPorts registry, or forward commands to another executable.
 
 ## Build and run
@@ -72,6 +73,7 @@ unimplemented; removing the platform cache file triggers a fresh download.
 | `echo` | Names/globs, regex field selectors, logical expressions, versions, variants, and options |
 | `deps --index`, `rdeps --index` | Direct/recursive indexed dependencies, build/test filters, full trees, cycle handling |
 | `variants --index` | Sorted variant details, defaults/requested markers, descriptions, conflicts, and requirements |
+| `variants` | Native evaluation of supported local Portfiles and PortGroups alongside a selected PortIndex |
 | Index data | Serialized Tcl list data is parsed in Rust; no Tcl code is evaluated |
 | `install` | `-y` / `--dry-run` previews indexed binary dependencies; actual installation is blocked |
 | `upgrade`, `uninstall`, activation | Not implemented; fail explicitly before filesystem changes |
@@ -148,11 +150,20 @@ variant metadata with `[+]`/`[-]` defaults and `+`/`-` requested markers. Descri
 wrap below their labels; conflicts and requirements appear on separate lines.
 Requested markers only appear where the index supplies `vinfo` for that variant,
 matching upstream behavior. Version and option overrides do not change indexed
-metadata. Quiet mode suppresses headings. Bare `variants` requires Portfile
-evaluation and fails explicitly; variants.conf defaults are not loaded yet.
+metadata. Quiet mode suppresses headings.
 
-Dependency inspection requires explicit `--index` while the native Portfile
-engine is unavailable. `deps --index` groups dependencies by phase; `rdeps --index`
+`port --index-file /path/to/ports/PortIndex variants curl` evaluates the local
+Portfile named by the index's `portdir`, with PortGroups from that tree's
+`_resources/port1.0/group` directory. A `PortIndex` in the working directory also
+selects its local tree. Platform variables describe the current Mac; the prefix
+currently defaults to `/opt/local`. Requested variants/options are evaluated;
+custom build bodies and hooks remain deferred. Missing sources and unsupported
+Portfile commands fail explicitly, without falling back to cached metadata or
+fetching source code. The downloaded default index alone is insufficient for this
+mode. macports.conf and variants.conf defaults are not loaded yet.
+
+Dependency inspection requires explicit `--index` until native Portfile
+evaluation is connected to those commands. `deps --index` groups dependencies by phase; `rdeps --index`
 walks their complete indexed graph. `--no-build` removes fetch, extract, patch,
 and build edges; `--no-test` removes test edges at every level. Library/runtime
 edges remain. `--full` repeats shared subtrees and annotates cycles; the default
@@ -400,7 +411,7 @@ a default updates its template without overriding explicit values. Computed
 The [vendored Molt core](vendor/molt/PORT-RS-PATCHES.md) provides host variable hooks;
 its upstream tests run in the macOS CI matrix alongside port-rs tests.
 
-This evaluator is not yet connected to CLI catalog loading or installation.
+This evaluator is connected to local-tree `variants` queries, but not installation.
 The complete PortSystem API still needs implementation, including namespace
 commands and build-stage defaults used by larger PortGroups. Unsupported operations fail; guarded attempts to
 call unsupported I/O commands are recorded and cannot yield approved metadata.

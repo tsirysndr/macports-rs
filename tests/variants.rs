@@ -122,3 +122,160 @@ fn variant_queries_support_expressions_abbreviations_and_chains() {
         "   ssl\n   debug\n"
     );
 }
+
+fn write_portfile(fixture: &Fixture, directory: &str, source: &str) {
+    let path = fixture.0.path().join(directory);
+    std::fs::create_dir_all(&path).unwrap();
+    std::fs::write(path.join("Portfile"), source).unwrap();
+}
+
+#[test]
+fn local_variants_evaluate_source_and_groups_instead_of_stale_index_metadata() {
+    let fixture = Fixture::new(&[("example", "portdir net/example variants stale")]);
+    let groups = fixture.0.path().join("_resources/port1.0/group");
+    std::fs::create_dir_all(&groups).unwrap();
+    std::fs::write(
+        groups.join("helper-1.0.tcl"),
+        "variant tls description {Enable TLS} {}; default_variants +tls",
+    )
+    .unwrap();
+    write_portfile(
+        &fixture,
+        "net/example",
+        r#"
+        PortSystem 1.0
+        name example
+        version 2
+        PortGroup helper 1.0
+        if {${os.platform} eq "darwin"} {
+            variant native description {Native build} {}
+        }
+        build {exec must-not-run}
+    "#,
+    );
+    assert_eq!(
+        stdout(fixture.run(&["variants", "example"])),
+        "example has the variants:\n   native: Native build\n[+]tls: Enable TLS\n"
+    );
+    assert_eq!(
+        stdout(fixture.run(&["-q", "variants", "example", "-tls"])),
+        "   native: Native build\n  -tls: Enable TLS\n"
+    );
+    assert_eq!(
+        stdout(fixture.run(&["-q", "variants", "--index", "example"])),
+        "   stale\n"
+    );
+}
+
+#[test]
+fn local_variants_accept_explicit_tree_from_another_working_directory() {
+    let fixture = Fixture::new(&[("example", "portdir net/example")]);
+    write_portfile(
+        &fixture,
+        "net/example",
+        "name example; version 1; variant local {}",
+    );
+    let elsewhere = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_port"))
+        .args([
+            "--index-file",
+            fixture.0.path().join("PortIndex").to_str().unwrap(),
+            "-q",
+            "variants",
+            "example",
+        ])
+        .current_dir(elsewhere.path())
+        .env("PATH", "")
+        .output()
+        .unwrap();
+    assert_eq!(stdout(output), "   local\n");
+}
+
+#[test]
+fn local_variant_errors_never_print_partial_results_or_fall_back_to_index() {
+    let fixture = Fixture::new(&[
+        ("good", "portdir net/good"),
+        ("bad", "portdir net/bad variants stale"),
+    ]);
+    write_portfile(
+        &fixture,
+        "net/good",
+        "name good; version 1; variant local {}",
+    );
+    write_portfile(
+        &fixture,
+        "net/bad",
+        "name bad; version 1; unsupported_portfile_command",
+    );
+    let output = fixture.run(&["variants", "good", "bad"]);
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("unsupported_portfile_command"));
+    std::fs::remove_file(fixture.0.path().join("net/bad/Portfile")).unwrap();
+    let output = fixture.run(&["variants", "bad"]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("cannot find local Portfile"));
+}
+
+#[test]
+fn local_variants_support_subports_and_user_options() {
+    let fixture = Fixture::new(&[("child", "portdir net/parent")]);
+    write_portfile(
+        &fixture,
+        "net/parent",
+        r#"
+        name parent
+        version 1
+        options feature
+        feature no
+        subport child {
+            if {[option feature] eq "yes"} {variant selected {}}
+        }
+        subport other {variant wrong {}}
+    "#,
+    );
+    assert_eq!(
+        stdout(fixture.run(&["-q", "variants", "child", "feature=yes"])),
+        "   selected\n"
+    );
+}
+
+#[test]
+fn local_portdir_cannot_traverse_outside_the_selected_tree() {
+    for portdir in ["../outside", "/tmp/outside", "net/../../outside"] {
+        let fixture = Fixture::new(&[("example", &format!("portdir {portdir}"))]);
+        let output = fixture.run(&["variants", "example"]);
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("valid relative portdir"));
+    }
+    let fixture = Fixture::new(&[("example", "portdir outside")]);
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::write(outside.path().join("Portfile"), "error must-not-evaluate").unwrap();
+    std::os::unix::fs::symlink(outside.path(), fixture.0.path().join("outside")).unwrap();
+    let output = fixture.run(&["variants", "example"]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("outside the selected ports tree"));
+}
+
+#[test]
+fn local_portfiles_require_bounded_utf8_regular_files() {
+    let fixture = Fixture::new(&[("example", "portdir net/example")]);
+    write_portfile(&fixture, "net/example", "");
+    let path = fixture.0.path().join("net/example/Portfile");
+    std::fs::write(&path, [0xff]).unwrap();
+    let output = fixture.run(&["variants", "example"]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("cannot read"));
+    std::fs::File::create(&path)
+        .unwrap()
+        .set_len(4 * 1024 * 1024 + 1)
+        .unwrap();
+    let output = fixture.run(&["variants", "example"]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("4 MiB limit"));
+    std::fs::remove_file(&path).unwrap();
+    std::fs::create_dir(&path).unwrap();
+    let output = fixture.run(&["variants", "example"]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("not a regular file"));
+}

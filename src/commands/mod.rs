@@ -62,7 +62,7 @@ pub enum Command {
     Deps(dependencies::DependencyOptions),
     /// Display recursive dependencies from PortIndex (--index required)
     Rdeps(dependencies::RecursiveDependencyOptions),
-    /// Display indexed variants and their descriptions (--index required)
+    /// Display variants from local Portfiles, or cached metadata with --index
     Variants(variants::Variants),
     /// Download files concurrently from a checksummed JSON manifest (Rust extension)
     Download(download::Download),
@@ -113,12 +113,6 @@ impl Session {
                 r#"command "install" execution is not implemented yet; use -y install to preview an indexed binary installation plan; no Tcl or MacPorts fallback is used"#
             );
         }
-        if let Command::Variants(options) = &command {
-            ensure!(
-                options.index,
-                "variant inspection without --index requires Portfile evaluation, which is not implemented; use variants --index"
-            );
-        }
         let indexed = match &command {
             Command::Deps(options) => Some(options.index),
             Command::Rdeps(options) => Some(options.options.index),
@@ -165,6 +159,30 @@ impl Session {
             }
         } else if let Command::Download(args) = command {
             download::run(&mut out, args, quiet)?;
+        } else if let Command::Variants(args) = command {
+            let root = if args.index {
+                None
+            } else if let Some(path) = index_file {
+                Some(
+                    path.parent()
+                        .filter(|p| !p.as_os_str().is_empty())
+                        .unwrap_or(Path::new("."))
+                        .to_path_buf(),
+                )
+            } else {
+                ensure!(
+                    Path::new("PortIndex").try_exists()?,
+                    "no local ports tree selected; use --index-file PATH or use variants --index"
+                );
+                Some(PathBuf::from("."))
+            };
+            variants::run(
+                &mut out,
+                self.index(index_file, quiet)?,
+                args,
+                quiet,
+                root.as_deref(),
+            )?;
         } else {
             // Offline index queries never initialize an async runtime or HTTP client.
             let index = self.index(index_file, quiet)?;
@@ -181,7 +199,6 @@ impl Session {
                     inspect::run(&mut out, index, &ports, quiet, "list")?;
                 }
                 Command::Echo(args) => inspect::run(&mut out, index, &args.ports, quiet, "echo")?,
-                Command::Variants(args) => variants::run(&mut out, index, args, quiet)?,
                 Command::Search(args) => search::run(&mut out, index, args, quiet)?,
                 Command::Info(args) => info::run(&mut out, index, args, quiet, verbose)?,
                 Command::Deps(args) => {
@@ -206,6 +223,7 @@ impl Session {
                 | Command::Download(_)
                 | Command::Location(_)
                 | Command::Space(_)
+                | Command::Variants(_)
                 | Command::Unsupported(_) => unreachable!(),
             }
         }
