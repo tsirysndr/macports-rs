@@ -597,6 +597,11 @@ recursive parents, directory symlinks, and catchable POSIX errors. New directori
 use the session's creation mask; existing directory permissions are preserved.
 Relative paths use the process working directory, as with the read-only queries.
 Directory creation remains unavailable during metadata evaluation.
+Native `file delete` supports multiple paths, `--`, and recursive `-force`.
+Missing files are ignored; directory links are unlinked without traversing their
+contents. Nonempty directories require `-force`, which grants owner access to the
+root directory and restores its original permissions on failure. Errors remain
+catchable, and deletion is unavailable during metadata evaluation.
 Native `fs-traverse` supports sorted physical traversal, `-depth`, `-tails`,
 `-ignoreErrors`, caller-scope loop variables, and Tcl loop control. Explicit
 root symlinks are followed; nested directory symlinks and other filesystems are
