@@ -873,3 +873,44 @@ fn chains_expand_each_action_and_stop_on_ambiguity() {
     assert_eq!(String::from_utf8_lossy(&output.stdout), "curl\n");
     assert!(String::from_utf8_lossy(&output.stderr).contains("is ambiguous"));
 }
+
+#[test]
+fn string_globs_use_literal_braces_and_non_negated_classes() {
+    let fixture = Fixture::new();
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "search", "--glob", "{curl,zlib}"])),
+        ""
+    );
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "search", "--glob", "--name", "[!c]*"])),
+        "curl\ncurlish\n"
+    );
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "echo", "[!c]*"])),
+        "curl\ncurlish\n"
+    );
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "echo", "[z-c]*"])),
+        "curl\ncurlish\nzlib\n"
+    );
+    assert_eq!(stdout(&fixture.run(&["-q", "search", "--glob", "["])), "");
+}
+
+#[test]
+fn wildcard_actions_resolve_using_string_patterns() {
+    let fixture = Fixture::new();
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "sea*", "--exact", "curl"])),
+        "curl\n"
+    );
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "s?ar", "--exact", "curl"])),
+        "curl\n"
+    );
+    let output = fixture.run(&["v[ae]r"]);
+    assert!(!output.status.success());
+    let error = String::from_utf8_lossy(&output.stderr);
+    assert!(error.contains("is ambiguous"));
+    assert!(error.contains("port variants"));
+    assert!(error.contains("port version"));
+}

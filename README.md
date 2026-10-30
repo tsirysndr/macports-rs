@@ -101,8 +101,8 @@ Actions accept unique prefixes: `port sear curl`, `port ver`, and
 are matched case-insensitively against the upstream command vocabulary, including
 commands not yet implemented here. For example, `dep` is ambiguous between
 `dependents` and `deps`; `activ` resolves to `activate` and reports that it is not
-implemented. The Rust `download` extension also participates. Wildcard action
-patterns and interactive-only action abbreviations are not supported.
+implemented. The Rust `download` extension also participates. Wildcard action patterns such as `sea*` also work; quote them to prevent shell
+expansion. Interactive-only action abbreviations are not supported.
 
 Place command flags before the first port expression. Field selectors use
 case-insensitive regular expressions, including singular/plural aliases such as
@@ -166,8 +166,14 @@ breaking ties. Explicit port arguments and unions retain their input order.
 Non-ASCII case mapping uses Rust Unicode tables, which can differ from the
 Unicode version used by a particular Tcl release.
 
+Glob patterns use a native string matcher: `*`, `?`, character classes, ranges,
+and backslash escapes. Braces are literal, `!`/`^` inside classes do not negate
+matches, and `/` has no path-separator semantics. Case-insensitive ranges fold
+their endpoints before matching. The test suite includes 1,336 comparisons
+recorded with macOS Tcl 8.5.9; running it does not require Tcl.
+
 Search regexes currently use Rust regex semantics, which differ from Tcl's
-advanced regular expressions. Glob behavior, Unicode sorting edge cases, description
+advanced regular expressions. Malformed glob corner cases, Unicode matching/sorting edge cases, description
 wrapping, some metadata formatting edge cases, and error details still need
 full upstream parity tests. Tests currently check representative upstream-derived
 behavior; they are not a complete differential compatibility suite.

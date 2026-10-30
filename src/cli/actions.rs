@@ -86,11 +86,12 @@ pub(super) fn expand(action: &str) -> Result<String> {
         return Ok(action.into());
     }
     let prefix = action.to_lowercase();
+    let matcher = port_rs::query::Matcher::new(&format!("{prefix}*"), false, false, true)?;
     let matches: Vec<_> = ACTIONS
         .iter()
         .copied()
         .filter(|name| !matches!(*name, "cd" | "exit" | "quit"))
-        .filter(|name| name.starts_with(&prefix))
+        .filter(|name| matcher.matches(name))
         .collect();
     match matches.as_slice() {
         [name] => Ok((*name).into()),

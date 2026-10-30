@@ -4,12 +4,13 @@ use crate::{
     spec::{PortSpec, is_modifier},
 };
 use anyhow::{Result, bail, ensure};
-use globset::{GlobBuilder, GlobMatcher};
+mod glob;
+use glob::Glob;
 use regex::{Regex, RegexBuilder};
 use std::collections::BTreeMap;
 
 pub enum Matcher {
-    Glob(GlobMatcher),
+    Glob(Glob),
     Regex(Regex),
     Exact(String),
 }
@@ -30,18 +31,12 @@ impl Matcher {
                     .build()?,
             ))
         } else {
-            Ok(Self::Glob(
-                GlobBuilder::new(pattern)
-                    .case_insensitive(!case_sensitive)
-                    .literal_separator(false)
-                    .build()?
-                    .compile_matcher(),
-            ))
+            Ok(Self::Glob(Glob::new(pattern, case_sensitive)))
         }
     }
     pub fn matches(&self, value: &str) -> bool {
         match self {
-            Self::Glob(g) => g.is_match(value),
+            Self::Glob(g) => g.matches(value),
             Self::Regex(r) => r.is_match(value),
             Self::Exact(e) => e == value,
         }
