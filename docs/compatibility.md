@@ -1471,3 +1471,12 @@ process-environment proxy lookup. Scheme settings override ALL, explicit empty
 scheme values select direct transport, and bypass entries use reqwest's host/IP
 matching. Local-server tests exercise proxy routing and bypass alongside archive
 authentication; the existing transport APIs retain their default proxy behavior.
+
+`config::Config` parses the upstream bootstrap option set from ordered
+macports.conf files without evaluating values. Later files/settings override
+previous ones, missing files are ignored, inline comment text remains literal,
+and continuations append Tcl list elements except for path options, which replace
+the preceding value. Path normalization is an explicit caller callback. Parsed
+extra_env and proxy settings can feed the startup helpers; automatic system/user/
+PORTSRC discovery, path-context resolution, and CLI configuration wiring remain
+unfinished.
