@@ -246,3 +246,27 @@ fn failing_pre_destroot_hook_restores_mask_without_recording_completion() {
     .unwrap();
     assert!(!state.contains("target", "org.macports.destroot").unwrap());
 }
+
+#[test]
+fn custom_startup_plist_passes_the_complete_native_staging_lifecycle() {
+    let temp = tempfile::tempdir().unwrap();
+    let (mut s, stage) = setup(temp.path());
+    let input = temp.path().join("input.plist");
+    fs::write(&input, "custom service").unwrap();
+    s.invoke("startupitem.type", &["launchd"]).unwrap();
+    s.invoke("startupitem.custom_file", &[input.to_str().unwrap()])
+        .unwrap();
+    let item = s.scalar("org.macports.destroot").unwrap();
+    assert_eq!(
+        s.run_prepared_target(&item, false).unwrap(),
+        TargetOutcome::Completed
+    );
+    assert_eq!(
+        fs::read_to_string(
+            stage.join("opt/local/etc/LaunchDaemons/org.macports.app/org.macports.app.plist")
+        )
+        .unwrap(),
+        "custom service"
+    );
+    assert_eq!(s.invoke("umask", &["0077"]).unwrap(), "0077");
+}

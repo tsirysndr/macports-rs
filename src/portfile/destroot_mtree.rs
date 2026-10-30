@@ -57,7 +57,7 @@ impl StageContext<'_> {
         Ok(())
     }
 }
-fn stage_path(root: &Path, value: &str) -> Result<PathBuf> {
+pub(super) fn stage_path(root: &Path, value: &str) -> Result<PathBuf> {
     let input = Path::new(value);
     ensure!(
         input.is_absolute(),

@@ -488,7 +488,7 @@ Custom staging blocks can delegate through `do-destroot`. The host must provide
 prefix is restored on success and failure. Tests stage an executable into a
 temporary prefix with live logs. Native non-root destroot finish now performs
 staging cleanup and restores the saved mask. Native non-root startup now prepares the hierarchy and mask for ports without
-startup items. Privilege transitions, startup-item generation, and privileged
+startup items and for ports supplying a single custom launchd plist. Privilege transitions, startup-item generation, and privileged
 ownership conversion remain unfinished.
 
 The CLI captures and restores its inherited creation mask at the start of
@@ -998,10 +998,27 @@ provide a private, already-created destroot and an initialized creation mask.
 The native `portdestroot::destroot_start` callback uses this helper after optional
 cleanup (`destroot.clean` exactly `yes`) and staging-mask setup. It checks root
 requirements and unsupported startup-item requests before cleanup. Ports without
-startup items, or with an explicitly disabled single item, can complete the
-non-root staging lifecycle. Requested service generation and multi-item lists
+startup items, with an explicitly disabled single item, or with a supported
+custom launchd plist can complete the non-root staging lifecycle. Requested service generation and multi-item lists
 fail explicitly until launchd support exists. The default staging mask comes
 from `system_options(destroot_umask)`; the host must supply it or an explicit
 `destroot.umask`. Startup errors restore the prior mask. General
 mtree file/link/checksum specifications, escaped filenames, and wildcard entries
 are explicitly rejected rather than silently interpreted as directory templates.
+
+
+Native `portstartupitem::startupitem_create` stages a single port-supplied regular
+`startupitem.custom_file` for launchd. It honors the item name, unique name, plist
+filename, and LaunchAgents/LaunchDaemons location. Copying preserves file bytes,
+permissions, and timestamps and refuses an existing destination, matching the
+non-forced copy in upstream startup preparation. The link uses the absolute
+installed path; non-root staging puts it under `${prefix}/etc/${location}` even
+when `startupitem.install` is enabled. Existing links are replaced without
+following their targets. No service is loaded and no external command is run.
+A disabled type skips staging. When type is omitted, creation must be enabled
+and the host supplies `system_options(startupitem_type)` for type selection.
+Generated plists/wrappers, multiple startup items, and privileged placement still
+fail explicitly. Custom source symlinks, path components containing slashes or
+parent references, and symlinked hierarchy directories are rejected. Tests cover
+metadata preservation, names, link replacement, disabled items, collision handling,
+and custom-plist staging through the complete native non-root destroot lifecycle.

@@ -28,6 +28,7 @@ mod destroot_mtree;
 mod destroot_phase;
 mod destroot_start;
 mod stage_context;
+mod startupitem;
 pub use destroot_libtool::LibtoolCleanup;
 use stage_context::StageContext;
 mod ditems;
@@ -218,6 +219,7 @@ fn open(
     phase_start::install(&mut interp, id);
     destroot_finish::install(&mut interp, id);
     destroot_start::install(&mut interp, id);
+    startupitem::install(&mut interp, id);
     configure_checks::install(&mut interp, id);
     configure_start::install(&mut interp, id);
     paths::install(&mut interp, id);
