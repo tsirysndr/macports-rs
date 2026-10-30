@@ -3,13 +3,44 @@ use super::*;
 use molt::{MoltResult, check_args};
 use std::{
     fs,
+    os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
 };
 
 pub(super) fn install(interp: &mut Interp, id: ContextID) {
+    interp.add_context_command("fileIsBinary", binary, id);
     interp.add_context_command("get_canonical_archs", canonical, id);
     interp.add_context_command("get_canonical_archflags", flags, id);
     interp.add_context_command("porttest::test_archs", check, id);
+}
+fn binary(_: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(1, argv, 2, 2, "filename")?;
+    let path = argv[1].as_str();
+    let metadata =
+        fs::symlink_metadata(path).map_err(|err| filesystem::file_error(path, false, err))?;
+    if !metadata.is_file() {
+        return Ok(false.into());
+    }
+    // Do not follow a leaf replaced between lstat and open, or block if it
+    // becomes a FIFO. Parent aliases follow normal Portfile filesystem rules.
+    let mut file = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK)
+        .open(path)
+        .map_err(|err| filesystem::file_error(path, false, err))?;
+    if !file
+        .metadata()
+        .map_err(|err| filesystem::file_error(path, false, err))?
+        .is_file()
+    {
+        return Ok(false.into());
+    }
+    crate::macho::is_binary(&mut file)
+        .map(Value::from)
+        .map_err(|err| match err.downcast::<std::io::Error>() {
+            Ok(err) => filesystem::file_error(path, false, err),
+            Err(err) => error(format!("cannot classify {path}: {err}")),
+        })
 }
 fn canonical(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 1, 1, "")?;

@@ -309,3 +309,77 @@ fn metadata_timestamp_setters_remain_explicitly_unsupported() {
     .unwrap();
     assert!(error.to_string().contains("file mtime setter"));
 }
+
+#[test]
+fn file_is_binary_matches_native_headers_and_does_not_follow_links() {
+    let root = tempfile::tempdir().unwrap();
+    let mut session = session();
+    let mut fat = 0xcafebabeu32.to_be_bytes().to_vec();
+    fat.extend(2u32.to_be_bytes());
+    let mut java = 0xcafebabeu32.to_be_bytes().to_vec();
+    java.extend(61u32.to_be_bytes());
+    for (name, bytes, expected) in [
+        ("thin", 0xfeedfacfu32.to_ne_bytes().to_vec(), "1"),
+        ("universal", fat, "1"),
+        ("java.class", java, "0"),
+        ("static.a", b"!<arch>\n".to_vec(), "1"),
+        ("text with spaces", b"hello".to_vec(), "0"),
+        ("short", vec![0xcf, 0xfa], "0"),
+        ("empty", vec![], "0"),
+    ] {
+        let path = root.path().join(name);
+        fs::write(&path, bytes).unwrap();
+        assert_eq!(
+            session
+                .invoke("fileIsBinary", &[path.to_str().unwrap()])
+                .unwrap(),
+            expected
+        );
+    }
+    for (name, target) in [("link", "thin"), ("dangling", "missing"), ("loop", "loop")] {
+        let path = root.path().join(name);
+        symlink(target, &path).unwrap();
+        assert_eq!(
+            session
+                .invoke("fileIsBinary", &[path.to_str().unwrap()])
+                .unwrap(),
+            "0"
+        );
+    }
+    assert_eq!(
+        session
+            .invoke("fileIsBinary", &[root.path().to_str().unwrap()])
+            .unwrap(),
+        "0"
+    );
+    use std::os::unix::ffi::OsStrExt;
+    let fifo = root.path().join("fifo");
+    let name = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+    assert_eq!(
+        session
+            .invoke("fileIsBinary", &[fifo.to_str().unwrap()])
+            .unwrap(),
+        "0"
+    );
+    assert!(session.invoke("fileIsBinary", &[]).is_err());
+    assert!(session.invoke("fileIsBinary", &["one", "two"]).is_err());
+    assert!(
+        session
+            .invoke(
+                "fileIsBinary",
+                &[root.path().join("missing").to_str().unwrap()]
+            )
+            .is_err()
+    );
+    // Ordinary lookup errors must not poison the retained evaluation session.
+    assert_eq!(
+        session
+            .invoke(
+                "fileIsBinary",
+                &[root.path().join("thin").to_str().unwrap()]
+            )
+            .unwrap(),
+        "1"
+    );
+}

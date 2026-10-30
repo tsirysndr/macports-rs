@@ -1291,3 +1291,14 @@ bytes and propagates I/O errors. Tests cover thin/universal/static headers, shor
 and ordinary files, Java-like counts, hardlinks, external symlinks, and replaced
 staged paths. The registration/activation integration test now uses this generated
 inventory; CLI install orchestration remains pending.
+
+Portfile sessions now expose native `fileIsBinary filename`, backed by the same
+MacPorts-compatible header classification used for registry inventories. It uses
+lstat semantics: directories, symlinks (including dangling/looping links), and
+special files return false without reading their targets. Regular files are opened
+with no-follow/nonblocking flags and rechecked before reading. Missing files and
+I/O failures report Tcl errors; ordinary lookup errors do not mark the command as
+unsupported or poison the session. Tests cover headers, spaces in names, short
+files, Java-like headers, link/special-file handling, argument counts, and recovery
+after a missing-file error. This read-only helper does not require an external Tcl
+runtime or executable.
