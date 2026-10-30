@@ -589,7 +589,11 @@ unfinished.
 Native `file join`, `dirname`, `tail`, `extension`, `rootname`, `split`,
 `pathtype`, and `separator` construct and inspect Unix paths without filesystem
 access. These follow the current MacPorts-bundled Tcl 9 lexical rules, including
-literal tildes, retained dot components, and `//server` roots. Read-only
+literal tildes, retained dot components, and `//server` roots.
+Native `file normalize` makes paths absolute, handles dot components and parent
+symlinks, preserves a final symlink, and tolerates nonexistent suffixes. It is
+available during metadata evaluation and does not create directories. Empty input
+remains empty, following Tcl. Read-only
 `file exists`, `isfile`, `isdirectory`, `readable`, `writable`, `executable`, and
 `owned` inspect the host filesystem, follow symlinks, and return false on lookup
 errors. Access checks use native OS permissions, not just mode bits; relative

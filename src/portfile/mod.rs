@@ -17,6 +17,7 @@ mod ditems;
 mod dlist;
 mod file_delete;
 mod file_link;
+mod file_normalize;
 mod file_permissions;
 mod file_times;
 mod filesystem;
