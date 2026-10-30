@@ -5,6 +5,7 @@ mod info;
 mod inspect;
 mod search;
 mod system;
+mod variants;
 
 use anyhow::{Result, bail, ensure};
 use clap::Subcommand;
@@ -34,8 +35,8 @@ pub enum Command {
     Deps(dependencies::DependencyOptions),
     /// Display recursive dependencies from PortIndex (--index required)
     Rdeps(dependencies::RecursiveDependencyOptions),
-    /// Display indexed variants
-    Variants(inspect::Selection),
+    /// Display indexed variants and their descriptions (--index required)
+    Variants(variants::Variants),
     /// Download files concurrently from a checksummed JSON manifest (Rust extension)
     Download(download::Download),
     #[command(external_subcommand)]
@@ -78,6 +79,12 @@ impl Session {
                 args[0]
             );
         }
+        if let Command::Variants(options) = &command {
+            ensure!(
+                options.index,
+                "variant inspection without --index requires Portfile evaluation, which is not implemented; use variants --index"
+            );
+        }
         let indexed = match &command {
             Command::Deps(options) => Some(options.index),
             Command::Rdeps(options) => Some(options.options.index),
@@ -110,9 +117,7 @@ impl Session {
                     inspect::run(&mut out, index, &ports, quiet, "list")?;
                 }
                 Command::Echo(args) => inspect::run(&mut out, index, &args.ports, quiet, "echo")?,
-                Command::Variants(args) => {
-                    inspect::run(&mut out, index, &args.ports, quiet, "variants")?
-                }
+                Command::Variants(args) => variants::run(&mut out, index, args, quiet)?,
                 Command::Search(args) => search::run(&mut out, index, args, quiet)?,
                 Command::Info(args) => info::run(&mut out, index, args, quiet, verbose)?,
                 Command::Deps(args) => {

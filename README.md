@@ -27,6 +27,7 @@ cargo build --release --locked
 ./target/release/port search --depends zlib
 ./target/release/port info --index --line --name --version --categories curl zlib
 ./target/release/port -q info --index --version curl
+./target/release/port variants --index curl
 ./target/release/port deps --index curl
 ./target/release/port rdeps --index --no-build --no-test curl
 ./target/release/port echo rdepends:zlib and category:net
@@ -69,7 +70,7 @@ unimplemented; removing the platform cache file triggers a fresh download.
 | `info --index` | Ordered fields, `--line`, `--pretty`, metadata summaries, maintainer decoding, and dependency formatting |
 | `echo` | Names/globs, regex field selectors, logical expressions, versions, variants, and options |
 | `deps --index`, `rdeps --index` | Direct/recursive indexed dependencies, build/test filters, full trees, cycle handling |
-| `variants` | Indexed variant names only; **not** evaluated Portfile results |
+| `variants --index` | Sorted variant details, defaults/requested markers, descriptions, conflicts, and requirements |
 | Index data | Serialized Tcl list data is parsed in Rust; no Tcl code is evaluated |
 | `install`, `upgrade`, `uninstall`, activation | Not implemented; fail explicitly before filesystem changes |
 | Registry queries, `sync`, `selfupdate` | Not implemented |
@@ -133,8 +134,13 @@ such as `@8.0-beta`. Echo sorts enabled variants before disabled variants,
 retains distinct explicit versions, and preserves the first duplicate spec.
 `list` still shows the available indexed version and warns when a version is
 requested. `info --index` explicitly reads available indexed metadata; it does
-not evaluate requested variants. `variants` with overrides is rejected until
-native Portfile evaluation exists.
+not evaluate requested variants. `variants --index` displays available indexed
+variant metadata with `[+]`/`[-]` defaults and `+`/`-` requested markers. Descriptions
+wrap below their labels; conflicts and requirements appear on separate lines.
+Requested markers only appear where the index supplies `vinfo` for that variant,
+matching upstream behavior. Version and option overrides do not change indexed
+metadata. Quiet mode suppresses headings. Bare `variants` requires Portfile
+evaluation and fails explicitly; variants.conf defaults are not loaded yet.
 
 Dependency inspection requires explicit `--index` while the native Portfile
 engine is unavailable. `deps --index` groups dependencies by phase; `rdeps --index`

@@ -1,5 +1,5 @@
-use crate::{index::Index, query, tcl_list};
-use anyhow::{Result, ensure};
+use crate::{index::Index, query};
+use anyhow::Result;
 use clap::Args;
 use std::io::Write;
 
@@ -19,12 +19,6 @@ pub(super) fn run(
     if action == "list" && specs.iter().any(|spec| spec.version.is_some()) {
         eprintln!(
             "Warning: The 'list' action only shows the currently available version of each port. To see installed versions, use the 'installed' action."
-        );
-    }
-    if action == "variants" {
-        ensure!(
-            specs.iter().all(|spec| !spec.has_modifiers()),
-            "{action} with version, variant, or option overrides requires Portfile evaluation, which is not implemented"
         );
     }
     // Resolve the entire selection before producing output on lookup-based actions.
@@ -65,12 +59,6 @@ pub(super) fn run(
                 port.name,
                 port.get("version"),
                 port.get("portdir")
-            )?,
-            "variants" => writeln!(
-                out,
-                "{} has the variants: {}",
-                port.name,
-                tcl_list::parse(port.get("variants"))?.join(", ")
             )?,
             _ => unreachable!(),
         }

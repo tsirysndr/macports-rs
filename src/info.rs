@@ -1,7 +1,7 @@
 //! Formatting of indexed `port info` metadata. No Portfile evaluation occurs here.
+use crate::tcl_list::dictionary as pairs;
 use crate::{fields, index::Port, output::wrap, spec::PortSpec, tcl_list};
 use anyhow::Result;
-use std::collections::BTreeMap;
 
 pub struct Options<'a> {
     pub fields: &'a [String],
@@ -203,19 +203,6 @@ fn is_list(field: &str) -> bool {
         field,
         "categories" | "platforms" | "variants" | "conflicts" | "subports" | "patchfiles"
     ) || fields::DEPENDENCIES.contains(&field)
-}
-fn pairs(raw: &str) -> Result<BTreeMap<String, String>> {
-    let values = tcl_list::parse(raw)?;
-    anyhow::ensure!(
-        values.len().is_multiple_of(2),
-        "malformed indexed dictionary"
-    );
-    Ok(values
-        .as_chunks::<2>()
-        .0
-        .iter()
-        .map(|[k, v]| (k.clone(), v.clone()))
-        .collect())
 }
 fn maintainers(raw: &str, pretty: bool) -> Result<Vec<String>> {
     tcl_list::parse(raw)?

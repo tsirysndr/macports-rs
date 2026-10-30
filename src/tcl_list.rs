@@ -1,5 +1,20 @@
 //! Parses Tcl's serialized list format as data. Never evaluates Tcl code.
 use anyhow::{Result, bail, ensure};
+use std::collections::BTreeMap;
+
+pub fn dictionary(raw: &str) -> Result<BTreeMap<String, String>> {
+    let values = parse(raw)?;
+    anyhow::ensure!(
+        values.len().is_multiple_of(2),
+        "malformed indexed dictionary"
+    );
+    Ok(values
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|[k, v]| (k.clone(), v.clone()))
+        .collect())
+}
 
 pub fn parse(input: &str) -> Result<Vec<String>> {
     let mut chars = input.chars().peekable();
