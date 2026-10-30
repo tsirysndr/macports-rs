@@ -119,6 +119,7 @@ pub(super) fn path_error(path: &str, action: &str, err: io::Error) -> Exception 
         Some(libc::EEXIST) => ("EEXIST", "file already exists"),
         Some(libc::ENOSPC) => ("ENOSPC", "no space left on device"),
         Some(libc::EROFS) => ("EROFS", "read-only file system"),
+        Some(libc::EISDIR) => ("EISDIR", "is a directory"),
         Some(libc::EXDEV) => ("EXDEV", "cross-domain link"),
         Some(libc::EMLINK) => ("EMLINK", "too many links"),
         Some(libc::ENOENT) => ("ENOENT", "no such file or directory"),

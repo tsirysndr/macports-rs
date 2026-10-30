@@ -19,6 +19,7 @@ mod file_delete;
 mod file_link;
 mod file_normalize;
 mod file_permissions;
+mod file_rename;
 mod file_times;
 mod filesystem;
 mod filesystem_mutations;

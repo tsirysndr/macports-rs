@@ -617,6 +617,11 @@ Missing files are ignored; directory links are unlinked without traversing their
 contents. Nonempty directories require `-force`, which grants owner access to the
 root directory and restores its original permissions on failure. Errors remain
 catchable, and deletion is unavailable during metadata evaluation.
+Native `file rename` moves files, links, and directories on the same filesystem
+in execution-enabled sessions, with multiple sources, directory destinations,
+`--`, and `-force`. Source links move as links; destination links to directories
+are followed. Cross-volume copy/delete fallback remains unimplemented and returns
+EXDEV while retaining the source.
 Native `file link` reads symbolic targets during metadata evaluation and creates
 symbolic or hard links in execution-enabled sessions. Creation requires an
 existing target. Relative symbolic targets resolve from the link's parent;
