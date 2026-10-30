@@ -17,6 +17,8 @@ Local changes:
 - Propagate variable-read errors through append/list/dictionary/increment mutators.
 - Checked integer increment and current-toolchain Clippy cleanups.
 - Removal of obsolete unused imports and replacement of deprecated float constants.
+- Native `string map`, including ordered nonrecursive replacements, literal script
+  templates, empty keys, and `-nocase` matching, with standalone interpreter tests.
 
 These hooks are host APIs, not a complete implementation of Tcl's `trace` command.
 The upstream source and tests remain available to verify interpreter behavior.

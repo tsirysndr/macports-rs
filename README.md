@@ -419,6 +419,8 @@ a default updates its template without overriding explicit values. Computed
 `extract.suffix`. Circular defaults and excessive evaluation depth are reported.
 The [vendored Molt core](vendor/molt/PORT-RS-PATCHES.md) provides host variable hooks;
 its upstream tests run in the macOS CI matrix alongside port-rs tests.
+The interpreter also implements `string map` for PortGroup-generated procedures
+and template values, including ordered substitutions and `-nocase` matching.
 
 This evaluator is connected to local-tree `variants`, `deps`, and `rdeps` queries,
 but not installation.

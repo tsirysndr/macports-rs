@@ -11,6 +11,7 @@ use crate::util;
 use crate::*;
 use std::fs;
 use std::time::Instant;
+mod string_map;
 
 /// # append *varName* ?*value* ...?
 ///
@@ -1001,7 +1002,7 @@ pub fn cmd_string(interp: &mut Interp, context_id: ContextID, argv: &[Value]) ->
     interp.call_subcommand(context_id, argv, 1, &STRING_SUBCOMMANDS)
 }
 
-const STRING_SUBCOMMANDS: [Subcommand; 4] = [
+const STRING_SUBCOMMANDS: [Subcommand; 5] = [
     Subcommand("cat", cmd_string_cat),
     Subcommand("compare", cmd_string_compare),
     Subcommand("equal", cmd_string_equal),
@@ -1009,7 +1010,7 @@ const STRING_SUBCOMMANDS: [Subcommand; 4] = [
     // Subcommand("index", cmd_string_todo),
     // Subcommand("last", cmd_string_todo),
     Subcommand("length", cmd_string_length),
-    // Subcommand("map", cmd_string_todo),
+    Subcommand("map", string_map::command),
     // Subcommand("range", cmd_string_todo),
     // Subcommand("replace", cmd_string_todo),
     // Subcommand("repeat", cmd_string_todo),

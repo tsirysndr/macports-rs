@@ -248,3 +248,28 @@ fn compiler_blacklists_can_be_updated_by_imported_procedures() {
     let result = run("name app; version 1; PortGroup compiler_policy 1.0; compiler.blacklist-delete macports-clang-21", groups).unwrap();
     assert_eq!(result.port.get("compiler.blacklist"), "macports-clang-22");
 }
+
+#[test]
+fn groups_can_generate_deferred_procedures_using_literal_string_maps() {
+    let groups = repository(&[(
+        "template",
+        "1.0",
+        r#"
+        proc register_hook {target label} {
+            set template {
+                pre-@target@ {system "echo @label@ ${name}"}
+            }
+            proc generated {} [string map [list @target@ $target @label@ $label] $template]
+            generated
+        }
+        register_hook build compiling
+        options generated.value
+        default generated.value {[string map [list @name@ ${name}] {prefix-@name@}]}
+    "#,
+    )]);
+    let result = run("name app; version 1; PortGroup template 1.0", groups).unwrap();
+    assert_eq!(result.port.get("generated.value"), "prefix-app");
+    assert_eq!(result.hooks.len(), 1);
+    assert_eq!(result.hooks[0].phase, "pre-build");
+    assert_eq!(result.hooks[0].body, "system \"echo compiling ${name}\"");
+}
