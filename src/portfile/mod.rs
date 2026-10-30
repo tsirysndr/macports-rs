@@ -9,6 +9,7 @@ mod commands;
 mod defaults;
 mod ditems;
 mod dlist;
+mod filesystem;
 mod groups;
 mod paths;
 mod platform;

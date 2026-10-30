@@ -1,5 +1,6 @@
 //! Lexical Unix paths following MacPorts' bundled Tcl 9 implementation.
-//! Keep dots, parent components, and tildes literal; no filesystem access.
+//! Keep dots, parent components, and tildes literal. Read-only probes are
+//! dispatched separately so lexical operations never inspect the filesystem.
 use super::*;
 use molt::{MoltResult, check_args};
 
@@ -46,6 +47,10 @@ fn join<'a>(paths: impl IntoIterator<Item = &'a str>) -> String {
 fn file(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 2, 0, "subcommand ?arg ...?")?;
     let operation = argv[1].as_str();
+    if filesystem::is_predicate(operation) {
+        check_args(2, argv, 3, 3, "name")?;
+        return Ok(filesystem::predicate(operation, argv[2].as_str()).into());
+    }
     if operation == "join" {
         check_args(2, argv, 3, 0, "name ?name ...?")?;
         return Ok(join(argv[2..].iter().map(Value::as_str)).into());

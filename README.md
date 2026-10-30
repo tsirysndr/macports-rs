@@ -520,8 +520,14 @@ The native `quotemeta` helper escapes non-word characters for livecheck patterns
 Native `file join`, `dirname`, `tail`, `extension`, `rootname`, `split`,
 `pathtype`, and `separator` construct and inspect Unix paths without filesystem
 access. These follow the current MacPorts-bundled Tcl 9 lexical rules, including
-literal tildes, retained dot components, and `//server` roots. Filesystem-backed
-`file` operations and subcommand abbreviations remain unimplemented.
+literal tildes, retained dot components, and `//server` roots. Read-only
+`file exists`, `isfile`, `isdirectory`, `readable`, `writable`, `executable`, and
+`owned` inspect the host filesystem, follow symlinks, and return false on lookup
+errors. Access checks use native OS permissions, not just mode bits; relative
+paths use the process working directory. These queries run during metadata
+evaluation too, so compiler/dependency choices can depend on host files.
+Other filesystem-backed `file` operations and subcommand abbreviations remain
+unimplemented.
 
 This evaluator is connected to local-tree `variants`, `deps`, and `rdeps` queries,
 but not installation.
