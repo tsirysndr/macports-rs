@@ -1,4 +1,5 @@
 //! CLI dispatch. Each action owns its options and presentation in a separate module.
+mod contents;
 mod dependencies;
 mod download;
 mod info;
@@ -17,6 +18,8 @@ use std::{
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// List files recorded for an installed port (read-only)
+    Contents(contents::Contents),
     /// List ports recorded in the installed-port registry (read-only)
     Installed(installed::Installed),
     /// Display the version of this standalone Rust implementation
@@ -100,7 +103,9 @@ impl Session {
         );
         let stdout = io::stdout();
         let mut out = io::BufWriter::new(stdout.lock());
-        if let Command::Installed(args) = command {
+        if let Command::Contents(args) = command {
+            contents::run(&mut out, registry_file, args, quiet)?;
+        } else if let Command::Installed(args) = command {
             installed::run(&mut out, registry_file, args, quiet, verbose)?;
         } else if matches!(command, Command::Version | Command::Platform) {
             match command {
@@ -137,7 +142,8 @@ impl Session {
                     quiet,
                     verbose,
                 )?,
-                Command::Installed(_)
+                Command::Contents(_)
+                | Command::Installed(_)
                 | Command::Version
                 | Command::Platform
                 | Command::Download(_)

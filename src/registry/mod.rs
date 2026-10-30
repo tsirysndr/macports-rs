@@ -1,12 +1,15 @@
 //! Read-only access to the MacPorts SQLite registry; never initializes or migrates it.
+mod selection;
 mod version;
 use anyhow::{Context, Result, ensure};
 use rusqlite::{Connection, OpenFlags};
+pub use selection::specifications;
 use std::{collections::HashSet, path::Path, time::Duration};
 
 pub const DEFAULT_PATH: &str = "/opt/local/var/macports/registry/registry.db";
 #[derive(Debug)]
 pub struct Entry {
+    pub id: i64,
     pub name: String,
     pub version: String,
     pub revision: i64,
@@ -26,20 +29,51 @@ impl Entry {
 }
 
 pub fn read(path: Option<&Path>) -> Result<Vec<Entry>> {
-    let explicit = path.is_some();
-    let path = path.unwrap_or_else(|| Path::new(DEFAULT_PATH));
-    if !explicit && !path.try_exists()? {
-        return Ok(Vec::new());
+    match Registry::open(path)? {
+        Some(registry) => registry.entries(),
+        None => Ok(Vec::new()),
     }
-    let connection = Connection::open_with_flags(
-        path,
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .with_context(|| format!("cannot open registry {} read-only", path.display()))?;
-    connection.create_collation("VERSION", version::compare)?;
-    connection.busy_timeout(Duration::from_secs(2))?;
-    read_entries(&connection)
-        .with_context(|| format!("cannot read MacPorts registry {}", path.display()))
+}
+
+/// Holds a read transaction so related entry and file queries see one snapshot.
+pub struct Registry {
+    connection: Connection,
+}
+impl Registry {
+    pub fn open(path: Option<&Path>) -> Result<Option<Self>> {
+        let explicit = path.is_some();
+        let path = path.unwrap_or_else(|| Path::new(DEFAULT_PATH));
+        if !explicit && !path.try_exists()? {
+            return Ok(None);
+        }
+        let connection = Connection::open_with_flags(
+            path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .with_context(|| format!("cannot open registry {} read-only", path.display()))?;
+        connection.create_collation("VERSION", version::compare)?;
+        connection.busy_timeout(Duration::from_secs(2))?;
+        connection.execute_batch("BEGIN")?;
+        Ok(Some(Self { connection }))
+    }
+    pub fn entries(&self) -> Result<Vec<Entry>> {
+        read_entries(&self.connection).context("cannot read MacPorts registry entries")
+    }
+    pub fn files(&self, entry: &Entry) -> Result<Vec<String>> {
+        let sql = if entry.active {
+            "SELECT actual_path FROM files WHERE id=?1 AND active ORDER BY actual_path"
+        } else {
+            "SELECT path FROM files WHERE id=?1 ORDER BY path"
+        };
+        let mut statement = self
+            .connection
+            .prepare(sql)
+            .with_context(|| format!("cannot read files for {}", entry.name))?;
+        let files = statement
+            .query_map([entry.id], |row| row.get::<_, Option<String>>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(files.into_iter().flatten().collect())
+    }
 }
 fn read_entries(connection: &Connection) -> Result<Vec<Entry>> {
     let columns = connection
@@ -68,13 +102,19 @@ fn read_entries(connection: &Connection) -> Result<Vec<Entry>> {
         }
     })
     .join(", ");
+    let identity = if columns.contains("id") {
+        "id"
+    } else {
+        "rowid"
+    };
     let sql = format!(
-        "SELECT name, version, revision, COALESCE(variants, ''), state, {optional} FROM ports WHERE state IN ('installed', 'imaged')"
+        "SELECT name, version, revision, COALESCE(variants, ''), state, {optional}, {identity} FROM ports WHERE state IN ('installed', 'imaged')"
     );
     let mut query = connection.prepare(&sql)?;
     let mut entries = query
         .query_map([], |row| {
             Ok(Entry {
+                id: row.get(11)?,
                 name: row.get(0)?,
                 version: row.get(1)?,
                 revision: row.get(2)?,

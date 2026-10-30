@@ -192,3 +192,132 @@ fn uncommitted_registry_changes_are_not_visible() {
     assert!(stdout(f.run(&["-q", "installed", "active"])).contains("curl @8.10_0+ssl (active)"));
     db.execute_batch("ROLLBACK").unwrap();
 }
+
+fn files_fixture() -> Fixture {
+    let f = Fixture::new();
+    let db = Connection::open(&f.path).unwrap();
+    db.execute_batch(
+        "CREATE TABLE files(id INTEGER, path TEXT, actual_path TEXT, active INTEGER);
+        INSERT INTO files VALUES (2,'/opt/local/old-curl',NULL,0);
+        INSERT INTO files VALUES (3,'/opt/local/original','/opt/local/renamed-curl',1);
+        INSERT INTO files VALUES (3,'/opt/local/hidden','/opt/local/hidden',0);
+        INSERT INTO files VALUES (3,'/opt/local/a','/opt/local/a',1);
+        INSERT INTO files VALUES (4,'/opt/local/pkg2','/opt/local/pkg2',1);",
+    )
+    .unwrap();
+    f
+}
+#[test]
+fn contents_prefers_active_image_and_lists_actual_paths_in_order() {
+    let f = files_fixture();
+    let before = std::fs::read(&f.path).unwrap();
+    assert_eq!(
+        stdout(f.run(&["contents", "CURL"])),
+        "Port curl @8.10_0+ssl contains:\n  /opt/local/a\n  /opt/local/renamed-curl\n"
+    );
+    assert_eq!(
+        stdout(f.run(&["-q", "contents", "curl@8.9"])),
+        "  /opt/local/old-curl\n"
+    );
+    assert_eq!(std::fs::read(&f.path).unwrap(), before);
+}
+#[test]
+fn contents_reports_ambiguous_inactive_versions_and_empty_images() {
+    let f = files_fixture();
+    let db = Connection::open(&f.path).unwrap();
+    db.create_collation("VERSION", |a, b| a.cmp(b)).unwrap();
+    db.execute("UPDATE ports SET state='imaged' WHERE name='curl'", [])
+        .unwrap();
+    let output = f.run(&["contents", "curl"]);
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    let error = String::from_utf8_lossy(&output.stderr);
+    assert!(error.contains("multiple inactive versions"));
+    assert!(error.contains("@8.9_1+ssl"));
+    assert!(error.contains("@8.10_0+ssl"));
+    assert_eq!(
+        stdout(f.run(&["contents", "pkg10"])),
+        "Port pkg10 @1.0_0 does not have any files registered.\n"
+    );
+    assert_eq!(stdout(f.run(&["-q", "contents", "pkg10"])), "");
+}
+#[test]
+fn contents_validates_all_roots_before_printing() {
+    let f = files_fixture();
+    let output = f.run(&["contents", "pkg2", "missing"]);
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    for selector in ["active", "pkg*"] {
+        let output = f.run(&["contents", selector]);
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("not implemented"));
+    }
+}
+#[test]
+fn contents_handles_missing_files_table_as_an_error() {
+    let f = Fixture::new();
+    let output = f.run(&["contents", "curl"]);
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("cannot read files for curl"));
+}
+#[test]
+fn registry_entry_and_file_queries_share_a_snapshot() {
+    let f = files_fixture();
+    let writer = Connection::open(&f.path).unwrap();
+    writer.execute_batch("PRAGMA journal_mode=WAL").unwrap();
+    let reader = port_rs::registry::Registry::open(Some(&f.path))
+        .unwrap()
+        .unwrap();
+    let entries = reader.entries().unwrap();
+    let curl = entries
+        .iter()
+        .find(|entry| entry.name == "curl" && entry.active)
+        .unwrap();
+    writer
+        .execute(
+            "UPDATE files SET actual_path='/changed' WHERE id=3 AND active",
+            [],
+        )
+        .unwrap();
+    assert_eq!(
+        reader.files(curl).unwrap(),
+        ["/opt/local/a", "/opt/local/renamed-curl"]
+    );
+    let fresh = port_rs::registry::Registry::open(Some(&f.path))
+        .unwrap()
+        .unwrap();
+    assert_eq!(fresh.files(curl).unwrap(), ["/changed", "/changed"]);
+}
+#[cfg(unix)]
+#[test]
+fn contents_sizes_follow_symlinks_and_report_missing_paths() {
+    let f = files_fixture();
+    let file = f.dir.path().join("file");
+    std::fs::write(&file, vec![0u8; 1536]).unwrap();
+    let link = f.dir.path().join("link");
+    std::os::unix::fs::symlink(&file, &link).unwrap();
+    let missing = f.dir.path().join("missing");
+    let db = Connection::open(&f.path).unwrap();
+    db.execute("DELETE FROM files WHERE id=4", []).unwrap();
+    for path in [&file, &link, &missing] {
+        db.execute(
+            "INSERT INTO files VALUES(4,?1,?1,1)",
+            [path.to_str().unwrap()],
+        )
+        .unwrap();
+    }
+    let output = stdout(f.run(&["-q", "contents", "--size", "--units", "Ki", "pkg2"]));
+    assert_eq!(
+        output,
+        format!(
+            "{:>12} {}\n{:>12} {}\n{:>12} {}\n",
+            "1.50 KiB",
+            file.display(),
+            "1.50 KiB",
+            link.display(),
+            "-1",
+            missing.display()
+        )
+    );
+}

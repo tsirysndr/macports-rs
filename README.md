@@ -75,6 +75,7 @@ unimplemented; removing the platform cache file triggers a fresh download.
 | Index data | Serialized Tcl list data is parsed in Rust; no Tcl code is evaluated |
 | `install`, `upgrade`, `uninstall`, activation | Not implemented; fail explicitly before filesystem changes |
 | `installed` | Read-only SQLite registry, names/globs, version filters, active/inactive and requested/unrequested selectors |
+| `contents` | Registered file lists, active-image preference, version selection, quiet and size/unit output |
 | Other registry commands, `sync`, `selfupdate` | Not implemented |
 | Port specifications | Attached/separate `@version`, `+variant`, `-variant`, and `key=value`; canonical echo rendering |
 | Logical expressions | `and`, `or`, `not`, `!`, parentheses, and implicit union; preserves input order |
@@ -213,8 +214,22 @@ This first registry query supports names, globs, `all`, `installed`, `active`,
 `inactive`, `requested`, and `unrequested`, with adjacent selectors forming a
 union. Globs match registry names, including ports removed from the current
 catalog. Logical/field expressions are explicitly rejected here; catalog query
-expressions and registry selectors are not yet unified. `contents`, `outdated`,
-registry dependency queries, and all registry mutations remain unimplemented.
+expressions and registry selectors are not yet unified. `outdated`, registry
+dependency queries, and all registry mutations remain unimplemented.
+
+`port contents curl` lists the active image's registered filesystem paths; if no
+active image matches, a single inactive image is used. When several inactive
+versions match, specify a full version such as `port contents curl @8.10.1_0+ssl`.
+Inactive images list original image paths, while active images list active
+`actual_path` records. Entry and file queries share a read transaction, avoiding
+mixed results if another process activates a port concurrently.
+
+Use `port contents --size --units KiB curl` to include current filesystem sizes.
+Supported units are B, KiB, kB, MiB, MB, GiB, and GB, including upstream short
+forms. Sizes follow symlinks; missing or unreadable paths display `-1`. File
+contents are never opened. Quiet mode hides headings. This initial `contents`
+implementation requires explicit names (with optional versions/variants); globs,
+logical expressions, and registry selectors are not yet supported for this action.
 
 ## Download engine and progress
 
