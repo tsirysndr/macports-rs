@@ -945,3 +945,15 @@ recursively checked. Non-UTF-8 filenames fail explicitly. An empty or absent
 stage is not a layout violation by itself: the separate empty-stage guard still
 needs to be connected in destroot finish. The report does not authorize
 activation or mark staging complete.
+
+`Session::prune_destroot_directories` implements keepdir markers, post-order
+empty-directory removal, and the empty-stage error. New directories use 0755;
+new `.turd_<subport>` markers use 0644. Existing markers and directory permissions
+are preserved. Relative and external absolute paths are placed under destroot;
+paths already inside it remain there. Path normalization follows the lexical
+rules in [Tcllib fileutil](https://github.com/tcltk/tcllib/blob/master/modules/fileutil/fileutil.tcl),
+with component-based containment and rejection of existing outward directory
+symlinks instead of permitting escapes. Pruning never recursively deletes
+nonempty directories or follows descendant directory links. This helper still
+needs to be connected with ownership, libtool cleanup, compression, and layout
+checks in the complete destroot finish callback.
