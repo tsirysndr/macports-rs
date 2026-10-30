@@ -517,6 +517,11 @@ and template values, including ordered substitutions and `-nocase` matching.
 `split`, `lrange`, and end-relative/arithmetic `lindex` indices support Portfile
 list and URL transformations without an external interpreter.
 The native `quotemeta` helper escapes non-word characters for livecheck patterns.
+Native `file join`, `dirname`, `tail`, `extension`, `rootname`, `split`,
+`pathtype`, and `separator` construct and inspect Unix paths without filesystem
+access. These follow the current MacPorts-bundled Tcl 9 lexical rules, including
+literal tildes, retained dot components, and `//server` roots. Filesystem-backed
+`file` operations and subcommand abbreviations remain unimplemented.
 
 This evaluator is connected to local-tree `variants`, `deps`, and `rdeps` queries,
 but not installation.

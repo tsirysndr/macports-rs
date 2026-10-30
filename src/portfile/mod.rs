@@ -10,6 +10,7 @@ mod defaults;
 mod ditems;
 mod dlist;
 mod groups;
+mod paths;
 mod platform;
 mod session;
 pub use session::Session;
@@ -165,6 +166,7 @@ fn open(
     }
     commands::install(&mut interp, id);
     utilities::install(&mut interp, id);
+    paths::install(&mut interp, id);
     ditems::install(&mut interp, id);
     dlist::install(&mut interp, id);
     targets::install(&mut interp, id).map_err(failure)?;
