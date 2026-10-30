@@ -19,3 +19,5 @@ pub mod registry;
 pub mod install;
 
 pub mod portfile;
+
+pub mod build;

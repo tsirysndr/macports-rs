@@ -2,7 +2,11 @@
 //! Output stays on stderr; no terminal escapes are emitted into redirected logs.
 use crate::theme::{PRIMARY_RGB, SECONDARY_RGB};
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
-use std::{io::IsTerminal, time::Duration};
+use std::{
+    io::IsTerminal,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 #[derive(Clone)]
 pub struct Progress {
@@ -10,6 +14,7 @@ pub struct Progress {
     quiet: bool,
     color: bool,
     terminal: bool,
+    pauses: Arc<Mutex<usize>>,
 }
 impl Progress {
     pub fn new(quiet: bool) -> Self {
@@ -23,8 +28,21 @@ impl Progress {
             }),
             quiet,
             terminal,
+            pauses: Arc::new(Mutex::new(0)),
             color: terminal && std::env::var_os("NO_COLOR").is_none(),
         }
+    }
+    pub(crate) fn color_enabled(&self) -> bool {
+        self.color
+    }
+    /// Hide progress redraws while live compiler output owns the terminal.
+    pub(crate) fn pause_bars(&self) -> PausedBars {
+        let mut count = self.pauses.lock().expect("progress pause lock");
+        if *count == 0 {
+            self.bars.set_draw_target(ProgressDrawTarget::hidden());
+        }
+        *count += 1;
+        PausedBars(self.clone())
     }
     pub fn phase(&self, message: &str) {
         if !self.quiet {
@@ -50,6 +68,18 @@ impl Progress {
             bar,
             color: self.color,
             manager: self.bars.clone(),
+        }
+    }
+}
+pub(crate) struct PausedBars(Progress);
+impl Drop for PausedBars {
+    fn drop(&mut self) {
+        let mut count = self.0.pauses.lock().expect("progress pause lock");
+        *count -= 1;
+        if *count == 0 && self.0.terminal && !self.0.quiet {
+            self.0
+                .bars
+                .set_draw_target(ProgressDrawTarget::stderr_with_hz(12));
         }
     }
 }

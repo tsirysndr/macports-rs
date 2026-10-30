@@ -446,6 +446,17 @@ invalid signature is rejected. Batch failures drain pending transfers and drop
 all staged results. This transport is available to the installation engine;
 archive URL selection and the ordinary install command are not yet connected.
 
+The source-phase process runner streams stdout and stderr live, without requiring
+verbose mode. Every displayed line is labeled, for example
+`-> building git: CC builtin/commit.o`. Partial lines are flushed immediately;
+interleaved streams get separate labeled lines, and carriage-return progress is
+rendered as labeled updates. Terminal prefixes use the CLI accent color, while
+redirected output remains plain text. Transfer bars pause during compiler output.
+Build failures preserve the exit status, and cancellation or a broken output sink
+stops the build process group, including compiler children. The runner is tested
+independently; source-stage scheduling and normal `port build`/`port install`
+integration remain unfinished.
+
 ## Download engine and progress
 
 Tokio and reqwest provide bounded concurrent HTTP(S) transfers with a shared
@@ -536,6 +547,7 @@ memory measurements and differential benchmarks on the same machine remain requi
   action expansion, and exit handling.
 - `src/commands/`: action-specific arguments and handlers for search, info,
   dependency queries, downloads, and basic index inspection.
+- `src/build/`: asynchronous source-phase execution and live prefixed logs.
 - `src/portfile/`: Rust metadata evaluation, options, and variant selection.
 - `src/registry/`: SQLite readers, explicit transactional writes, and MacPorts version comparison.
 - `src/dependencies/`: dependency specifications, phase filters, graph traversal,
