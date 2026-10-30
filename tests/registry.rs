@@ -1347,3 +1347,81 @@ fn dependency_selector_chains_do_not_load_the_catalog() {
     );
     assert!(!f.dir.path().join("missing-home").exists());
 }
+
+#[test]
+fn actinact_selects_both_states_only_for_names_with_both() {
+    let f = Fixture::new();
+    assert_eq!(
+        stdout(f.run(&["-q", "installed", "actinact"])),
+        "  curl @8.9_1+ssl\n  curl @8.10_0+ssl (active)\n"
+    );
+    assert_eq!(
+        stdout(f.run(&["-q", "installed", "actinact", "and", "inactive"])),
+        "  curl @8.9_1+ssl\n"
+    );
+    assert_eq!(
+        stdout(f.run(&["-q", "installed", "actinact@8.10_0+ssl"])),
+        "  curl @8.10_0+ssl (active)\n"
+    );
+    assert_eq!(
+        stdout(f.run(&["-q", "installed", "not", "actinact"])),
+        "  pkg2 @2.0_0 (active)\n  pkg10 @1.0_0\n"
+    );
+    assert!(!f.dir.path().join("missing-home").exists());
+}
+#[test]
+fn actinact_handles_empty_results_and_case_insensitive_names() {
+    let f = Fixture::new();
+    let db = Connection::open(&f.path).unwrap();
+    db.create_collation("VERSION", |a, b| a.cmp(b)).unwrap();
+    db.execute("UPDATE ports SET name='CURL' WHERE id=2", [])
+        .unwrap();
+    assert_eq!(
+        stdout(f.run(&["-q", "installed", "actinact", "and", "inactive"])),
+        "  CURL @8.9_1+ssl\n"
+    );
+    db.execute("UPDATE ports SET state='imaged' WHERE id=3", [])
+        .unwrap();
+    assert_eq!(
+        stdout(f.run(&["installed", "actinact"])),
+        "None of the specified ports are installed.\n"
+    );
+    assert_eq!(stdout(f.run(&["-q", "installed", "actinact"])), "");
+}
+#[test]
+fn actinact_keeps_all_inactive_versions_and_filters_after_name_selection() {
+    let f = Fixture::new();
+    let db = Connection::open(&f.path).unwrap();
+    db.create_collation("VERSION", |a, b| a.cmp(b)).unwrap();
+    db.execute_batch("INSERT INTO ports(id,name,version,revision,variants,state) VALUES(6,'curl','8.8',0,'+ssl','imaged')").unwrap();
+    assert_eq!(
+        stdout(f.run(&["-q", "installed", "actinact", "and", "inactive"])),
+        "  curl @8.8_0+ssl\n  curl @8.9_1+ssl\n"
+    );
+    assert_eq!(
+        stdout(f.run(&["-q", "installed", "actinact", "@8.8_0", "+ssl"])),
+        "  curl @8.8_0+ssl\n"
+    );
+    assert_eq!(stdout(f.run(&["-q", "installed", "actinact@99"])), "");
+}
+#[test]
+fn outdated_actinact_selects_active_images_and_chains_with_installed() {
+    let f = outdated_fixture(&[("curl", "version 99"), ("pkg2", "version 99")]);
+    let output = stdout(f.run(&[
+        "-q",
+        "outdated",
+        "actinact",
+        ";",
+        "installed",
+        "actinact",
+        "and",
+        "inactive",
+    ]));
+    assert!(output.contains("curl"));
+    assert!(!output.contains("pkg2"));
+    assert!(output.ends_with("  curl @8.9_1+ssl\n"));
+    assert_eq!(
+        stdout(f.run(&["-q", "outdated", "actinact", "and", "inactive"])),
+        ""
+    );
+}

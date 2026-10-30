@@ -31,6 +31,7 @@ pub fn select<'a>(
         registry,
         leaves: None,
         dependents: None,
+        actinact: None,
     };
     let selected = parser.sequence()?;
     ensure!(
@@ -49,6 +50,7 @@ struct Expression<'a> {
     registry: Option<&'a Registry>,
     leaves: Option<Leaves>,
     dependents: Option<Graph<'a>>,
+    actinact: Option<HashSet<String>>,
 }
 impl Expression<'_> {
     fn peek(&self) -> Option<&str> {
@@ -130,11 +132,28 @@ impl Expression<'_> {
                 | "installed"
                 | "active"
                 | "inactive"
+                | "actinact"
                 | "requested"
                 | "unrequested"
                 | "leaves"
                 | "rleaves"
         );
+        if spec.name == "actinact" && self.actinact.is_none() {
+            let active: HashSet<_> = self
+                .entries
+                .iter()
+                .filter(|entry| entry.active)
+                .map(|entry| entry.name.to_ascii_lowercase())
+                .collect();
+            self.actinact = Some(
+                self.entries
+                    .iter()
+                    .filter(|entry| !entry.active)
+                    .map(|entry| entry.name.to_ascii_lowercase())
+                    .filter(|name| active.contains(name))
+                    .collect(),
+            );
+        }
         if matches!(spec.name.as_str(), "leaves" | "rleaves") && self.leaves.is_none() {
             self.leaves = Some(Leaves::read(self.registry, self.entries)?);
         }
@@ -150,6 +169,11 @@ impl Expression<'_> {
                     "all" | "installed" => true,
                     "active" => entry.active,
                     "inactive" => !entry.active,
+                    "actinact" => self
+                        .actinact
+                        .as_ref()
+                        .unwrap()
+                        .contains(&entry.name.to_ascii_lowercase()),
                     "requested" => entry.requested,
                     "unrequested" => !entry.requested,
                     "leaves" | "rleaves" => self
