@@ -232,3 +232,19 @@ fn invalid_group_components_and_oversized_or_non_utf8_sources_fail() {
         );
     }
 }
+
+#[test]
+fn compiler_blacklists_can_be_updated_by_imported_procedures() {
+    let groups = repository(&[(
+        "compiler_policy",
+        "1.0",
+        r#"
+        proc blacklist_releases {releases} {
+            foreach release $releases { compiler.blacklist-append macports-clang-${release} }
+        }
+        blacklist_releases {21 22}
+    "#,
+    )]);
+    let result = run("name app; version 1; PortGroup compiler_policy 1.0; compiler.blacklist-delete macports-clang-21", groups).unwrap();
+    assert_eq!(result.port.get("compiler.blacklist"), "macports-clang-22");
+}

@@ -158,7 +158,6 @@ fn unsupported_commands_cannot_be_hidden_by_catch() {
         "exit",
         "puts hello",
         "default version 1",
-        "platform darwin {}",
     ] {
         let source = format!("name app; version 1; catch {{{command}}}");
         let error = evaluate(&source, &[]).unwrap_err_text();

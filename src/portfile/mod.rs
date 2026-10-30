@@ -3,6 +3,7 @@
 //! PortSystem. Unsupported commands fail; deferred build hooks are retained.
 mod commands;
 mod groups;
+mod platform;
 pub use groups::{LoadedGroup, PortGroups};
 mod variants;
 use crate::{index::Port, spec::PortSpec};
@@ -125,6 +126,7 @@ pub fn evaluate_with_groups(
     }
     commands::install(&mut interp, id);
     interp.add_context_command("PortGroup", groups::command, id);
+    interp.add_context_command("platform", platform::command, id);
     interp.eval(source).map_err(failure)?;
     for (name, _) in &requested.options {
         ensure!(

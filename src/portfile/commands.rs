@@ -13,6 +13,7 @@ pub(super) const OPTIONS: &[&str] = &[
     "homepage",
     "platforms",
     "supported_archs",
+    "compiler.blacklist",
     "configure.build_arch",
     "configure.universal_archs",
     "default_variants",

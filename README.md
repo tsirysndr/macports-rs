@@ -380,10 +380,12 @@ embedded sources, with deterministic search precedence and one evaluation per
 name/version. Nested and recursive includes share the interpreter. Imported
 source bytes are fingerprinted with SHA-256 and returned with their size and
 origin for later registry recording. Failed imports invalidate the evaluation,
-even when caught by script code. Group-defined options accept user overrides.
+even when caught by script code. Group-defined options accept user overrides. `platform` blocks evaluate OS,
+subplatform, release and architecture-family conditions using explicit machine
+variables, and execute matching bodies in the caller's scope.
 
 This evaluator is not yet connected to CLI catalog loading or installation.
-Lazy `default` values, `platform` blocks and the complete PortSystem
+Lazy `default` values and the complete PortSystem
 API still need implementation. Unsupported operations fail; guarded attempts to
 call unsupported I/O commands are recorded and cannot yield approved metadata.
 The synthetic evaluation tests do not establish compatibility with curl's complete
