@@ -11,6 +11,7 @@ mod command_options;
 mod commands;
 mod configure_phase;
 mod defaults;
+mod destroot_phase;
 mod ditems;
 mod dlist;
 mod filesystem;
@@ -186,6 +187,7 @@ fn open(
     build_phase::install(&mut interp, id);
     test_phase::install(&mut interp, id);
     configure_phase::install(&mut interp, id);
+    destroot_phase::install(&mut interp, id);
     architecture::install(&mut interp, id);
     build_defaults::install(&mut interp, id);
     binaries::install(&mut interp, id);

@@ -10,23 +10,24 @@ pub(super) fn install(interp: &mut Interp, id: ContextID) {
     interp.add_context_command("portbuild::build_main", main, id);
 }
 fn args(interp: &mut Interp, _: ContextID, _: &[Value]) -> MoltResult {
-    interp.with_global_scope(|interp| {
-        let kind = interp.scalar("build.type")?;
-        let platform = interp.scalar("os.platform")?;
-        let command = interp.scalar("build.cmd")?;
-        let target = interp.scalar("build.target")?;
-        static MAKE: LazyLock<regex::Regex> =
-            LazyLock::new(|| regex::Regex::new(r"^(/\S+/|)(g|gnu|)make(\s+.*|)$").unwrap());
-        if ((kind.as_str() == "default" && platform.as_str() != "freebsd")
-            || kind.as_str() == "gnu")
-            && MAKE.is_match(command.as_str())
-        {
-            Ok(format!("-w {target}").into())
-        } else {
-            Ok(target)
-        }
-    })
+    interp.with_global_scope(|interp| make_args(interp, "build"))
 }
+pub(super) fn make_args(interp: &mut Interp, phase: &str) -> MoltResult {
+    let kind = interp.scalar("build.type")?;
+    let platform = interp.scalar("os.platform")?;
+    let command = interp.scalar(&format!("{phase}.cmd"))?;
+    let target = interp.scalar(&format!("{phase}.target"))?;
+    static MAKE: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r"^(/\S+/|)(g|gnu|)make(\s+.*|)$").unwrap());
+    if ((kind.as_str() == "default" && platform.as_str() != "freebsd") || kind.as_str() == "gnu")
+        && MAKE.is_match(command.as_str())
+    {
+        Ok(format!("-w {target}").into())
+    } else {
+        Ok(target)
+    }
+}
+
 fn jobs_arg(interp: &mut Interp, _: ContextID, _: &[Value]) -> MoltResult {
     interp.with_global_scope(|interp| {
         let command = interp.scalar("build.cmd")?;

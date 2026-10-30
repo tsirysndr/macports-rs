@@ -478,6 +478,15 @@ the session environment. Callers must still initialize the compiler options;
 compiler discovery, option dependency traces, configure initialization/finish
 hooks, and full CLI phase scheduling remain unfinished.
 
+`portdestroot::destroot_main` executes the inherited build command with the
+default `install` target and `DESTDIR=${destroot}`, honoring Portfile overrides.
+Custom staging blocks can delegate through `do-destroot`. The host must provide
+`system_options(clonebin_path)` (empty disables wrappers); its temporary PATH
+prefix is restored on success and failure. Tests stage an executable into a
+temporary prefix with live logs. This is command execution only: destroot start
+and finish hooks, mtree preparation, privilege/umask handling, startup items,
+ownership adjustments, and staging cleanup are not implemented yet.
+
 `porttest::test_main` runs configured test commands when `test.run` is true,
 using the inherited build command/directory and the default `test` target.
 Custom test blocks can delegate through `do-test`; child status and environment
