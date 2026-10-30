@@ -562,3 +562,107 @@ fn info_pretty_can_combine_with_line_and_simple_field_labels() {
         "curl @8.0_1 (net, www)\n"
     );
 }
+
+#[test]
+fn chains_actions_with_inherited_global_options() {
+    let fixture = Fixture::new();
+    assert_eq!(
+        stdout(&fixture.run(&[
+            "-q",
+            "echo",
+            "curl",
+            ";",
+            "info",
+            "--index",
+            "--version",
+            "curl",
+            ";",
+            "echo",
+            "zlib"
+        ])),
+        "curl\n8.0\nzlib\n"
+    );
+}
+
+#[test]
+fn action_options_do_not_leak_to_later_actions() {
+    let fixture = Fixture::new();
+    let output = stdout(&fixture.run(&[
+        "echo",
+        "-q",
+        "curl",
+        ";",
+        "info",
+        "--index",
+        "--version",
+        "curl",
+    ]));
+    assert_eq!(output, "curl\nversion: 8.0\n");
+}
+
+#[test]
+fn chains_stop_at_first_runtime_or_argument_error() {
+    let fixture = Fixture::new();
+    for failing in [
+        vec!["info", "missing"],
+        vec!["search"],
+        vec!["install", "curl"],
+    ] {
+        let mut args = vec!["-q", "echo", "curl", ";"];
+        args.extend(failing);
+        args.extend([";", "echo", "zlib"]);
+        let output = fixture.run(&args);
+        assert!(!output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "curl\n");
+    }
+}
+
+#[test]
+fn empty_chain_segments_are_ignored() {
+    let fixture = Fixture::new();
+    assert_eq!(
+        stdout(&fixture.run(&["-q", ";", ";", "echo", "curl", ";", ";"])),
+        "curl\n"
+    );
+    assert_eq!(stdout(&fixture.run(&[";", ";"])), "");
+}
+
+#[test]
+fn semicolons_inside_arguments_are_not_interpreted() {
+    let fixture = Fixture::new();
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "echo", "curl;zlib"])),
+        "curl;zlib\n"
+    );
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "search", "--exact", "curl;zlib"])),
+        ""
+    );
+}
+
+#[test]
+fn command_local_index_overrides_reset_between_actions() {
+    let fixture = Fixture::new();
+    let other = fixture.directory.path().join("OtherIndex");
+    let body = "name other version 2.0 revision 0";
+    std::fs::write(&other, format!("other {}\n{body}\n", body.len() + 1)).unwrap();
+    let base = fixture.directory.path().join("PortIndex");
+    assert_eq!(
+        stdout(&fixture.run(&[
+            "--index-file",
+            base.to_str().unwrap(),
+            "-q",
+            "echo",
+            "all",
+            ";",
+            "--index-file",
+            other.to_str().unwrap(),
+            "echo",
+            "all",
+            ";",
+            "echo",
+            "all"
+        ])),
+        "curl\ncurlish\nzlib\nother\ncurl\ncurlish\nzlib\n"
+    );
+}

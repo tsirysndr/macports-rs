@@ -76,7 +76,17 @@ unimplemented; removing the platform cache file triggers a fresh download.
 | Logical expressions | `and`, `or`, `not`, `!`, parentheses, and implicit union; preserves input order |
 | `rdepends:<port>` | Indexed transitive reverse dependencies; exact, case-insensitive port names |
 | Registry selectors, `depof`/`rdepof`, current directory, Portfile URLs | Not implemented |
-| Command chaining, interactive mode | Not implemented |
+| Command chaining | Quoted `;` separators, per-action option reset, stops on first error |
+| Interactive mode and command files | Not implemented |
+
+Chain actions with a quoted or escaped semicolon so your shell passes it to
+`port`, for example `port -q echo curl ';' info --index --version curl`.
+Global options before the first action apply to every action; options within an
+action reset before the next one. Empty segments are ignored. Actions run in
+order and stop on the first error; successful earlier actions are not rolled
+back. The parsed index is reused until `--index-file` changes, so a chain sees a
+consistent catalog snapshot for each uninterrupted use of a source. Semicolons
+inside a larger argument are ordinary characters. No shell interpreter is used.
 
 Place command flags before the first port expression. Field selectors use
 case-insensitive regular expressions, including singular/plural aliases such as
@@ -222,7 +232,7 @@ memory measurements and differential benchmarks on the same machine remain requi
 
 ## Code organization
 
-- `src/main.rs`: global CLI options, dispatch entry point, and exit handling.
+- `src/main.rs`, `src/cli.rs`: CLI options, command chaining, and exit handling.
 - `src/commands/`: action-specific arguments and handlers for search, info,
   dependency queries, downloads, and basic index inspection.
 - `src/dependencies/`: dependency specifications, phase filters, graph traversal,
