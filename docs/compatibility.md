@@ -1302,3 +1302,25 @@ unsupported or poison the session. Tests cover headers, spaces in names, short
 files, Java-like headers, link/special-file handling, argument counts, and recovery
 after a missing-file error. This read-only helper does not require an external Tcl
 runtime or executable.
+
+`install::binary::Installer` combines verified-image preparation, registry inventory
+classification, archive storage, inactive registration, and activation. It accepts
+only resolved Install steps with no pending provider checks, takes requested status
+from the plan, and emits progress for preparing, storing, registering, activating,
+and completion. Registration failures clean up staging and new store entries;
+activation failures retain the registered inactive archive for retry while rolling
+back newly published payload. Tests exercise successful binary/symlink installation,
+generated binary flags, requested status, rejected plan states, invalid registration
+metadata, and filesystem conflicts. The caller must supply evaluated registration
+properties, resolve dependencies, execute the required Portfile lifecycle, and
+exclusively manage destination paths. This backend does not yet wire CLI install,
+source builds, privilege elevation, or crash recovery.
+
+Prepared images now retain the authenticated archive digest and share an immutable
+inspection inventory with storage. `Store::stage_prepared` accepts that inventory
+only when the current archive has the same authenticated digest, then rechecks the
+requested identity and target. The binary installer uses this path to avoid the
+additional decompression/inspection pass previously performed during storage.
+Tests reject a different signed payload with the same package identity before
+creating store entries, and verify that the shared inventory survives extraction
+cleanup. No performance benchmark or speedup claim has been published yet.

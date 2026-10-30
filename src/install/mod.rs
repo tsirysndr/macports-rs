@@ -18,5 +18,6 @@ pub mod target;
 
 pub mod activation;
 
+pub mod binary;
 pub mod publication;
 pub mod store;
