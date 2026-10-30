@@ -457,9 +457,14 @@ it from a custom build block. Enabling execution installs lazy defaults for
 source/staging directories, configure/build/test/destroot command directories,
 compiler include/library paths, verbose compiler logging, and Xcode versus CLT
 developer-directory selection. Explicit values and Portfile defaults take
-precedence. Callers still supply the prefix/work directory, SDK, timestamp,
-selected Xcode directory when needed, and build command. Compiler discovery,
-make selection, and full PortSystem initialization remain unfinished.
+precedence. Native `findBinary` prefers executable configuration hints, then
+uses `macports::binaryInPath` to search the session's explicit PATH without
+consulting the process PATH. The default build command selects make/BSD make/GNU make or
+the configured Xcode command using upstream build-type/platform rules. Missing
+tools produce warnings and fail before build execution. Callers still supply
+the prefix/work directory, SDK, timestamp, execution environment, and selected
+Xcode directory/command when needed. Compiler discovery and full PortSystem
+initialization remain unfinished.
 Native progress callbacks remain unsupported. A macOS integration test compiles a C program and verifies
 prefixed compiler diagnostics through this path.
 

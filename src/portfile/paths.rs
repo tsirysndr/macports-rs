@@ -26,7 +26,7 @@ fn split(path: &str) -> Vec<&str> {
     parts
 }
 
-fn join<'a>(paths: impl IntoIterator<Item = &'a str>) -> String {
+pub(super) fn join<'a>(paths: impl IntoIterator<Item = &'a str>) -> String {
     let mut result = String::new();
     for path in paths {
         let root = root_len(path);

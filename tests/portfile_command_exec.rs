@@ -411,3 +411,47 @@ fn command_execution_uses_native_build_environment_defaults() {
     }
     assert!(tree.path().join("work/app-1").is_dir());
 }
+
+#[cfg(target_os = "macos")]
+#[test]
+fn default_make_selection_builds_a_real_makefile() {
+    let tree = tempfile::tempdir().unwrap();
+    let directory = tree.path().join("build");
+    std::fs::create_dir(&directory).unwrap();
+    std::fs::write(directory.join("hello.c"), "int main(void) { return 0; }\n").unwrap();
+    std::fs::write(
+        directory.join("Makefile"),
+        "all: hello\nhello: hello.c\n\t/usr/bin/clang -o hello hello.c\n",
+    )
+    .unwrap();
+    let mut session = open(
+        r#"
+        set os.platform darwin
+        option build.dir build
+        set macosx_deployment_target {}
+        set configure.sdkroot {}
+        set configure.developer_dir {}
+        set compiler.cpath {}
+        set compiler.library_path {}
+    "#,
+    );
+    let output = executor(&mut session, tree.path().into());
+    session
+        .invoke("set", &["env(PATH)", "/usr/bin:/bin"])
+        .unwrap();
+    assert_eq!(session.scalar("build.cmd").unwrap(), "/usr/bin/make");
+    assert_eq!(session.invoke("portbuild::build_main", &[]).unwrap(), "0");
+    assert!(
+        std::process::Command::new(directory.join("hello"))
+            .status()
+            .unwrap()
+            .success()
+    );
+    let output = String::from_utf8(output.lock().unwrap().clone()).unwrap();
+    assert!(output.contains("/usr/bin/clang -o hello hello.c"));
+    assert!(
+        output
+            .lines()
+            .all(|line| line.starts_with("-> building app: "))
+    );
+}
