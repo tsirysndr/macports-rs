@@ -1488,3 +1488,14 @@ homes without dscl/id subprocesses. Path values expand bare/named-user tildes,
 resolve existing symlinks, and normalize missing leaves. Empty PORTSRC is ignored.
 Account lookup is shared with Portfile ownership operations. These startup APIs
 are not yet wired into the CLI installation lifecycle.
+
+Local `port -y install` previews now load the system configuration at
+/opt/local/etc/macports, user configuration, and PORTSRC before evaluating the
+local dependency closure. `config::Context` combines host defaults with configured
+values, frozen prefix/framework/application directories, filtered environment,
+configured proxy precedence, and CCACHE_DIR. Root startup follows the upstream
+missing-user/group fallback with a warning. Each dependency receives this context;
+Portfiles may then modify their isolated environment. Indexed-only previews remain
+conservative. This does not initialize PortSystem targets, discover system proxies,
+create installation directories, or execute installation; source configuration,
+global variants, and full lifecycle wiring remain incomplete.

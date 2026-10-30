@@ -45,8 +45,45 @@ pub(super) fn run(
     let evaluated = local
         .map(|root| {
             let variables = super::local::variables(Some(root))?;
+            let environment = std::env::vars_os()
+                .map(|(name, value)| {
+                    Ok((
+                        name.into_string().map_err(|_| {
+                            anyhow::anyhow!("startup environment name is not UTF-8")
+                        })?,
+                        value.into_string().map_err(|_| {
+                            anyhow::anyhow!("startup environment value is not UTF-8")
+                        })?,
+                    ))
+                })
+                .collect::<Result<_>>()?;
+            // SAFETY: getuid has no arguments and does not mutate process state.
+            let uid = unsafe { libc::getuid() };
+            let paths = crate::config::Paths::discover(
+                "/opt/local/etc/macports".into(),
+                std::env::current_dir()?,
+                &environment,
+                uid,
+            )?;
+            let context = crate::config::Context::new(
+                &paths.load()?,
+                variables,
+                &environment,
+                uid,
+                &crate::install::proxy::Settings::default(),
+            )?;
+            for warning in &context.warnings {
+                eprintln!("Warning: {warning}");
+            }
             install::plan_evaluated(index, &specs, &entries, |port, spec| {
-                crate::portfile::evaluate_from_tree(root, port, &variables, spec)
+                Ok(crate::portfile::open_from_tree_with_environment(
+                    root,
+                    port,
+                    &context.variables,
+                    spec,
+                    &context.environment,
+                )?
+                .into_metadata())
             })
         })
         .transpose()?;

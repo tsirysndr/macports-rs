@@ -520,3 +520,39 @@ fn real_curl_portfile_resolves_missing_index_defaults_in_install_preview() {
     assert!(output.contains("install  c-ares @2_0 (dependency)"));
     assert!(output.contains("curl @8.23.0_0+ares+brotli+http2+idn+psl+ssl+zstd (requested)"));
 }
+
+#[test]
+fn local_install_preview_reads_user_configuration_and_filtered_environment() {
+    let f = Fixture::new(&[
+        ("app", "version 1 portdir net/app"),
+        ("base", "version 1 portdir net/base"),
+    ]);
+    let home = f.dir.path().join("home");
+    std::fs::create_dir_all(home.join(".macports")).unwrap();
+    std::fs::write(home.join(".macports/macports.conf"), "prefix ~/prefix\nframeworks_dir ~/prefix/Library/Frameworks\nbinpath /configured/bin\nextra_env NO_COLOR\nproxy_http http://configured.invalid:8080\nproxy_override_env yes\n").unwrap();
+    portfile(
+        &f,
+        "app",
+        r#"
+        if {$env(PATH) ne "/configured/bin"} {error "wrong PATH"}
+        if {$env(LANG) ne "en_US.UTF-8"} {error "wrong LANG"}
+        if {$env(NO_COLOR) ne "1"} {error "extra_env missing"}
+        if {[info exists env(PORT_RS_INDEX)]} {error "host environment leaked"}
+        if {$env(http_proxy) ne "http://configured.invalid:8080"} {error "wrong proxy"}
+        if {[file tail $prefix] ne "prefix" || [file tail [file dirname $prefix]] ne "home"} {error "wrong prefix"}
+        if {$prefix_frozen ne $prefix} {error "wrong frozen prefix"}
+        if {$frameworks_dir ne "$prefix/Library/Frameworks"} {error "wrong frameworks"}
+        depends_run port:base
+    "#,
+    );
+    portfile(
+        &f,
+        "base",
+        r#"if {$env(PATH) ne "/configured/bin"} {error "dependency environment missing"}"#,
+    );
+    assert_eq!(
+        stdout(f.run(&["-qy", "install", "app"])),
+        "install  base @2_0 (dependency)\ninstall  app @2_0 (requested)\n"
+    );
+    assert!(!home.join("prefix").exists());
+}

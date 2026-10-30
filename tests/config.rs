@@ -161,3 +161,46 @@ fn startup_home_can_be_resolved_through_native_accounts() {
         paths.normalize("~").unwrap()
     );
 }
+
+#[test]
+fn context_combines_configuration_environment_and_missing_build_user_fallback() {
+    use std::collections::BTreeMap;
+    let mut config = Config::default();
+    config.apply("prefix /configured\nportdbpath /database\nmacportsuser port-rs-nonexistent-account\nextra_env KEEP\nproxy_override_env y\nproxy_http configured-proxy\n", |path| Ok(path.into())).unwrap();
+    let context = port_rs::config::Context::new(
+        &config,
+        BTreeMap::from([("prefix".into(), "/default".into())]),
+        &BTreeMap::from([
+            ("KEEP".into(), "kept".into()),
+            ("DROP".into(), "removed".into()),
+            ("http_proxy".into(), "inherited".into()),
+        ]),
+        0,
+        &Default::default(),
+    )
+    .unwrap();
+    assert_eq!(context.variables["prefix_frozen"], "/configured");
+    assert_eq!(
+        context.variables["frameworks_dir"],
+        "/configured/Library/Frameworks"
+    );
+    assert_eq!(context.variables["macportsuser"], "root");
+    assert_eq!(context.warnings.len(), 1);
+    assert_eq!(context.environment["CCACHE_DIR"], "/database/build/.ccache");
+    assert_eq!(context.environment["KEEP"], "kept");
+    assert!(!context.environment.contains_key("DROP"));
+    assert_eq!(context.proxies.proxies["http"], "configured-proxy");
+    config
+        .apply("extra_env {broken", |path| Ok(path.into()))
+        .unwrap();
+    assert!(
+        port_rs::config::Context::new(
+            &config,
+            BTreeMap::new(),
+            &BTreeMap::new(),
+            501,
+            &Default::default()
+        )
+        .is_err()
+    );
+}
