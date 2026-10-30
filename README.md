@@ -77,6 +77,7 @@ unimplemented; removing the platform cache file triggers a fresh download.
 | `installed` | Read-only SQLite registry, names/globs, version filters, active/inactive and requested/unrequested selectors |
 | `contents` | Registered file lists, active-image preference, version selection, quiet and size/unit output |
 | `provides` | Active file ownership, quiet output, normalized paths and symlinks |
+| `dependents`, `rdependents` | Installed-registry reverse dependencies, verbose versions, full trees, cycle handling |
 | Other registry commands, `sync`, `selfupdate` | Not implemented |
 | Port specifications | Attached/separate `@version`, `+variant`, `-variant`, and `key=value`; canonical echo rendering |
 | Logical expressions | `and`, `or`, `not`, `!`, parentheses, and implicit union; preserves input order |
@@ -215,8 +216,8 @@ This first registry query supports names, globs, `all`, `installed`, `active`,
 `inactive`, `requested`, and `unrequested`, with adjacent selectors forming a
 union. Globs match registry names, including ports removed from the current
 catalog. Logical/field expressions are explicitly rejected here; catalog query
-expressions and registry selectors are not yet unified. `outdated`, registry
-dependency queries, and all registry mutations remain unimplemented.
+expressions and registry selectors are not yet unified. `outdated` and all
+registry mutations remain unimplemented.
 
 `port contents curl` lists the active image's registered filesystem paths; if no
 active image matches, a single inactive image is used. When several inactive
@@ -243,6 +244,21 @@ looked up by its own path, including dangling links and links to directories.
 On macOS, native filesystem capability detection controls case-sensitive versus
 case-insensitive registry matching. Ownership lookup uses bound SQL parameters
 and never reads file contents or modifies registry records.
+
+`port dependents zlib` lists registered ports that depend on `zlib`, including
+active and inactive images. Normal output deduplicates port names; verbose
+output includes each recorded version. `-q` prints just the dependent names.
+`port rdependents zlib` walks the registry graph and suppresses shared subtrees;
+`--full` repeats them and includes versions, while `-v` includes versions without
+repeating subtrees. Cycles terminate; full output marks the repeated edge with
+`(cyclic dependency)` rather than following it indefinitely.
+
+These commands require explicit port names with optional version/variant
+qualifiers. An active root image is preferred; otherwise an installed inactive
+image is used. Registry edges refer to names rather than specific target
+versions. Globs, logical expressions, and pseudo-port selectors remain
+unsupported for these actions. The dependency map is read once inside the same
+read transaction as the entries, and traversal is iterative for deep graphs.
 
 ## Download engine and progress
 

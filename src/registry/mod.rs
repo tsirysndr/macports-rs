@@ -1,4 +1,5 @@
 //! Read-only access to the MacPorts SQLite registry; never initializes or migrates it.
+pub mod dependents;
 pub mod path;
 mod selection;
 mod version;
@@ -71,6 +72,14 @@ impl Registry {
             .query_row(sql, [path], |row| row.get(0))
             .optional()
             .with_context(|| format!("cannot look up registry owner for {path}"))
+    }
+    pub fn dependent_edges(&self) -> Result<Vec<(String, i64)>> {
+        let mut statement = self.connection.prepare(
+            "SELECT dependencies.name, dependencies.id FROM dependencies JOIN ports ON ports.id=dependencies.id WHERE ports.state IN ('installed', 'imaged')"
+        ).context("cannot read registry dependencies")?;
+        Ok(statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?)
     }
     pub fn files(&self, entry: &Entry) -> Result<Vec<String>> {
         let sql = if entry.active {

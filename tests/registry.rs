@@ -490,3 +490,150 @@ fn provides_reports_database_errors_without_partial_results() {
     assert!(output.stdout.is_empty());
     assert!(String::from_utf8_lossy(&output.stderr).contains("cannot look up registry owner"));
 }
+
+fn dependent_fixture(records: &[(&str, &[&str])]) -> Fixture {
+    let f = Fixture::new();
+    let db = Connection::open(&f.path).unwrap();
+    db.create_collation("VERSION", |a, b| a.cmp(b)).unwrap();
+    db.execute_batch(
+        "BEGIN; DELETE FROM ports; CREATE TABLE dependencies(id INTEGER,name TEXT,variants TEXT);",
+    )
+    .unwrap();
+    for (i, (name, deps)) in records.iter().enumerate() {
+        let id = i as i64 + 1;
+        db.execute("INSERT INTO ports(id,name,version,revision,variants,state) VALUES(?1,?2,'1',0,'','installed')",rusqlite::params![id,name]).unwrap();
+        for dep in *deps {
+            db.execute(
+                "INSERT INTO dependencies(id,name) VALUES(?1,?2)",
+                rusqlite::params![id, dep],
+            )
+            .unwrap();
+        }
+    }
+    db.execute_batch("COMMIT").unwrap();
+    f
+}
+#[test]
+fn dependents_use_registry_edges_and_deduplicate_names_unless_verbose() {
+    let f = Fixture::new();
+    let db = Connection::open(&f.path).unwrap();
+    db.execute_batch("CREATE TABLE dependencies(id INTEGER,name TEXT); INSERT INTO dependencies VALUES(2,'PKG2'),(3,'pkg2'),(1,'pkg2');").unwrap();
+    assert_eq!(
+        stdout(f.run(&["dependents", "pkg2"])),
+        "curl depends on pkg2\npkg10 depends on pkg2\n"
+    );
+    assert_eq!(
+        stdout(f.run(&["-q", "-v", "dependents", "pkg2"])),
+        "curl\npkg10\n"
+    );
+    assert_eq!(
+        stdout(f.run(&["-v", "dependents", "pkg2"])),
+        "curl @8.9_1+ssl depends on pkg2 (by port:)\ncurl @8.10_0+ssl depends on pkg2 (by port:)\npkg10 @1.0_0 depends on pkg2 (by port:)\n"
+    );
+}
+#[test]
+fn recursive_dependents_deduplicate_shared_subtrees_and_full_repeats_versions() {
+    let f = dependent_fixture(&[
+        ("base", &[]),
+        ("left", &["base"]),
+        ("right", &["base"]),
+        ("top", &["left", "right"]),
+    ]);
+    assert_eq!(
+        stdout(f.run(&["rdependents", "base"])),
+        "The following ports are dependent on base:\n  left\n    top\n  right\n"
+    );
+    assert_eq!(
+        stdout(f.run(&["-q", "rdependents", "--full", "base"])),
+        "  left @1_0\n    top @1_0\n  right @1_0\n    top @1_0\n"
+    );
+    assert_eq!(
+        stdout(f.run(&["-q", "-v", "rdependents", "base"])),
+        "  left @1_0\n    top @1_0\n  right @1_0\n"
+    );
+}
+#[test]
+fn recursive_registry_cycles_terminate_in_both_modes() {
+    let f = dependent_fixture(&[("a", &["b"]), ("b", &["a"])]);
+    assert_eq!(stdout(f.run(&["-q", "rdependents", "a"])), "  b\n    a\n");
+    assert_eq!(
+        stdout(f.run(&["-q", "rdependents", "--full", "a"])),
+        "  b @1_0\n    a @1_0\n      b @1_0 (cyclic dependency)\n"
+    );
+}
+#[test]
+fn dependent_queries_handle_empty_missing_and_qualified_roots() {
+    let f = dependent_fixture(&[("base", &[]), ("child", &["base"]), ("isolated", &[])]);
+    assert_eq!(
+        stdout(f.run(&["dependents", "BASE@1_0"])),
+        "child depends on base\n"
+    );
+    for action in ["dependents", "rdependents"] {
+        assert_eq!(
+            stdout(f.run(&[action, "isolated"])),
+            "isolated has no dependents.\n"
+        );
+        assert_eq!(stdout(f.run(&["-q", action, "isolated"])), "");
+        for missing in ["absent", "base@99"] {
+            let output = f.run(&[action, "base", missing]);
+            assert!(!output.status.success());
+            assert!(output.stdout.is_empty());
+        }
+    }
+}
+#[test]
+fn direct_dependents_deduplicate_across_requested_roots() {
+    let f = dependent_fixture(&[("a", &[]), ("b", &[]), ("child", &["a", "b"])]);
+    assert_eq!(
+        stdout(f.run(&["dependents", "a", "b"])),
+        "child depends on a\n"
+    );
+    assert_eq!(
+        stdout(f.run(&["-v", "dependents", "a", "b"])),
+        "child @1_0 depends on a (by port:)\nchild @1_0 depends on b (by port:)\n"
+    );
+}
+#[test]
+fn dependent_query_schema_errors_are_explicit() {
+    let f = Fixture::new();
+    let output = f.run(&["dependents", "curl"]);
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("cannot read registry dependencies"));
+}
+#[test]
+fn registry_dependent_walk_handles_deep_graphs_iteratively() {
+    let names: Vec<_> = (0..5000).map(|i| format!("node{i}")).collect();
+    let deps: Vec<Vec<&str>> = (0..5000)
+        .map(|i| {
+            if i == 0 {
+                vec![]
+            } else {
+                vec![names[i - 1].as_str()]
+            }
+        })
+        .collect();
+    let records: Vec<_> = names
+        .iter()
+        .zip(&deps)
+        .map(|(name, deps)| (name.as_str(), deps.as_slice()))
+        .collect();
+    let f = dependent_fixture(&records);
+    let registry = port_rs::registry::Registry::open(Some(&f.path))
+        .unwrap()
+        .unwrap();
+    let entries = registry.entries().unwrap();
+    let graph = port_rs::registry::dependents::Graph::build(&registry, &entries).unwrap();
+    let mut count = 0;
+    let mut deepest = 0;
+    graph
+        .walk("node0", false, |_, depth, cycle| {
+            assert!(!cycle);
+            count += 1;
+            deepest = depth;
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(count, 4999);
+    assert_eq!(deepest, 4999);
+}

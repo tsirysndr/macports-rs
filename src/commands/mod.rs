@@ -1,6 +1,7 @@
 //! CLI dispatch. Each action owns its options and presentation in a separate module.
 mod contents;
 mod dependencies;
+mod dependents;
 mod download;
 mod info;
 mod inspect;
@@ -19,6 +20,10 @@ use std::{
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Show installed ports that depend on a port
+    Dependents(dependents::Dependents),
+    /// Show recursive installed-port dependents
+    Rdependents(dependents::RecursiveDependents),
     /// Find the active port that owns a filesystem path
     Provides(provides::Provides),
     /// List files recorded for an installed port (read-only)
@@ -106,7 +111,18 @@ impl Session {
         );
         let stdout = io::stdout();
         let mut out = io::BufWriter::new(stdout.lock());
-        if let Command::Provides(args) = command {
+        if let Command::Dependents(args) = command {
+            dependents::run(&mut out, registry_file, args, None, quiet, verbose)?;
+        } else if let Command::Rdependents(args) = command {
+            dependents::run(
+                &mut out,
+                registry_file,
+                args.selection,
+                Some(args.full),
+                quiet,
+                verbose,
+            )?;
+        } else if let Command::Provides(args) = command {
             provides::run(&mut out, registry_file, args, quiet)?;
         } else if let Command::Contents(args) = command {
             contents::run(&mut out, registry_file, args, quiet)?;
@@ -147,7 +163,9 @@ impl Session {
                     quiet,
                     verbose,
                 )?,
-                Command::Provides(_)
+                Command::Dependents(_)
+                | Command::Rdependents(_)
+                | Command::Provides(_)
                 | Command::Contents(_)
                 | Command::Installed(_)
                 | Command::Version
