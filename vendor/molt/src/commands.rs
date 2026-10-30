@@ -11,7 +11,9 @@ use crate::util;
 use crate::*;
 use std::fs;
 use std::time::Instant;
+mod list_ops;
 mod string_map;
+pub use list_ops::{cmd_lrange, cmd_split};
 
 /// # append *varName* ?*value* ...?
 ///
@@ -760,7 +762,7 @@ pub fn lindex_into(list: &Value, indices: &[Value]) -> MoltResult {
 
     for index_val in indices {
         let list = value.as_list()?;
-        let index = index_val.as_int()?;
+        let index = list_ops::index(index_val, list.len())?;
 
         value = if index < 0 || index as usize >= list.len() {
             Value::empty()

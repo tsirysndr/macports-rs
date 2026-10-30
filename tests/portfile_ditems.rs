@@ -73,7 +73,7 @@ fn custom_targets_record_properties_without_invoking_procedures() {
         target_runtype $item always
         target_state $item no
         target_runpkg $item custom_runtime
-        description [lindex ${portutil::targets} [expr {[llength ${portutil::targets}] - 1}]]
+        description [lindex ${portutil::targets} end]
     "#)
     .unwrap();
     let fields = &result.dependency_items[result.port.get("description")];

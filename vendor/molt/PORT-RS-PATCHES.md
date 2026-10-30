@@ -19,6 +19,8 @@ Local changes:
 - Removal of obsolete unused imports and replacement of deprecated float constants.
 - Native `string map`, including ordered nonrecursive replacements, literal script
   templates, empty keys, and `-nocase` matching, with standalone interpreter tests.
+- `split` and `lrange`, plus end-relative and integer-arithmetic list indices;
+  shared index parsing for `lindex` and `lrange`.
 
 These hooks are host APIs, not a complete implementation of Tcl's `trace` command.
 The upstream source and tests remain available to verify interpreter behavior.
