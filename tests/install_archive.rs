@@ -206,6 +206,74 @@ fn pax(key: &str, value: &str) -> Vec<u8> {
     format!("{length}{body}").into_bytes()
 }
 #[test]
+fn retains_header_metadata_and_applies_pax_overrides_to_one_member() {
+    use inspect::Timestamp;
+    let c = contents(&["opt/local/app", "opt/local/next"]);
+    let mut p = pax("uid", "1234");
+    for (key, value) in [
+        ("gid", "5678"),
+        ("mtime", "-0.25"),
+        ("atime", "123.000000001"),
+    ] {
+        p.extend(pax(key, value));
+    }
+    let result = inspect_records(&[
+        ("+CONTENTS", b'0', c.as_bytes(), ""),
+        ("PaxHeader", b'x', &p, ""),
+        ("opt/local/app", b'0', b"x", ""),
+        ("opt/local/next", b'0', b"y", ""),
+    ])
+    .unwrap();
+    let overridden = &result.members["opt/local/app"].metadata;
+    assert_eq!((overridden.uid, overridden.gid), (1234, 5678));
+    assert_eq!(
+        overridden.mtime,
+        Timestamp {
+            seconds: -1,
+            nanoseconds: 750_000_000
+        }
+    );
+    assert_eq!(
+        overridden.atime,
+        Some(Timestamp {
+            seconds: 123,
+            nanoseconds: 1
+        })
+    );
+    let base = &result.members["opt/local/next"].metadata;
+    assert_eq!((base.uid, base.gid), (501, 20));
+    assert_eq!(
+        base.mtime,
+        Timestamp {
+            seconds: 1_700_000_000,
+            nanoseconds: 0
+        }
+    );
+    assert_eq!(base.atime, None);
+}
+
+#[test]
+fn rejects_malformed_pax_ownership_and_timestamps_before_extraction() {
+    let c = contents(&["opt/local/app"]);
+    for (key, value) in [
+        ("uid", "-1"),
+        ("gid", "+1"),
+        ("uid", "18446744073709551616"),
+        ("mtime", "NaN"),
+        ("atime", "1.2.3"),
+        ("ctime", "9223372036854775808"),
+    ] {
+        let p = pax(key, value);
+        let error = inspect_records(&[
+            ("+CONTENTS", b'0', c.as_bytes(), ""),
+            ("PaxHeader", b'x', &p, ""),
+            ("opt/local/app", b'0', b"x", ""),
+        ])
+        .unwrap_err();
+        assert!(format!("{error:#}").contains(key), "{error:#}");
+    }
+}
+#[test]
 fn bounded_pax_overrides_are_applied_before_path_validation() {
     let c = contents(&["opt/local/app"]);
     let p = pax("path", "opt/local/app");

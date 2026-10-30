@@ -1172,3 +1172,12 @@ and hard-link publication refuses a symlink receipt as its source. Tests verify
 target preservation, collisions, linked-parent rejection, rollback, replacement
 protection, and that external targets remain untouched. This macOS primitive is
 still separate from the pending activation coordinator and durable recovery path.
+
+Archive inspection retains numeric owner/group IDs and modification times from
+the tar header, with per-entry PAX overrides. Access times are retained when
+present. PAX timestamps are parsed without floating point, support negative times,
+and retain nanosecond precision (finer fractions are truncated). Invalid or
+out-of-range IDs/times fail inspection before extraction. Change times are
+validated but cannot be restored through filesystem APIs. This metadata is
+available on each inspected member; applying ownership and timestamps during
+activation remains pending.

@@ -1,8 +1,10 @@
 //! Read-only inspection of authenticated bzip2 tar archives. No extraction or Tcl.
 mod contents;
+mod metadata;
 use super::archive::VerifiedArchive;
 use anyhow::{Context, Result, ensure};
 pub use contents::Contents;
+pub use metadata::{Metadata, Timestamp};
 use std::{
     collections::{BTreeMap, HashSet},
     io::{self, BufReader, Read},
@@ -35,6 +37,7 @@ pub struct Member {
     pub kind: Kind,
     pub size: u64,
     pub mode: u32,
+    pub metadata: Metadata,
     pub data_offset: u64,
     pub attributes: BTreeMap<String, String>,
 }
@@ -180,6 +183,8 @@ pub fn tbz2(archive: &mut VerifiedArchive, limits: Limits) -> Result<Inspection>
             }
         }
         let mode = entry.header().mode()?;
+        let metadata = Metadata::read(entry.header(), &attributes)
+            .with_context(|| format!("invalid metadata for {name:?}"))?;
         let data_offset = entry.raw_file_position();
         members.insert(
             name,
@@ -187,6 +192,7 @@ pub fn tbz2(archive: &mut VerifiedArchive, limits: Limits) -> Result<Inspection>
                 kind,
                 size,
                 mode,
+                metadata,
                 data_offset,
                 attributes,
             },

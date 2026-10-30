@@ -23,6 +23,9 @@ pub fn tar(records: &[(&str, u8, &[u8], &str)]) -> Vec<u8> {
         header.set_entry_type(tar::EntryType::new(*kind));
         header.set_size(data.len() as u64);
         header.set_mode(0o755);
+        header.set_uid(501);
+        header.set_gid(20);
+        header.set_mtime(1_700_000_000);
         if !link.is_empty() {
             header.set_link_name(link).unwrap();
         }
