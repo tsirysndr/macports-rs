@@ -3,6 +3,7 @@ mod dependencies;
 mod download;
 mod info;
 mod inspect;
+mod installed;
 mod search;
 mod system;
 mod variants;
@@ -16,6 +17,8 @@ use std::{
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// List ports recorded in the installed-port registry (read-only)
+    Installed(installed::Installed),
     /// Display the version of this standalone Rust implementation
     Version,
     /// Display the native MacPorts platform and architecture
@@ -44,7 +47,7 @@ pub enum Command {
 }
 
 pub fn run(command: Command, index_file: Option<&Path>, quiet: bool, verbose: bool) -> Result<()> {
-    Session::default().run(command, index_file, quiet, verbose)
+    Session::default().run(command, index_file, None, quiet, verbose)
 }
 
 /// A command chain shares its parsed catalog until the selected source changes.
@@ -70,6 +73,7 @@ impl Session {
         &mut self,
         command: Command,
         index_file: Option<&Path>,
+        registry_file: Option<&Path>,
         quiet: bool,
         verbose: bool,
     ) -> Result<()> {
@@ -96,7 +100,9 @@ impl Session {
         );
         let stdout = io::stdout();
         let mut out = io::BufWriter::new(stdout.lock());
-        if matches!(command, Command::Version | Command::Platform) {
+        if let Command::Installed(args) = command {
+            installed::run(&mut out, registry_file, args, quiet, verbose)?;
+        } else if matches!(command, Command::Version | Command::Platform) {
             match command {
                 Command::Version => system::version(&mut out, quiet)?,
                 Command::Platform => system::platform(&mut out, quiet)?,
@@ -131,7 +137,8 @@ impl Session {
                     quiet,
                     verbose,
                 )?,
-                Command::Version
+                Command::Installed(_)
+                | Command::Version
                 | Command::Platform
                 | Command::Download(_)
                 | Command::Unsupported(_) => unreachable!(),

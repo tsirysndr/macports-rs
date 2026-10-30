@@ -13,3 +13,5 @@ pub mod tcl_list;
 pub mod theme;
 
 mod order;
+
+pub mod registry;

@@ -15,6 +15,9 @@ use std::{ffi::OsString, path::PathBuf};
 pub(crate) struct Cli {
     #[arg(long = "index-file", global = true, env = "PORT_RS_INDEX")]
     pub(crate) index_file: Option<PathBuf>,
+    /// Read an existing MacPorts registry at this path
+    #[arg(long, global = true, env = "PORT_RS_REGISTRY")]
+    pub(crate) registry_file: Option<PathBuf>,
     #[arg(short, long, global = true)]
     pub(crate) quiet: bool,
     /// Include full dependency specifications in metadata output
@@ -46,7 +49,7 @@ pub(crate) fn invocations(args: impl IntoIterator<Item = OsString>) -> Vec<Vec<O
 fn leading_options(args: &[OsString]) -> usize {
     let mut end = 0;
     while end < args.len() {
-        if args[end] == "--index-file" {
+        if args[end] == "--index-file" || args[end] == "--registry-file" {
             end = (end + 2).min(args.len());
         } else if args[end].to_string_lossy().starts_with('-') && args[end] != "--" {
             end += 1;

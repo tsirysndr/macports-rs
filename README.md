@@ -5,10 +5,11 @@ The compatibility target is the original CLI and existing MacPorts data, includi
 ordinary commands such as `port install curl +ssl`. No Tcl executable, Tcl library,
 Go runtime, OpenSSL installation, or existing `port` executable is required by
 this binary. Rust crates are linked at build time; normal operating-system
-libraries are still used.
+libraries are still used. SQLite is bundled into the executable; no database
+command or separately installed SQLite library is needed.
 
 **This is not yet a drop-in replacement. Installation is not implemented.**
-It currently provides native index queries, a tested parallel download engine,
+It currently provides native index and installed-registry queries, a tested parallel download engine,
 and terminal progress rendering. It does not evaluate Portfiles, mutate an
 existing MacPorts registry, or forward commands to another executable.
 
@@ -73,11 +74,12 @@ unimplemented; removing the platform cache file triggers a fresh download.
 | `variants --index` | Sorted variant details, defaults/requested markers, descriptions, conflicts, and requirements |
 | Index data | Serialized Tcl list data is parsed in Rust; no Tcl code is evaluated |
 | `install`, `upgrade`, `uninstall`, activation | Not implemented; fail explicitly before filesystem changes |
-| Registry queries, `sync`, `selfupdate` | Not implemented |
+| `installed` | Read-only SQLite registry, names/globs, version filters, active/inactive and requested/unrequested selectors |
+| Other registry commands, `sync`, `selfupdate` | Not implemented |
 | Port specifications | Attached/separate `@version`, `+variant`, `-variant`, and `key=value`; canonical echo rendering |
 | Logical expressions | `and`, `or`, `not`, `!`, parentheses, and implicit union; preserves input order |
 | `rdepends:<port>` | Indexed transitive reverse dependencies; exact, case-insensitive port names |
-| Registry selectors, `depof`/`rdepof`, current directory, Portfile URLs | Not implemented |
+| Registry selectors outside `installed`, `depof`/`rdepof`, current directory, Portfile URLs | Not implemented |
 | Action abbreviations | Unique case-insensitive prefixes, exact-name priority, upstream ambiguity checks |
 | Command chaining | Quoted `;` separators, per-action option reset, stops on first error |
 | Interactive mode and command files | Not implemented |
@@ -184,6 +186,36 @@ wrapping, some metadata formatting edge cases, and error details still need
 full upstream parity tests. Tests currently check representative upstream-derived
 behavior; they are not a complete differential compatibility suite.
 
+## Installed-port registry
+
+`port installed` reads `/opt/local/var/macports/registry/registry.db` without
+loading a PortIndex. Override the path with `--registry-file PATH` or
+`PORT_RS_REGISTRY`. Custom `macports.conf` paths are not discovered yet.
+The database is opened read-only, never initialized or migrated. A missing
+default registry reports no installed ports; a missing explicit path is an
+error. SQLite handles committed WAL data and concurrent readers normally.
+
+```sh
+port installed
+port -q installed active
+port installed 'python*'
+port installed curl @8.10.1_0+ssl
+port -v --registry-file /custom/registry.db installed requested
+```
+
+Both active (`installed`) and inactive (`imaged`) registry entries are shown.
+Results sort by name, MacPorts version segments, revision, and variants. Quiet
+mode hides headings, while verbose mode includes recorded requested variants,
+platform, architectures, and local installation timestamps. Version filters
+match a plain version or the complete version/revision/variant string.
+
+This first registry query supports names, globs, `all`, `installed`, `active`,
+`inactive`, `requested`, and `unrequested`, with adjacent selectors forming a
+union. Globs match registry names, including ports removed from the current
+catalog. Logical/field expressions are explicitly rejected here; catalog query
+expressions and registry selectors are not yet unified. `contents`, `outdated`,
+registry dependency queries, and all registry mutations remain unimplemented.
+
 ## Download engine and progress
 
 Tokio and reqwest provide bounded concurrent HTTP(S) transfers with a shared
@@ -272,6 +304,7 @@ memory measurements and differential benchmarks on the same machine remain requi
   action expansion, and exit handling.
 - `src/commands/`: action-specific arguments and handlers for search, info,
   dependency queries, downloads, and basic index inspection.
+- `src/registry/`: read-only SQLite entries and MacPorts version comparison.
 - `src/dependencies/`: dependency specifications, phase filters, graph traversal,
   and direct/tree output.
 - `src/index.rs`, `src/source.rs`, `src/tcl_list.rs`: catalog parsing and discovery.

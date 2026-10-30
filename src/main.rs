@@ -10,6 +10,7 @@ fn run() -> anyhow::Result<()> {
         session.run(
             cli.command,
             cli.index_file.as_deref(),
+            cli.registry_file.as_deref(),
             cli.quiet,
             cli.verbose,
         )?;
