@@ -116,10 +116,15 @@ walks their complete indexed graph. `--no-build` removes fetch, extract, patch,
 and build edges; `--no-test` removes test edges at every level. Library/runtime
 edges remain. `--full` repeats shared subtrees and annotates cycles; the default
 prints each dependency once. `-v` retains `port:`, `bin:`, `lib:`, and `path:`
-specifications, while `-q` suppresses headings. Recursive traversal validates
-reachable ports before printing and uses an explicit stack for deep graphs.
+specifications, while `-q` suppresses headings. Both dependency commands validate
+all selected roots before printing; recursive traversal also validates reachable
+ports and uses an explicit stack for deep graphs.
 As in `info --index`, version/variant overrides do not change indexed dependency
-metadata. These commands list fallback ports; they do not check whether a
+metadata. Indexed inspection extracts the final colon-separated component as
+the fallback name, including unusual indexed forms such as
+`port:bin/cmake:cmake`; verbose output preserves the original specification.
+Empty fallback names and malformed serialized lists produce contextual errors.
+These commands list fallback ports; they do not check whether a
 `bin:`, `lib:`, or `path:` requirement is already satisfied on the machine.
 
 `rdepends:zlib` selects all indexed ports that transitively depend on `zlib`,

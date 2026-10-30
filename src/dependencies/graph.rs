@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Reachable dependency metadata is validated before rendering, including missing targets.
 pub struct Graph<'a> {
-    pub root: &'a Port,
+    pub(super) root: &'a Port,
     edges: HashMap<String, Vec<Dependency>>,
 }
 impl<'a> Graph<'a> {

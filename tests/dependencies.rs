@@ -250,7 +250,7 @@ fn leaves_and_multiple_roots_keep_upstream_headers_and_separators() {
 }
 #[test]
 fn missing_and_malformed_dependencies_fail_without_partial_tree_output() {
-    for dependencies in ["depends_lib port:missing", "depends_lib invalid"] {
+    for dependencies in ["depends_lib port:missing", "depends_lib port:"] {
         let fixture = Fixture::new(&[("root", dependencies)]);
         let output = fixture.run(&["rdeps", "--index", "root"]);
         assert!(!output.status.success());
@@ -444,5 +444,66 @@ fn explicit_port_order_and_union_order_are_preserved() {
     assert_eq!(
         stdout(&fixture.run(&["-q", "echo", "pkg*", "and", "not", "pkg2"])),
         "pkg1\npkg10\n"
+    );
+}
+
+#[test]
+fn indexed_dependency_inspection_accepts_extended_provider_forms() {
+    let fixture = Fixture::new(&[
+        (
+            "root",
+            "depends_build port:bin/cmake:cmake depends_lib {custom:library:leaf plain}",
+        ),
+        ("cmake", ""),
+        ("leaf", ""),
+        ("plain", ""),
+    ]);
+    assert_eq!(
+        stdout(&fixture.run(&["deps", "--index", "root"])),
+        "Full Name: root @1.0_0\nBuild Dependencies:   cmake\nLibrary Dependencies: leaf, plain\n"
+    );
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "rdeps", "--index", "root"])),
+        "  cmake\n  leaf\n  plain\n"
+    );
+    let verbose = stdout(&fixture.run(&["-v", "deps", "--index", "root"]));
+    assert!(verbose.contains("port:bin/cmake:cmake"));
+    assert!(verbose.contains("custom:library:leaf, plain"));
+    let recursive = stdout(&fixture.run(&["-q", "-v", "rdeps", "--index", "root"]));
+    assert_eq!(
+        recursive,
+        "  port:bin/cmake:cmake\n  custom:library:leaf\n  plain\n"
+    );
+}
+
+#[test]
+fn multiple_dependency_roots_are_validated_before_any_output() {
+    for bad in ["depends_lib port:", "depends_lib {\"unterminated}"] {
+        let fixture = Fixture::new(&[("good", ""), ("bad", bad)]);
+        for action in ["deps", "rdeps"] {
+            let output = fixture.run(&[action, "--index", "good", "bad"]);
+            assert!(!output.status.success(), "{action}: {bad}");
+            assert!(output.stdout.is_empty(), "{action}: {bad}");
+            assert!(String::from_utf8_lossy(&output.stderr).contains("bad: depends_lib"));
+        }
+    }
+}
+
+#[test]
+fn dependency_filters_skip_invalid_excluded_phases() {
+    let fixture = Fixture::new(&[
+        (
+            "root",
+            "depends_build port: depends_test {\"unterminated} depends_run port:leaf",
+        ),
+        ("leaf", ""),
+    ]);
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "deps", "--index", "--no-build", "--no-test", "root"])),
+        "Runtime Dependencies: leaf\n"
+    );
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "rdeps", "--index", "--no-build", "--no-test", "root"])),
+        "  leaf\n"
     );
 }

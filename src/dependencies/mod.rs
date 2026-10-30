@@ -5,7 +5,7 @@ mod render;
 mod reverse;
 
 pub use graph::Graph;
-pub use render::{OutputOptions, direct, recursive};
+pub use render::{Direct, OutputOptions, direct, recursive};
 pub use reverse::ReverseIndex;
 
 use crate::{fields, index::Port, tcl_list};
@@ -36,17 +36,14 @@ pub struct Dependency {
 }
 impl Dependency {
     pub fn parse(specification: &str) -> Result<Self> {
-        let parts: Vec<_> = specification.split(':').collect();
-        let valid = match parts.first().copied() {
-            Some("port") => parts.len() == 2,
-            Some("bin" | "lib" | "path") => parts.len() >= 3,
-            _ => false,
-        };
+        // Indexed inspection extracts the fallback port name; it does not validate
+        // the provider grammar used when actually evaluating/installing a port.
+        // Real indexes include forms such as `port:bin/cmake:cmake`.
+        let name = specification.rsplit(':').next().unwrap_or("");
         ensure!(
-            valid && parts.iter().all(|part| !part.is_empty()),
+            !name.is_empty(),
             "invalid dependency specification {specification:?}"
         );
-        let name = parts.last().copied().unwrap_or("");
         ensure!(
             !name.chars().any(char::is_whitespace),
             "invalid dependency port name {name:?}"
@@ -66,7 +63,8 @@ impl Dependency {
 }
 
 pub fn in_field(port: &Port, field: &str) -> Result<Vec<Dependency>> {
-    tcl_list::parse(port.get(field))?
+    tcl_list::parse(port.get(field))
+        .with_context(|| format!("{}: {field}", port.name))?
         .iter()
         .map(|raw| Dependency::parse(raw).with_context(|| format!("{}: {field}", port.name)))
         .collect()
@@ -89,6 +87,9 @@ mod tests {
             ("bin:make:gmake", "gmake"),
             ("lib:libssl:openssl", "openssl"),
             ("path:lib/pkgconfig/zlib.pc:zlib", "zlib"),
+            ("port:bin/cmake:cmake", "cmake"),
+            ("custom:provider:leaf", "leaf"),
+            ("zlib", "zlib"),
         ] {
             let dependency = Dependency::parse(raw).unwrap();
             assert_eq!(dependency.name, name);
@@ -97,15 +98,7 @@ mod tests {
     }
     #[test]
     fn rejects_malformed_dependency_forms() {
-        for raw in [
-            "zlib",
-            "port:",
-            "port:zlib:extra",
-            "bin:make",
-            "lib::openssl",
-            "unknown:x",
-            "port:two words",
-        ] {
+        for raw in ["", "port:", "path:lib/foo:", "port:two words"] {
             assert!(Dependency::parse(raw).is_err(), "{raw}");
         }
     }

@@ -59,11 +59,15 @@ pub(super) fn run(
             .iter()
             .map(|spec| query::lookup(index, &spec.name))
             .collect::<Result<Vec<_>>>()?;
-        for (i, port) in ports.into_iter().enumerate() {
+        let prepared = ports
+            .into_iter()
+            .map(|port| crate::dependencies::Direct::prepare(port, filter, output))
+            .collect::<Result<Vec<_>>>()?;
+        for (i, dependencies) in prepared.iter().enumerate() {
             if i > 0 {
                 writeln!(out, "--")?;
             }
-            crate::dependencies::direct(out, port, filter, output)?;
+            dependencies.write(out)?;
         }
     }
     Ok(())
