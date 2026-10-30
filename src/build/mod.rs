@@ -3,6 +3,7 @@
 pub(crate) mod directories;
 mod log;
 mod process;
+pub mod state;
 use crate::progress::Progress;
 use anyhow::{Result, ensure};
 use std::{collections::BTreeMap, ffi::OsString, path::PathBuf, process::ExitStatus};

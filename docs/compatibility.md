@@ -589,7 +589,13 @@ build-directory mapping. Execution-enabled `portutil::create_workpath` creates
 or older linked build trees while preserving file identity on the same volume.
 `chownAsRoot` applies recursive link-aware ownership when already running as root
 and is a no-op for ordinary users. Temporary privilege elevation, cross-volume
-migration, state-file locking, and CLI lifecycle integration remain unfinished.
+migration, state-file lifecycle policy, and CLI integration remain unfinished.
+The `build::state::StateFile` library reads and appends MacPorts' line-based
+version/checksum/target/variant records while holding an exclusive `flock`.
+It supports nonblocking acquisition, waiting, duplicate suppression, v1 timestamp
+and v2 checksum checks, and recorded-variant comparison. Unsupported filesystem
+locking is exposed to the caller, matching upstream's permitted fallback.
+State invalidation/cleanup and phase-scheduler integration are not yet connected.
 Native `file join`, `dirname`, `tail`, `extension`, `rootname`, `split`,
 `pathtype`, and `separator` construct and inspect Unix paths without filesystem
 access. These follow the current MacPorts-bundled Tcl 9 lexical rules, including
