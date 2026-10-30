@@ -1,5 +1,5 @@
 //! Loading Portfiles from a caller-selected local ports tree.
-use super::{Evaluation, PortGroups, evaluate_with_groups};
+use super::{Evaluation, PortGroups, Session};
 use crate::{index::Port, spec::PortSpec};
 use anyhow::{Context, Result, ensure};
 use std::{
@@ -17,6 +17,17 @@ pub fn evaluate_from_tree(
     variables: &BTreeMap<String, String>,
     requested: &PortSpec,
 ) -> Result<Evaluation> {
+    Ok(open_from_tree(root, indexed, variables, requested)?.into_metadata())
+}
+
+/// Open a persistent evaluator using the same bounded, tree-contained loader
+/// as metadata queries. No hooks or external commands execute during opening.
+pub fn open_from_tree(
+    root: &Path,
+    indexed: &Port,
+    variables: &BTreeMap<String, String>,
+    requested: &PortSpec,
+) -> Result<Session> {
     let relative = Path::new(indexed.get("portdir"));
     ensure!(
         !relative.as_os_str().is_empty()
@@ -59,7 +70,7 @@ pub fn evaluate_from_tree(
         "portpath".into(),
         path.parent().unwrap().to_string_lossy().into_owned(),
     );
-    evaluate_with_groups(
+    Session::open(
         &source,
         &variables,
         requested,

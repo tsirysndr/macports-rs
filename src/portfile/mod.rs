@@ -8,8 +8,10 @@ mod defaults;
 mod ditems;
 mod groups;
 mod platform;
+mod session;
+pub use session::Session;
 mod source;
-pub use source::evaluate_from_tree;
+pub use source::{evaluate_from_tree, open_from_tree};
 mod targets;
 mod utilities;
 pub use groups::{LoadedGroup, PortGroups};
@@ -26,7 +28,7 @@ pub struct Variant {
     pub conflicts: Vec<String>,
     pub body: String,
 }
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Hook {
     pub phase: String,
     pub body: String,
@@ -103,6 +105,15 @@ pub fn evaluate_with_groups(
     requested: &PortSpec,
     groups: PortGroups,
 ) -> Result<Evaluation> {
+    Ok(Session::open(source, variables, requested, groups)?.into_metadata())
+}
+
+fn open(
+    source: &str,
+    variables: &BTreeMap<String, String>,
+    requested: &PortSpec,
+    groups: PortGroups,
+) -> Result<Session> {
     let mut interp = Interp::new();
     interp.set_recursion_limit(128);
     interp.eval("unset env").map_err(failure)?;
@@ -170,28 +181,7 @@ pub fn evaluate_with_groups(
             fields.insert(name, value.as_str().to_owned());
         }
     }
-    ensure!(
-        interp.context::<State>(id).unsupported.is_empty(),
-        "Portfile used unsupported commands: {}",
-        interp
-            .context::<State>(id)
-            .unsupported
-            .iter()
-            .cloned()
-            .collect::<Vec<_>>()
-            .join(", ")
-    );
-    ensure!(
-        interp.context::<State>(id).group_failures.is_empty(),
-        "Portfile imports did not complete: {}",
-        interp
-            .context::<State>(id)
-            .group_failures
-            .iter()
-            .cloned()
-            .collect::<Vec<_>>()
-            .join("; ")
-    );
+    check_supported(&mut interp, id)?;
     ensure!(
         fields.get("version").is_some_and(|v| !v.is_empty()),
         "Portfile did not set version"
@@ -240,16 +230,47 @@ pub fn evaluate_with_groups(
     fields.insert("vinfo".into(), list(metadata).to_string());
     let enabled: String = state.active.iter().map(|name| format!("+{name}")).collect();
     fields.insert("canonical_active_variants".into(), enabled.clone());
-    Ok(Evaluation {
-        groups: std::mem::take(&mut state.loaded_groups),
+    let metadata = Evaluation {
+        groups: state.loaded_groups.clone(),
         port: Port {
             name: requested.name.clone(),
             fields,
         },
         enabled,
-        variants: std::mem::take(&mut state.variants),
-        hooks: std::mem::take(&mut state.hooks),
-        targets: std::mem::take(&mut state.targets),
+        variants: state.variants.clone(),
+        hooks: state.hooks.clone(),
+        targets: state.targets.clone(),
         dependency_items: state.ditems.snapshot(),
+    };
+    Ok(Session {
+        interp,
+        id,
+        metadata,
     })
+}
+
+fn check_supported(interp: &mut Interp, id: ContextID) -> Result<()> {
+    ensure!(
+        interp.context::<State>(id).unsupported.is_empty(),
+        "Portfile used unsupported commands: {}",
+        interp
+            .context::<State>(id)
+            .unsupported
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    ensure!(
+        interp.context::<State>(id).group_failures.is_empty(),
+        "Portfile imports did not complete: {}",
+        interp
+            .context::<State>(id)
+            .group_failures
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("; ")
+    );
+    Ok(())
 }

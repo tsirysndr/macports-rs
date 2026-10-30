@@ -407,6 +407,14 @@ files. Ordinary `port install` remains blocked before index/registry access unti
 archive verification, extraction, activation, and registry transactions are ready.
 `-y` currently applies only to `install`; other actions reject it.
 
+The library's `portfile::Session` and `open_from_tree` retain the interpreter
+alongside the initial metadata snapshot. Later literal-argument procedure calls
+share the original globals, arrays, procedures, selected variants, and lazy
+defaults. User target wrappers can therefore access their Portfile context.
+This API is a building block for the phase scheduler; it does not run native
+initialization or prerequisites, and external commands remain unsupported.
+Metadata queries continue to discard the interpreter after extracting metadata.
+
 The `portfile` library now evaluates an initial set of Portfile metadata commands
 in Rust using [Molt](https://docs.rs/molt/latest/molt/), without `tclsh` or libtcl.
 It supports language substitutions, expressions, procedures and loops, option

@@ -1,0 +1,59 @@
+//! A Portfile interpreter retained for later target/procedure invocation.
+use super::*;
+
+/// Owns the evaluated Portfile's procedures, globals, arrays, and native state.
+/// Opening a session only evaluates metadata. It does not initialize PortSystem
+/// or run targets. External command and filesystem APIs remain unsupported.
+pub struct Session {
+    pub(super) interp: Interp,
+    pub(super) id: ContextID,
+    pub(super) metadata: Evaluation,
+}
+
+impl Session {
+    pub fn open(
+        source: &str,
+        variables: &BTreeMap<String, String>,
+        requested: &PortSpec,
+        groups: PortGroups,
+    ) -> Result<Self> {
+        super::open(source, variables, requested, groups)
+    }
+
+    /// Snapshot taken after initial evaluation and variant application. Later
+    /// procedure calls can change live state without altering this snapshot.
+    pub fn metadata(&self) -> &Evaluation {
+        &self.metadata
+    }
+
+    /// Discard the interpreter and keep only its initial metadata snapshot.
+    pub fn into_metadata(self) -> Evaluation {
+        self.metadata
+    }
+
+    /// Invoke one command at global scope with literal arguments. This is a
+    /// scheduler building block, not a complete target runner: callers must
+    /// arrange initialization, prerequisites, and target callbacks themselves.
+    pub fn invoke(&mut self, command: &str, arguments: &[&str]) -> Result<String> {
+        check_supported(&mut self.interp, self.id)?;
+        let words = std::iter::once(command)
+            .chain(arguments.iter().copied())
+            .map(Value::from)
+            .collect::<Vec<_>>();
+        let result = self
+            .interp
+            .with_global_scope(|interp| interp.eval_value(&Value::from(words)));
+        // A script catching an unsupported operation cannot turn it into a
+        // successful phase. Preserve this failure for later calls as well.
+        check_supported(&mut self.interp, self.id)?;
+        result.map(|value| value.to_string()).map_err(failure)
+    }
+
+    /// Read a live global scalar, resolving native lazy defaults as necessary.
+    pub fn scalar(&mut self, name: &str) -> Result<String> {
+        check_supported(&mut self.interp, self.id)?;
+        let result = self.interp.with_global_scope(|interp| interp.scalar(name));
+        check_supported(&mut self.interp, self.id)?;
+        result.map(|value| value.to_string()).map_err(failure)
+    }
+}
