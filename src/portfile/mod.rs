@@ -37,6 +37,7 @@ pub use source::{evaluate_from_tree, open_from_tree};
 mod system;
 pub use system::SystemRequest;
 mod target_execution;
+mod target_runtime;
 mod targets;
 pub use target_execution::TargetOutcome;
 mod test_phase;

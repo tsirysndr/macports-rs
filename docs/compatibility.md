@@ -626,8 +626,16 @@ phase unrecorded; successful non-always stateful targets append completion.
 The caller owns the state handle and its lifetime. This is the callback/state
 portion of `target_run`: runtime-package loading, prerequisites, environment,
 working directory, sandbox/tracing, privileges, and log copying still belong to
-the host driver and are not supplied by this method. The full PortSystem
-`target_run` command and CLI phase scheduling remain unfinished.
+the host driver and are not supplied by this method.
+`Session::run_prepared_target` adds automatic state opening/closing and the
+PortSystem environment lifecycle: build-local HOME/TMPDIR, DEVELOPER_DIR during
+user hooks/body, then database HOME and no TMPDIR after execution. Cleanup also
+runs after callback errors or caught unsupported operations. Changes stay in the
+session's env array, not the process environment. The dry-run argument governs
+both opening and execution, and the previous global dry-run option is restored.
+Runtime packages, working-directory handling, sandbox/tracing, privileges,
+log copying, the full PortSystem `target_run` command, and CLI phase scheduling
+remain unfinished.
 Native `file join`, `dirname`, `tail`, `extension`, `rootname`, `split`,
 `pathtype`, and `separator` construct and inspect Unix paths without filesystem
 access. These follow the current MacPorts-bundled Tcl 9 lexical rules, including

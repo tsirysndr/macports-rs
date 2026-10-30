@@ -22,6 +22,16 @@ impl Session {
         state_handle: Option<&str>,
         dry_run: bool,
     ) -> Result<TargetOutcome> {
+        self.execute_target_inner(item, state_handle, dry_run, false)
+    }
+
+    pub(super) fn execute_target_inner(
+        &mut self,
+        item: &str,
+        state_handle: Option<&str>,
+        dry_run: bool,
+        manage_developer: bool,
+    ) -> Result<TargetOutcome> {
         check_supported(&mut self.interp, self.id)?;
         ensure!(
             self.interp
@@ -77,23 +87,26 @@ impl Session {
         }
         // Read each callback list when its turn arrives: earlier callbacks can
         // modify later lists, just as in the upstream interpreter.
-        for key in ["prerun", "pre", "procedure", "post", "postrun"] {
-            let value = if key == "procedure" {
-                Value::from(procedure.as_str())
-            } else {
-                ditems::field(&mut self.interp, self.id, &item, key).map_err(failure)?
-            };
-            let callbacks = if matches!(key, "pre" | "post") {
-                value.as_list().map_err(failure)?.to_vec()
-            } else if value.as_str().is_empty() {
-                Vec::new()
-            } else {
-                vec![value]
-            };
-            for callback in callbacks {
-                self.invoke(callback.as_str(), &[&name])?;
+        let body_result = (|| -> Result<()> {
+            self.target_callbacks(&item, "prerun", &name)?;
+            if manage_developer {
+                let developer = self.scalar("configure.developer_dir")?;
+                self.interp
+                    .set_element("env", "DEVELOPER_DIR", developer.into())
+                    .map_err(failure)?;
             }
+            self.target_callbacks(&item, "pre", &name)?;
+            self.invoke(&procedure, &[&name])?;
+            self.target_callbacks(&item, "post", &name)?;
+            Ok(())
+        })();
+        if manage_developer {
+            // Cleanup bypasses the unsupported-command guard: even a caught
+            // unsupported operation must not leak target environment state.
+            self.interp.unset_element("env", "DEVELOPER_DIR");
         }
+        body_result?;
+        self.target_callbacks(&item, "postrun", &name)?;
         let stateful = ditems::field(&mut self.interp, self.id, &item, "state")
             .map_err(failure)?
             .as_str()
@@ -114,5 +127,19 @@ impl Session {
             )?;
         }
         Ok(TargetOutcome::Completed)
+    }
+    fn target_callbacks(&mut self, item: &Value, key: &str, name: &str) -> Result<()> {
+        let value = ditems::field(&mut self.interp, self.id, item, key).map_err(failure)?;
+        let callbacks = if matches!(key, "pre" | "post") {
+            value.as_list().map_err(failure)?.to_vec()
+        } else if value.as_str().is_empty() {
+            Vec::new()
+        } else {
+            vec![value]
+        };
+        for callback in callbacks {
+            self.invoke(callback.as_str(), &[name])?;
+        }
+        Ok(())
     }
 }
