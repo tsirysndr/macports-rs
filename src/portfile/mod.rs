@@ -16,6 +16,7 @@ mod destroot_phase;
 mod ditems;
 mod dlist;
 mod file_delete;
+mod file_link;
 mod filesystem;
 mod filesystem_mutations;
 mod groups;

@@ -602,6 +602,11 @@ Missing files are ignored; directory links are unlinked without traversing their
 contents. Nonempty directories require `-force`, which grants owner access to the
 root directory and restores its original permissions on failure. Errors remain
 catchable, and deletion is unavailable during metadata evaluation.
+Native `file link` reads symbolic targets during metadata evaluation and creates
+symbolic or hard links in execution-enabled sessions. Creation requires an
+existing target. Relative symbolic targets resolve from the link's parent;
+relative hard-link targets resolve from the process working directory.
+Existing destinations are never overwritten, and link errors are catchable.
 Native `fs-traverse` supports sorted physical traversal, `-depth`, `-tails`,
 `-ignoreErrors`, caller-scope loop variables, and Tcl loop control. Explicit
 root symlinks are followed; nested directory symlinks and other filesystems are
@@ -773,6 +778,12 @@ disk I/O, and do not measure real-world Portfile evaluation or cache memory use.
 **No speed claim against the original `port` has been established**: MacPorts is
 not installed in the development environment. A real Darwin 24 ARM index has been downloaded and parsed successfully. Peak
 memory measurements and differential benchmarks on the same machine remain required.
+
+Once installation works end to end, benchmark it against the original `port` on
+the same Mac and publish a compact results table in the README. Record hardware,
+OS/tool versions, ports and variants, exact commands, repeated-run timings, and
+cold/warm cache conditions. Keep detailed methodology and results in this document;
+report measured differences without assuming a speedup.
 
 ## Code organization
 
