@@ -5,6 +5,7 @@ mod commands;
 mod defaults;
 mod groups;
 mod platform;
+mod targets;
 pub use groups::{LoadedGroup, PortGroups};
 mod variants;
 use crate::{index::Port, spec::PortSpec};
@@ -30,6 +31,9 @@ pub struct Evaluation {
     pub variants: BTreeMap<String, Variant>,
     pub enabled: String,
     pub hooks: Vec<Hook>,
+    /// Custom phase bodies, replacing the built-in implementation for that phase.
+    /// These are deferred scripts, not executed or validated build actions.
+    pub targets: BTreeMap<String, String>,
 }
 #[derive(Default)]
 struct State {
@@ -47,6 +51,7 @@ struct State {
     resolving_defaults: BTreeSet<String>,
     changing_format: bool,
     hooks: Vec<Hook>,
+    targets: BTreeMap<String, String>,
     selected_subport: bool,
     active: BTreeSet<String>,
     unsupported: BTreeSet<String>,
@@ -68,7 +73,7 @@ fn list(values: impl IntoIterator<Item = String>) -> Value {
 
 /// Evaluate source supplied by the caller, using explicit platform/configuration
 /// variables. Does not search for PortGroups, touch the filesystem, or execute hooks.
-/// Callers must not treat success as approval to skip the returned hooks.
+/// Callers must not treat success as approval to skip returned hooks or targets.
 pub fn evaluate(
     source: &str,
     variables: &BTreeMap<String, String>,
@@ -129,6 +134,7 @@ pub fn evaluate_with_groups(
             .map_err(failure)?;
     }
     commands::install(&mut interp, id);
+    targets::install(&mut interp, id);
     interp.add_context_command("PortGroup", groups::command, id);
     interp.add_context_command("platform", platform::command, id);
     defaults::install(&mut interp, id).map_err(failure)?;
@@ -226,5 +232,6 @@ pub fn evaluate_with_groups(
         enabled,
         variants: std::mem::take(&mut state.variants),
         hooks: std::mem::take(&mut state.hooks),
+        targets: std::mem::take(&mut state.targets),
     })
 }

@@ -375,6 +375,13 @@ variant bodies update dependency/build metadata in requirement order. Hook bodie
 are retained without execution, and configuration variables are supplied explicitly
 instead of inheriting the process environment.
 
+Custom target declarations such as `configure {}`, `build { ... }`, and
+`destroot { ... }` are retained separately from pre/post hooks. The last override
+for a phase wins, including empty bodies that disable its built-in action;
+pre/post hooks accumulate in declaration order. Only selected variant/subport/
+platform bodies register overrides. These scripts are not executed during
+metadata evaluation; phase execution and `do-*` delegation remain to be wired up.
+
 PortGroups can be imported from explicitly configured local directories or
 embedded sources, with deterministic search precedence and one evaluation per
 name/version. Nested and recursive includes share the interpreter. Imported

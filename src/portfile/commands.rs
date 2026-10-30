@@ -80,23 +80,6 @@ pub(super) fn install(interp: &mut Interp, id: ContextID) {
     ] {
         interp.add_context_command(name, command, id);
     }
-    for phase in [
-        "fetch",
-        "extract",
-        "patch",
-        "configure",
-        "build",
-        "destroot",
-        "install",
-        "activate",
-        "deactivate",
-        "uninstall",
-        "test",
-    ] {
-        for prefix in ["pre-", "post-"] {
-            interp.add_context_command(&format!("{prefix}{phase}"), hook, id);
-        }
-    }
 }
 pub(super) fn unsupported(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     let name = argv[0].as_str();
@@ -206,14 +189,6 @@ fn exists(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 2, 2, "name")?;
     global(interp, argv[1].as_str());
     Ok(Value::from(interp.var_exists(&argv[1])))
-}
-fn hook(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
-    check_args(1, argv, 2, 2, "body")?;
-    interp.context::<State>(id).hooks.push(Hook {
-        phase: argv[0].to_string(),
-        body: argv[1].to_string(),
-    });
-    Ok(Value::empty())
 }
 fn subport(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 3, 3, "name body")?;
