@@ -2,6 +2,8 @@
 name = "port-rs"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
+authors = ["Tsiry Sandratraina <tsiry.sndr@rocksky.app>"]
 description = "A standalone Rust implementation of MacPorts CLI functionality"
 
 [[bin]]
