@@ -2,7 +2,18 @@
 use super::*;
 use molt::{MoltResult, check_args};
 
+#[derive(Clone)]
+struct Binding {
+    state: ContextID,
+    handle: Option<Value>,
+    phase: String,
+    ident: String,
+    original: String,
+    position: Option<&'static str>,
+}
+
 pub(super) fn install(interp: &mut Interp, id: ContextID) -> MoltResult {
+    interp.add_context_command("target_provides", provides, id);
     for phase in [
         "fetch",
         "checksum",
@@ -22,15 +33,11 @@ pub(super) fn install(interp: &mut Interp, id: ContextID) -> MoltResult {
     ] {
         // Current PortSystem target metadata. Archive/unarchive are retained
         // legacy script declarations, not standalone targets in current base.
-        if !matches!(phase, "archive" | "unarchive") {
+        let handle = if !matches!(phase, "archive" | "unarchive") {
             let name = format!("org.macports.{phase}");
             let handle =
                 ditems::new_target(interp, id, &name, &format!("port{phase}::{phase}_main"))?;
             interp.set_scalar(&name, handle.clone())?;
-            interp
-                .context::<State>(id)
-                .phase_items
-                .insert(phase.into(), handle.clone());
             ditems::set(interp, id, &handle, "provides", list([phase.into()]));
             let requires = match phase {
                 "fetch" | "deactivate" | "uninstall" | "clean" => "main",
@@ -87,55 +94,120 @@ pub(super) fn install(interp: &mut Interp, id: ContextID) -> MoltResult {
                     ditems::set(interp, id, &handle, "state", "no".into());
                 }
             }
-        }
-        interp.add_context_command(phase, target, id);
-        for prefix in ["pre-", "post-"] {
-            interp.add_context_command(&format!("{prefix}{phase}"), hook, id);
-        }
+            Some(handle)
+        } else {
+            None
+        };
+        register(interp, id, phase, handle)?;
     }
     Ok(Value::empty())
 }
 
+fn register(
+    interp: &mut Interp,
+    state: ContextID,
+    phase: &str,
+    handle: Option<Value>,
+) -> MoltResult {
+    let (ident, original) = if let Some(handle) = &handle {
+        (
+            ditems::field(interp, state, handle, "name")?.to_string(),
+            ditems::field(interp, state, handle, "procedure")?.to_string(),
+        )
+    } else {
+        (String::new(), String::new())
+    };
+    let binding = Binding {
+        state,
+        handle,
+        phase: phase.into(),
+        ident,
+        original,
+        position: None,
+    };
+    // Existing phase commands retain their original binding. Pre/post commands
+    // are replaced on each target_provides, just as in native PortSystem.
+    if !interp.has_command(phase) {
+        let id = interp.save_context(binding.clone());
+        interp.add_context_command(phase, target, id);
+    }
+    for position in ["pre", "post"] {
+        let mut binding = binding.clone();
+        binding.position = Some(position);
+        let id = interp.save_context(binding);
+        let command = format!("{position}-{phase}");
+        if interp.has_command(&command) {
+            interp.remove_command(&command);
+        }
+        interp.add_context_command(&command, hook, id);
+    }
+    Ok(Value::empty())
+}
+
+fn provides(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(1, argv, 2, 0, "ditem ?target ...?")?;
+    for phase in &argv[2..] {
+        register(interp, id, phase.as_str(), Some(argv[1].clone()))?;
+    }
+    let mut values = ditems::field(interp, id, &argv[1], "provides")?
+        .as_list()?
+        .to_vec();
+    values.extend_from_slice(&argv[2..]);
+    let values = Value::from(values);
+    ditems::set(interp, id, &argv[1], "provides", values.clone());
+    Ok(values)
+}
+
 fn target(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 2, 2, "body")?;
-    if let Some(handle) = interp
-        .context::<State>(id)
-        .phase_items
-        .get(argv[0].as_str())
-        .cloned()
-    {
-        let index = ditems::field(interp, id, &handle, "proc")?.as_list()?.len();
-        let ident = ditems::field(interp, id, &handle, "name")?;
-        let name = format!("proc-{ident}-{}-{index}", argv[0]);
+    let binding = interp.context::<Binding>(id).clone();
+    if let Some(handle) = &binding.handle {
+        let index = ditems::field(interp, binding.state, handle, "proc")?
+            .as_list()?
+            .len();
+        let name = format!("proc-{}-{}-{index}", binding.ident, binding.phase);
         wrapper(interp, &name, argv[1].as_str())?;
-        ditems::set(interp, id, &handle, "procedure", name.into());
-        interp.add_context_command(&format!("do-{}", argv[0]), commands::unsupported, id);
+        ditems::set(interp, binding.state, handle, "procedure", name.into());
+        // Original procedure and phase are data, even when their names contain
+        // whitespace, semicolons, or substitutions. Capture at registration time.
+        let body = Value::from(vec![
+            Value::from(binding.original),
+            Value::from(binding.phase.clone()),
+        ]);
+        interp.eval_value(&Value::from(vec![
+            "proc".into(),
+            format!("do-{}", binding.phase).into(),
+            Value::empty(),
+            body,
+        ]))?;
     }
-    // target_provides replaces the main procedure on each declaration, while
-    // pre/post declarations append. Empty overrides intentionally disable the
-    // built-in phase and must remain distinguishable from an absent override.
     interp
-        .context::<State>(id)
+        .context::<State>(binding.state)
         .targets
-        .insert(argv[0].to_string(), argv[1].to_string());
+        .insert(binding.phase, argv[1].to_string());
     Ok(Value::empty())
 }
 
 fn hook(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 2, 2, "body")?;
-    let (position, phase) = argv[0].as_str().split_once('-').unwrap();
-    if let Some(handle) = interp.context::<State>(id).phase_items.get(phase).cloned() {
-        let mut hooks = ditems::field(interp, id, &handle, position)?
+    let binding = interp.context::<Binding>(id).clone();
+    let position = binding.position.expect("hook binding has a position");
+    if let Some(handle) = &binding.handle {
+        let mut hooks = ditems::field(interp, binding.state, handle, position)?
             .as_list()?
             .to_vec();
-        let ident = ditems::field(interp, id, &handle, "name")?;
-        let name = format!("proc-{position}-{ident}-{phase}-{}", hooks.len());
+        let name = format!(
+            "proc-{position}-{}-{}-{}",
+            binding.ident,
+            binding.phase,
+            hooks.len()
+        );
         wrapper(interp, &name, argv[1].as_str())?;
         hooks.push(name.into());
-        ditems::set(interp, id, &handle, position, Value::from(hooks));
+        ditems::set(interp, binding.state, handle, position, Value::from(hooks));
     }
-    interp.context::<State>(id).hooks.push(Hook {
-        phase: argv[0].to_string(),
+    interp.context::<State>(binding.state).hooks.push(Hook {
+        phase: format!("{position}-{}", binding.phase),
         body: argv[1].to_string(),
     });
     Ok(Value::empty())

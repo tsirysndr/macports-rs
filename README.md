@@ -451,15 +451,21 @@ Custom target declarations such as `configure {}`, `build { ... }`, and
 for a phase wins, including empty bodies that disable its built-in action;
 pre/post hooks accumulate in declaration order. Only selected variant/subport/
 platform bodies register overrides. These scripts are not executed during
-metadata evaluation; phase execution and `do-*` delegation remain to be wired up.
+metadata evaluation. After an override, `do-<phase>` invokes the original
+procedure captured when the phase was registered, passing its phase name.
+Built-in phase procedures themselves still need native implementations.
 
 PortSystem dependency-item records now support `ditem_create`, key access,
 append/unique append, membership, snapshots, and deletion. `target_new` and
 target-property setters retain custom metadata; standard phase handles expose
 their names, requirements, and procedure references. Hook and override declarations
 update these records and define their user-procedure wrappers with global-variable
-access. Records are returned with the evaluation result. Dynamic `target_provides`,
-target scheduling, and built-in phase execution remain incomplete.
+access. Records are returned with the evaluation result. `target_provides` adds
+provided tokens and registers custom phase declarations and pre/post hooks.
+Existing phase commands retain their original binding when another target provides
+the same token; pre/post declarations bind to the latest provider. Renaming a
+phase declaration preserves its bound target identity. Full target execution,
+state-file integration, and built-in phase procedures remain incomplete.
 
 The `commands` declaration creates the standard command-option families, including
 `.cmd`, `.dir`, `.args`, and `.env`. Configure/compiler and livecheck metadata

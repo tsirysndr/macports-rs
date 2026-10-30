@@ -68,7 +68,6 @@ struct State {
     changing_format: bool,
     hooks: Vec<Hook>,
     targets: BTreeMap<String, String>,
-    phase_items: BTreeMap<String, Value>,
     ditems: ditems::Items,
     selected_subport: bool,
     active: BTreeSet<String>,
