@@ -373,3 +373,120 @@ fn symlink_receipt_rejects_hardlinking_and_preserves_replacement_nodes() {
     drop(receipt);
     assert!(fs::symlink_metadata(temp.path().join("temporary")).is_err());
 }
+
+#[test]
+fn restores_times_on_held_inodes_and_preserves_unspecified_access_time() {
+    use port_rs::install::inspect::Timestamp;
+    use std::os::unix::fs::MetadataExt;
+    let temp = tempfile::tempdir().unwrap();
+    let root = Root::open(temp.path()).unwrap();
+    let directory = root
+        .create_directory(Path::new("bin"), 0o755)
+        .unwrap()
+        .unwrap();
+    let file = root
+        .publish_file(Path::new("bin/app"), &mut &b"data"[..], 0o755)
+        .unwrap();
+    let alias = root.publish_hardlink(Path::new("alias"), &file).unwrap();
+    let access = Timestamp {
+        seconds: 1_600_000_000,
+        nanoseconds: 123_456_789,
+    };
+    let modified = Timestamp {
+        seconds: -1,
+        nanoseconds: 750_000_000,
+    };
+    file.set_times(Some(access), modified).unwrap();
+    let metadata = fs::metadata(temp.path().join("alias")).unwrap();
+    assert_eq!(
+        (metadata.atime(), metadata.atime_nsec()),
+        (access.seconds, i64::from(access.nanoseconds))
+    );
+    assert_eq!(
+        (metadata.mtime(), metadata.mtime_nsec()),
+        (modified.seconds, i64::from(modified.nanoseconds))
+    );
+    let later = Timestamp {
+        seconds: 1_700_000_000,
+        nanoseconds: 987_654_321,
+    };
+    alias.set_times(None, later).unwrap();
+    let metadata = fs::metadata(temp.path().join("bin/app")).unwrap();
+    assert_eq!(
+        (metadata.atime(), metadata.atime_nsec()),
+        (access.seconds, i64::from(access.nanoseconds))
+    );
+    assert_eq!(
+        (metadata.mtime(), metadata.mtime_nsec()),
+        (later.seconds, i64::from(later.nanoseconds))
+    );
+    directory.set_times(Some(access), later).unwrap();
+    let metadata = fs::metadata(temp.path().join("bin")).unwrap();
+    assert_eq!(
+        (metadata.mtime(), metadata.mtime_nsec()),
+        (later.seconds, i64::from(later.nanoseconds))
+    );
+    assert!(
+        file.set_times(
+            None,
+            Timestamp {
+                seconds: 0,
+                nanoseconds: 1_000_000_000
+            }
+        )
+        .is_err()
+    );
+    // Replacement paths never redirect metadata writes to the replacement inode.
+    fs::rename(temp.path().join("bin/app"), temp.path().join("moved")).unwrap();
+    fs::write(temp.path().join("bin/app"), b"replacement").unwrap();
+    let replacement = fs::metadata(temp.path().join("bin/app")).unwrap();
+    file.set_times(None, modified).unwrap();
+    let unchanged = fs::metadata(temp.path().join("bin/app")).unwrap();
+    assert_eq!(
+        (replacement.mtime(), replacement.mtime_nsec()),
+        (unchanged.mtime(), unchanged.mtime_nsec())
+    );
+    assert_eq!(fs::metadata(temp.path().join("moved")).unwrap().mtime(), -1);
+    file.persist();
+    alias.persist();
+    directory.persist();
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn restores_symlink_times_without_touching_the_target() {
+    use port_rs::install::inspect::Timestamp;
+    use std::os::unix::fs::MetadataExt;
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(temp.path().join("target"), b"untouched").unwrap();
+    let before = fs::metadata(temp.path().join("target")).unwrap();
+    let root = Root::open(temp.path()).unwrap();
+    for (name, target) in [("link", "target"), ("dangling", "missing")] {
+        let link = root
+            .publish_symlink(Path::new(name), Path::new(target))
+            .unwrap();
+        let time = Timestamp {
+            seconds: 1_600_000_000,
+            nanoseconds: 123_456_789,
+        };
+        link.set_times(Some(time), time).unwrap();
+        let metadata = fs::symlink_metadata(temp.path().join(name)).unwrap();
+        assert_eq!(
+            (metadata.mtime(), metadata.mtime_nsec()),
+            (time.seconds, i64::from(time.nanoseconds))
+        );
+        assert_eq!(
+            (metadata.atime(), metadata.atime_nsec()),
+            (time.seconds, i64::from(time.nanoseconds))
+        );
+    }
+    let after = fs::metadata(temp.path().join("target")).unwrap();
+    assert_eq!(
+        (before.mtime(), before.mtime_nsec()),
+        (after.mtime(), after.mtime_nsec())
+    );
+    assert_eq!(
+        (before.atime(), before.atime_nsec()),
+        (after.atime(), after.atime_nsec())
+    );
+}

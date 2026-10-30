@@ -1,6 +1,7 @@
 //! Descriptor-relative publication with in-process rollback receipts.
 //! A coordinator must exclusively manage the destination directories while using
 //! these primitives. Receipts provide in-process rollback, not crash recovery.
+use super::inspect::Timestamp;
 use anyhow::{Context, Result, ensure};
 use std::{
     ffi::CString,
@@ -329,6 +330,10 @@ pub struct PublishedDirectory {
     entry: PublishedFile,
 }
 impl PublishedDirectory {
+    /// Restore directory times after publishing all children.
+    pub fn set_times(&self, atime: Option<Timestamp>, mtime: Timestamp) -> Result<()> {
+        self.entry.set_times(atime, mtime)
+    }
     pub fn persist(self) {
         self.entry.persist();
     }
@@ -351,6 +356,38 @@ pub struct PublishedFile {
     _anchor: Arc<File>,
 }
 impl PublishedFile {
+    /// Set times on the held inode, including the link itself for macOS symlink
+    /// receipts. An absent access time leaves the existing access time unchanged.
+    /// Hardlink aliases share these times. No pathname is resolved by this call.
+    pub fn set_times(&self, atime: Option<Timestamp>, mtime: Timestamp) -> Result<()> {
+        let convert = |time: Timestamp| -> Result<libc::timespec> {
+            ensure!(
+                time.nanoseconds < 1_000_000_000,
+                "invalid timestamp nanoseconds"
+            );
+            Ok(libc::timespec {
+                tv_sec: time.seconds,
+                tv_nsec: time.nanoseconds.into(),
+            })
+        };
+        let times = [
+            match atime {
+                Some(time) => convert(time)?,
+                None => libc::timespec {
+                    tv_sec: 0,
+                    tv_nsec: libc::UTIME_OMIT,
+                },
+            },
+            convert(mtime)?,
+        ];
+        // SAFETY: the receipt owns the inode descriptor and times contains two
+        // initialized timespec values for the duration of the syscall.
+        if unsafe { libc::futimens(self._anchor.as_raw_fd(), times.as_ptr()) } != 0 {
+            return Err(io::Error::last_os_error())
+                .context("cannot restore publication timestamps");
+        }
+        Ok(())
+    }
     /// Retain the published file after the coordinating transaction commits.
     pub fn persist(mut self) {
         self.retained = true;
