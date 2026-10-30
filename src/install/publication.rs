@@ -1,4 +1,4 @@
-//! Descriptor-relative, non-overwriting regular-file and hardlink publication.
+//! Descriptor-relative publication with in-process rollback receipts.
 //! A coordinator must exclusively manage the destination directories while using
 //! these primitives. Receipts provide in-process rollback, not crash recovery.
 use anyhow::{Context, Result, ensure};
@@ -69,6 +69,7 @@ impl Root {
             device: metadata.dev(),
             inode: metadata.ino(),
             retained: false,
+            directory: false,
             _anchor: file,
         };
         temporary.rollback()?;
@@ -127,10 +128,104 @@ impl Root {
             device: source.device,
             inode: source.inode,
             retained: false,
+            directory: false,
             _anchor: Arc::clone(&source._anchor),
         };
         published.parent.sync_all()?;
         Ok(published)
+    }
+    /// Create one directory with explicit permissions, or share an existing
+    /// physical directory without changing it. Parents must already exist.
+    /// Roll back children before their parent: nonempty directories are retained.
+    pub fn create_directory(
+        &self,
+        relative: &Path,
+        mode: u32,
+    ) -> Result<Option<PublishedDirectory>> {
+        ensure!(mode <= 0o7777, "invalid directory publication mode");
+        let (parent, name) = self.parent(relative)?;
+        // SAFETY: descriptor and NUL-terminated leaf name are valid.
+        if unsafe { libc::mkdirat(parent.as_raw_fd(), name.as_ptr(), 0o700) } != 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::AlreadyExists {
+                return Err(error.into());
+            }
+            // SAFETY: fstatat initializes stat and does not follow the leaf link.
+            let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+            if unsafe {
+                libc::fstatat(
+                    parent.as_raw_fd(),
+                    name.as_ptr(),
+                    &mut stat,
+                    libc::AT_SYMLINK_NOFOLLOW,
+                )
+            } != 0
+            {
+                return Err(io::Error::last_os_error().into());
+            }
+            ensure!(
+                stat.st_mode & libc::S_IFMT == libc::S_IFDIR,
+                "existing publication entry is not a physical directory"
+            );
+            return Ok(None);
+        }
+        let opened = (|| -> Result<File> {
+            // A restrictive inherited process mask can remove owner access from
+            // mkdirat's mode. Restore private access before opening the inode.
+            // The coordinator's exclusive directory ownership covers this step.
+            // SAFETY: this is the directory leaf just created under parent.
+            if unsafe { libc::fchmodat(parent.as_raw_fd(), name.as_ptr(), 0o700, 0) } != 0 {
+                return Err(io::Error::last_os_error().into());
+            }
+            // SAFETY: open a new owned descriptor, rejecting a replaced link.
+            let fd = unsafe {
+                libc::openat(
+                    parent.as_raw_fd(),
+                    name.as_ptr(),
+                    libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+                )
+            };
+            if fd < 0 {
+                return Err(io::Error::last_os_error().into());
+            }
+            // SAFETY: fd is the new owned descriptor returned above.
+            Ok(unsafe { File::from_raw_fd(fd) })
+        })();
+        let file = match opened {
+            Ok(file) => Arc::new(file),
+            Err(error) => {
+                // SAFETY: only remove our empty directory, never its descendants.
+                unsafe {
+                    libc::unlinkat(parent.as_raw_fd(), name.as_ptr(), libc::AT_REMOVEDIR);
+                }
+                return Err(error);
+            }
+        };
+        let metadata = match file.metadata() {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                // SAFETY: this leaf belongs to the failed creation operation.
+                unsafe {
+                    libc::unlinkat(parent.as_raw_fd(), name.as_ptr(), libc::AT_REMOVEDIR);
+                }
+                return Err(error.into());
+            }
+        };
+        let entry = PublishedFile {
+            parent,
+            name,
+            device: metadata.dev(),
+            inode: metadata.ino(),
+            retained: false,
+            directory: true,
+            _anchor: file,
+        };
+        entry
+            ._anchor
+            .set_permissions(std::fs::Permissions::from_mode(mode))?;
+        entry._anchor.sync_all()?;
+        entry.parent.sync_all()?;
+        Ok(Some(PublishedDirectory { entry }))
     }
     fn parent(&self, path: &Path) -> Result<(File, CString)> {
         ensure!(
@@ -162,6 +257,21 @@ impl Root {
     }
 }
 
+/// Receipt for a newly created directory. Shared existing directories never
+/// receive a receipt and are never modified by this API.
+pub struct PublishedDirectory {
+    entry: PublishedFile,
+}
+impl PublishedDirectory {
+    pub fn persist(self) {
+        self.entry.persist();
+    }
+    /// Remove only this directory, and only if it is still ours and empty.
+    pub fn rollback(self) -> Result<()> {
+        self.entry.rollback()
+    }
+}
+
 /// A published inode held pending registry commit. Rollback refuses to unlink a
 /// replacement inode. Explicit rollback reports failures; Drop is best effort.
 pub struct PublishedFile {
@@ -170,6 +280,7 @@ pub struct PublishedFile {
     device: u64,
     inode: u64,
     retained: bool,
+    directory: bool,
     // Hold the inode open so its number cannot be recycled before rollback.
     _anchor: Arc<File>,
 }
@@ -207,7 +318,12 @@ impl PublishedFile {
             "refusing to remove a replaced publication inode"
         );
         // SAFETY: unlink only the verified leaf entry, without following links.
-        if unsafe { libc::unlinkat(self.parent.as_raw_fd(), self.name.as_ptr(), 0) } != 0 {
+        let flags = if self.directory {
+            libc::AT_REMOVEDIR
+        } else {
+            0
+        };
+        if unsafe { libc::unlinkat(self.parent.as_raw_fd(), self.name.as_ptr(), flags) } != 0 {
             return Err(io::Error::last_os_error().into());
         }
         self.parent.sync_all()?;
@@ -264,6 +380,7 @@ fn temporary(parent: &File) -> Result<(Arc<File>, PublishedFile)> {
             device: metadata.dev(),
             inode: metadata.ino(),
             retained: false,
+            directory: false,
             _anchor: Arc::clone(&file),
         };
         return Ok((file, temporary));

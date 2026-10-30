@@ -1132,7 +1132,7 @@ cleanup errors, while Drop performs best-effort cleanup. Rollback checks inode
 identity before unlinking, and uses the held parent even if its original path
 has been renamed. Persisting a receipt retains the file after coordination.
 The caller must exclusively manage the destination directories throughout these
-operations. These primitives do not supply crash recovery, directory creation,
+operations. These primitives do not supply crash recovery,
 symlink payload publication, archive ownership/flags/timestamps, or a
 registry transaction coordinator, and are not wired to CLI install yet. Tests
 cover publication/retention, failed streams, collisions, path escapes, replacement
@@ -1148,3 +1148,16 @@ available until their aliases are created. Tests verify shared inode identity,
 independent rollback/retention, dangling-link collisions, replaced-source
 rejection, and destination-parent symlink rejection. The same exclusive-directory
 access requirement applies; this does not yet add durable recovery or CLI wiring.
+
+
+`Root::create_directory` now creates one physical directory at a time, returning
+a `PublishedDirectory` receipt only for new directories. Existing physical
+directories are shared without permission changes; files and symlinks are rejected.
+New directories receive explicit modes without changing the process creation mask.
+Receipts anchor their directory inode and parent, and rollback uses AT_REMOVEDIR:
+only an unchanged, empty directory can be removed. A coordinator must roll back
+children before parents. Unexpected contents or replacement inodes are preserved
+and explicit rollback reports the failure. Tests cover exact modes, shared
+directories, nested file/directory rollback, collision handling, and preserving
+nonempty or replaced directories. Exclusive directory management remains required;
+these operations do not provide a durable activation journal.

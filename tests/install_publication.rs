@@ -198,3 +198,102 @@ fn hardlink_source_replacement_and_destination_parent_links_are_rejected() {
     assert_eq!(fs::read(temp.path().join("old")).unwrap(), b"payload");
     assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
 }
+
+#[test]
+fn creates_directories_with_exact_modes_and_shares_existing_directories() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = Root::open(temp.path()).unwrap();
+    let directory = root
+        .create_directory(Path::new("bin"), 0o751)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        fs::metadata(temp.path().join("bin"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o7777,
+        0o751
+    );
+    assert!(
+        root.create_directory(Path::new("bin"), 0o700)
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        fs::metadata(temp.path().join("bin"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o7777,
+        0o751
+    );
+    directory.persist();
+    assert!(temp.path().join("bin").is_dir());
+}
+
+#[test]
+fn nested_publication_can_roll_back_files_then_directories() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = Root::open(temp.path()).unwrap();
+    let parent = root
+        .create_directory(Path::new("lib"), 0o755)
+        .unwrap()
+        .unwrap();
+    let child = root
+        .create_directory(Path::new("lib/app"), 0o755)
+        .unwrap()
+        .unwrap();
+    let file = root
+        .publish_file(Path::new("lib/app/data"), &mut &b"payload"[..], 0o644)
+        .unwrap();
+    file.rollback().unwrap();
+    child.rollback().unwrap();
+    parent.rollback().unwrap();
+    assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 0);
+}
+
+#[test]
+fn directory_rollback_preserves_nonempty_and_replaced_directories() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = Root::open(temp.path()).unwrap();
+    let directory = root
+        .create_directory(Path::new("nonempty"), 0o755)
+        .unwrap()
+        .unwrap();
+    fs::write(temp.path().join("nonempty/user-file"), b"preserve").unwrap();
+    assert!(directory.rollback().is_err());
+    assert_eq!(
+        fs::read(temp.path().join("nonempty/user-file")).unwrap(),
+        b"preserve"
+    );
+    let directory = root
+        .create_directory(Path::new("original"), 0o755)
+        .unwrap()
+        .unwrap();
+    fs::rename(temp.path().join("original"), temp.path().join("moved")).unwrap();
+    fs::create_dir(temp.path().join("original")).unwrap();
+    assert!(directory.rollback().is_err());
+    assert!(temp.path().join("original").is_dir());
+    assert!(temp.path().join("moved").is_dir());
+}
+
+#[test]
+fn directory_creation_rejects_symlinks_files_and_missing_parents() {
+    let temp = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let root = Root::open(temp.path()).unwrap();
+    symlink(outside.path(), temp.path().join("link")).unwrap();
+    fs::write(temp.path().join("file"), b"keep").unwrap();
+    for path in ["link", "link/child", "file", "missing/child", "../escape"] {
+        assert!(root.create_directory(Path::new(path), 0o755).is_err());
+    }
+    assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
+    assert_eq!(fs::read(temp.path().join("file")).unwrap(), b"keep");
+    let directory = root
+        .create_directory(Path::new("empty"), 0o755)
+        .unwrap()
+        .unwrap();
+    drop(directory);
+    assert!(!temp.path().join("empty").exists());
+}
