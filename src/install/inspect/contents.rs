@@ -115,6 +115,11 @@ impl Contents {
     }
     /// Bind authenticated metadata to the specific indexed installation item.
     pub fn matches(&self, item: &crate::install::Item<'_>) -> Result<()> {
+        ensure!(
+            item.variants_resolved,
+            "default variants for {} are unresolved; archive identity cannot be approved",
+            item.port.name
+        );
         let epoch = if item.port.get("epoch").is_empty() {
             0
         } else {

@@ -271,3 +271,21 @@ fn pax_rejects_unsupported_sizes_malformed_records_and_oversized_metadata() {
         );
     }
 }
+
+#[test]
+fn unresolved_plan_variants_cannot_approve_an_archive() {
+    let c = contents(&[]);
+    let result = inspect_records(&[("+CONTENTS", b'0', c.as_bytes(), "")]).unwrap();
+    let body = "name app version 1 variants ssl";
+    let index = port_rs::index::Index::parse(&format!("app {}\n{body}\n", body.len() + 1)).unwrap();
+    let plan =
+        port_rs::install::plan(&index, &[port_rs::spec::PortSpec::named("app")], &[]).unwrap();
+    assert!(
+        result
+            .contents
+            .matches(&plan[0])
+            .unwrap_err()
+            .to_string()
+            .contains("unresolved")
+    );
+}

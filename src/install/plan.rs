@@ -14,10 +14,13 @@ pub enum Action {
     Install,
     Activate,
     AlreadyActive,
+    Resolve,
 }
 pub struct Item<'a> {
     pub port: &'a Port,
     pub variants: String,
+    pub variants_resolved: bool,
+    pub provider_fallbacks: Vec<String>,
     pub requested: bool,
     pub action: Action,
 }
@@ -97,12 +100,13 @@ pub fn plan<'a>(
                     port.name,
                     port.get("replaced_by")
                 );
-                let variants = requested
+                let selection = requested
                     .get(&port.name)
                     .cloned()
                     .map(Ok)
                     .unwrap_or_else(|| variants::defaults(port, None))
                     .with_context(|| format!("{}: installation variants", port.name))?;
+                let variants = selection.enabled;
                 let epoch = if port.get("epoch").is_empty() {
                     0
                 } else {
@@ -130,7 +134,9 @@ pub fn plan<'a>(
                         && entry.epoch.parse::<i64>().unwrap_or(0) == epoch
                 };
                 let active = candidates.iter().copied().find(|entry| entry.active);
-                let action = if let Some(active) = active {
+                let action = if !selection.resolved {
+                    Action::Resolve
+                } else if let Some(active) = active {
                     ensure!(
                         matches(&active),
                         "{} @{} is already active with a different version, epoch, or variants; upgrades and replacement activation are not implemented",
@@ -143,9 +149,11 @@ pub fn plan<'a>(
                 } else {
                     Action::Install
                 };
-                let item = Item {
+                let mut item = Item {
                     port,
                     variants,
+                    variants_resolved: selection.resolved,
+                    provider_fallbacks: Vec::new(),
                     requested: requested.contains_key(&port.name),
                     action,
                 };
@@ -161,15 +169,21 @@ pub fn plan<'a>(
                 let mut seen = HashSet::new();
                 for field in ["depends_lib", "depends_run"] {
                     for dependency in dependencies::in_field(port, field)? {
-                        ensure!(
-                            dependency
-                                .specification
-                                .strip_prefix("port:")
-                                .is_some_and(|name| !name.contains(':') && !name.contains('/')),
-                            "{}: provider dependency {} requires provider resolution, which is not implemented for install",
-                            port.name,
-                            dependency.specification
-                        );
+                        let components: Vec<_> = dependency.specification.split(':').collect();
+                        match components.as_slice() {
+                            ["port", name] if !name.is_empty() && !name.contains('/') => (),
+                            ["bin" | "lib" | "path", probe, name]
+                                if !probe.is_empty() && !name.is_empty() =>
+                            {
+                                item.provider_fallbacks
+                                    .push(dependency.specification.clone());
+                            }
+                            _ => anyhow::bail!(
+                                "{}: unsupported provider dependency {}",
+                                port.name,
+                                dependency.specification
+                            ),
+                        }
                         let target = query::lookup(index, &dependency.name).with_context(|| {
                             format!("{}: {field} {}", port.name, dependency.specification)
                         })?;

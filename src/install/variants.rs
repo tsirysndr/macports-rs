@@ -2,15 +2,18 @@ use crate::{index::Port, spec::PortSpec, tcl_list};
 use anyhow::{Result, ensure};
 use std::collections::BTreeSet;
 
-pub(super) fn defaults(port: &Port, requested: Option<&PortSpec>) -> Result<String> {
+#[derive(Clone)]
+pub(super) struct Selection {
+    pub enabled: String,
+    pub resolved: bool,
+}
+pub(super) fn defaults(port: &Port, requested: Option<&PortSpec>) -> Result<Selection> {
     let available: BTreeSet<_> = tcl_list::parse(port.get("variants"))?.into_iter().collect();
     let metadata = tcl_list::dictionary(port.get("vinfo"))?;
     let mut enabled = BTreeSet::new();
+    let resolved = available.iter().all(|name| metadata.contains_key(name))
+        || port.fields.contains_key("default_variants");
     for name in &available {
-        ensure!(
-            metadata.contains_key(name) || port.fields.contains_key("default_variants"),
-            "default variant metadata for {name} is missing; Portfile evaluation is required"
-        );
         if let Some(raw) = metadata.get(name) {
             let detail = tcl_list::dictionary(raw)?;
             if detail.get("is_default").is_some_and(|value| value == "+") {
@@ -42,10 +45,17 @@ pub(super) fn defaults(port: &Port, requested: Option<&PortSpec>) -> Result<Stri
         for (name, selected) in &spec.variants {
             ensure!(available.contains(name), "unknown variant {name}");
             ensure!(
+                resolved,
+                "cannot validate requested variant {name}: default variant metadata is unavailable"
+            );
+            ensure!(
                 *selected == enabled.contains(name),
                 "non-default variant {name} requires Portfile evaluation; indexed installation plans support default variants only"
             );
         }
     }
-    Ok(enabled.into_iter().map(|name| format!("+{name}")).collect())
+    Ok(Selection {
+        enabled: enabled.into_iter().map(|name| format!("+{name}")).collect(),
+        resolved,
+    })
 }

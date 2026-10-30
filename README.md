@@ -348,9 +348,15 @@ Explicit roots remain marked requested even when another root depends on them.
 
 This is a preliminary plan, not an installer: archive availability, signatures,
 platform compatibility, and activation hooks have not been checked. Non-default
-variants, port options, provider dependencies (`bin:`, `lib:`, `path:`), replaced
-ports, and conflicting active images fail explicitly. Missing default-variant
-metadata also fails instead of guessing. Only the indexed version is supported.
+variants, port options, replaced ports, and conflicting fully-resolved active
+images fail explicitly. Official indexes often omit default-variant metadata:
+these entries now appear as `resolve ... [default variants unresolved]`, allowing
+`port -y install curl` to preview its dependency graph. Provider dependencies
+(`bin:`, `lib:`, `path:`) use their indexed fallback port with an explicit
+`provider checks pending` annotation; existing external providers are not probed.
+Unresolved defaults never approve an active image or an archive identity, and
+explicit variant requests still require sufficient metadata. Only the indexed
+version is supported.
 Cycles and missing dependencies are rejected before any plan is printed.
 
 Use `--index-file PATH` and `--registry-file PATH` for an entirely local preview.

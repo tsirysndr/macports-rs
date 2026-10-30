@@ -28,7 +28,7 @@ pub(super) fn run(
     if !quiet {
         writeln!(
             out,
-            "Preliminary binary installation plan (indexed default variants):"
+            "Preliminary binary installation plan (indexed metadata):"
         )?;
         writeln!(
             out,
@@ -40,10 +40,11 @@ pub(super) fn run(
             Action::Install => "install",
             Action::Activate => "activate",
             Action::AlreadyActive => "active",
+            Action::Resolve => "resolve",
         };
         writeln!(
             out,
-            "{action:<8} {} @{}{}{}",
+            "{action:<8} {} @{}{}{}{}{}",
             item.port.name,
             item.port.version(),
             item.variants,
@@ -51,6 +52,19 @@ pub(super) fn run(
                 " (requested)"
             } else {
                 " (dependency)"
+            },
+            if item.variants_resolved {
+                ""
+            } else {
+                " [default variants unresolved]"
+            },
+            if item.provider_fallbacks.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    " [provider checks pending: {}]",
+                    item.provider_fallbacks.join(", ")
+                )
             }
         )?;
     }

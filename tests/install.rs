@@ -116,7 +116,7 @@ fn missing_dependencies_cycles_and_providers_fail_before_output() {
             ("base", "version 1 depends_run port:app"),
         ],
         vec![
-            ("app", "version 1 depends_run bin:base:base"),
+            ("app", "version 1 depends_run unsupported:base:base"),
             ("base", "version 1"),
         ],
     ] {
@@ -151,7 +151,6 @@ fn insufficient_metadata_and_replaced_ports_are_explicit_errors() {
         "revision 1",
         "version 1 revision bad",
         "version 1 revision -1",
-        "version 1 variants ssl",
         "version 1 replaced_by other",
     ] {
         let f = Fixture::new(&[("app", fields)]);
@@ -246,4 +245,42 @@ fn image_matching_checks_epoch_as_well_as_version() {
     let result = f.run(&["-y", "install", "app"]);
     assert!(!result.status.success());
     assert!(result.stdout.is_empty());
+}
+
+#[test]
+fn official_style_curl_index_plans_missing_defaults_and_provider_fallbacks() {
+    let f = Fixture::new(&[
+        (
+            "curl",
+            "version 8.23.0 revision 0 variants {ares ssl universal} depends_lib {port:zlib path:lib/libssl.dylib:openssl path:share/curl/ca-bundle.crt:curl-ca-bundle}",
+        ),
+        ("zlib", "version 1.3"),
+        ("openssl", "version 3"),
+        ("curl-ca-bundle", "version 8.23.0"),
+    ]);
+    let before = std::fs::read(f.dir.path().join("registry.db")).unwrap();
+    let output = stdout(f.run(&["-qy", "install", "curl"]));
+    assert!(output.starts_with("install  zlib @1.3_0 (dependency)\n"));
+    assert!(output.contains("install  openssl @3_0 (dependency)"));
+    assert!(output.contains("resolve  curl @8.23.0_0 (requested) [default variants unresolved]"));
+    assert!(output.contains("provider checks pending: path:lib/libssl.dylib:openssl"));
+    assert_eq!(
+        std::fs::read(f.dir.path().join("registry.db")).unwrap(),
+        before
+    );
+}
+#[test]
+fn incomplete_variant_metadata_does_not_approve_matching_images() {
+    let f = Fixture::new(&[("app", "version 1 variants {ssl universal}")]);
+    Connection::open(f.dir.path().join("registry.db"))
+        .unwrap()
+        .execute_batch("INSERT INTO ports VALUES(1,'app','1',0,'','installed')")
+        .unwrap();
+    assert_eq!(
+        stdout(f.run(&["-qy", "install", "app"])),
+        "resolve  app @1_0 (requested) [default variants unresolved]\n"
+    );
+    let output = f.run(&["-y", "install", "app", "+ssl"]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("cannot validate requested variant"));
 }
