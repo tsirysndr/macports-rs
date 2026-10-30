@@ -1064,3 +1064,19 @@ NUL bytes, wrapper/plist filename collisions, and symlink destinations fail
 explicitly. Tests execute harmless phase scripts, validate plist arguments, cover
 custom/default restart and quoted prefixes, and verify that wrappers survive the
 native destroot finish lifecycle. Staging itself does not execute the scripts.
+
+Execution-enabled sessions now register the upstream startup-item defaults as
+lazy values. Names, unique names, plist filenames, and stderr paths track the
+options they reference until explicitly overridden. Install/type defaults read
+`system_options(startupitem_install)` and `system_options(startupitem_type)` only
+when needed; absent host configuration is reported rather than guessed. The
+native read-only `portstartupitem::get_startupitem_type` helper is also available
+to metadata evaluation: disabled creation returns none without host configuration,
+and enabled default selection maps Darwin to launchd and other platforms to none.
+Autostart and requires option commands are recognized; service loading and notes
+based on those options are not implemented here. Startup defaults are installed
+when execution is enabled, so metadata-only Portfiles reading the default scalar
+options before that point remain a compatibility gap. As upstream does, ordinary
+option commands store argument lists, while `option name value` stores a scalar
+verbatim. Tests stage custom paths and derived names containing spaces through
+that accessor, without changing list semantics for executable arguments/scripts.

@@ -82,6 +82,7 @@ pub(super) fn initialize(interp: &mut Interp, id: ContextID) -> MoltResult {
             defaults::register(interp, id, name, value)?;
         }
     }
+    startupitem::initialize(interp, id)?;
     Ok(Value::empty())
 }
 

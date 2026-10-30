@@ -1,6 +1,8 @@
 //! Native generation and staging of launchd property lists.
 use super::*;
+mod defaults;
 mod plist;
+pub(super) use defaults::initialize;
 mod wrapper;
 use anyhow::{Context, bail};
 use molt::MoltResult;
@@ -12,6 +14,7 @@ use std::{
 
 pub(super) fn install(interp: &mut Interp, id: ContextID) {
     interp.add_context_command("portstartupitem::startupitem_create", create, id);
+    defaults::install(interp, id);
     for key in [
         "startupitems",
         "startupitem.create",
@@ -36,6 +39,8 @@ pub(super) fn install(interp: &mut Interp, id: ContextID) {
         "startupitem.daemondo.verbosity",
         "startupitem.pidfile",
         "startupitem.debug",
+        "startupitem.autostart",
+        "startupitem.requires",
     ] {
         commands::register(interp, id, key);
     }
