@@ -233,6 +233,16 @@ and version filters, and also work with `outdated`. Dependency data is loaded
 once, only when needed, within the same read snapshot as installed images.
 They are query selectors only: no ports are removed.
 
+`installed` and `outdated` also accept `dependentof:PORT` and
+`rdependentof:PORT` for direct and recursive registered dependents. For example,
+`port installed rdependentof:zlib and requested` lists requested dependents.
+The target is an exact, case-insensitive installed name; missing targets select
+nothing. Results include all installed images of each dependent name, and can
+be filtered with a separate version argument, such as `dependentof:zlib @1.0`.
+Recursive traversal deduplicates shared branches, terminates cycles, and may
+include the target itself when a cycle returns to it. No catalog is loaded.
+These selectors are not yet available in catalog actions such as `echo`.
+
 `port contents curl` lists the active image's registered filesystem paths; if no
 active image matches, a single inactive image is used. When several inactive
 versions match, specify a full version such as `port contents curl @8.10.1_0+ssl`.

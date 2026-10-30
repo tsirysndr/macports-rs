@@ -636,6 +636,8 @@ fn registry_dependent_walk_handles_deep_graphs_iteratively() {
         .unwrap();
     assert_eq!(count, 4999);
     assert_eq!(deepest, 4999);
+    let selected = stdout(f.run(&["-q", "installed", "rdependentof:node0"]));
+    assert_eq!(selected.lines().count(), 4999);
     drop(graph);
     drop(registry);
     Connection::open(&f.path)
@@ -1231,4 +1233,117 @@ fn outdated_accepts_leaf_expressions_and_excludes_requested_ports() {
     let output = stdout(f.run(&["-q", "outdated", "leaves", "or", "rleaves"]));
     assert!(output.contains("pkg2"));
     assert!(!output.contains("curl"));
+}
+
+#[test]
+fn dependency_selectors_compose_with_registry_expressions() {
+    let f = dependent_fixture(&[
+        ("base", &[]),
+        ("lib", &["base"]),
+        ("app", &["lib"]),
+        ("other", &[]),
+    ]);
+    Connection::open(&f.path)
+        .unwrap()
+        .execute("UPDATE ports SET requested=1 WHERE name='app'", [])
+        .unwrap();
+    assert_eq!(
+        stdout(f.run(&["-q", "installed", "dependentof:BASE"])),
+        "  lib @1_0 (active)\n"
+    );
+    assert_eq!(
+        stdout(f.run(&["-q", "installed", "rdependentof:base"])),
+        "  app @1_0 (active)\n  lib @1_0 (active)\n"
+    );
+    assert_eq!(
+        stdout(f.run(&["-q", "installed", "rdependentof:base", "and", "requested"])),
+        "  app @1_0 (active)\n"
+    );
+    assert_eq!(
+        stdout(f.run(&[
+            "-q",
+            "installed",
+            "rdependentof:base",
+            "and",
+            "not",
+            "dependentof:base"
+        ])),
+        "  app @1_0 (active)\n"
+    );
+}
+#[test]
+fn dependency_selectors_include_all_images_of_dependent_names() {
+    let f = dependent_fixture(&[("base", &[]), ("app", &["base"]), ("app", &[])]);
+    let db = Connection::open(&f.path).unwrap();
+    db.create_collation("VERSION", |a, b| a.cmp(b)).unwrap();
+    db.execute_batch("UPDATE ports SET version='2',state='imaged' WHERE id=3")
+        .unwrap();
+    for selector in ["dependentof:base", "rdependentof:base"] {
+        assert_eq!(
+            stdout(f.run(&["-q", "installed", selector])),
+            "  app @1_0 (active)\n  app @2_0\n"
+        );
+        assert_eq!(
+            stdout(f.run(&["-q", "installed", selector, "@2_0"])),
+            "  app @2_0\n"
+        );
+        assert_eq!(stdout(f.run(&["-q", "installed", selector, "@99"])), "");
+    }
+}
+#[test]
+fn dependency_selectors_deduplicate_diamonds_and_terminate_cycles() {
+    let f = dependent_fixture(&[
+        ("base", &["app"]),
+        ("left", &["base"]),
+        ("right", &["base"]),
+        ("app", &["left", "right"]),
+    ]);
+    assert_eq!(
+        stdout(f.run(&["-q", "installed", "rdependentof:base"])),
+        "  app @1_0 (active)\n  base @1_0 (active)\n  left @1_0 (active)\n  right @1_0 (active)\n"
+    );
+}
+#[test]
+fn dependency_selectors_validate_names_and_load_edges_lazily() {
+    let f = Fixture::new();
+    assert_eq!(
+        stdout(f.run(&["-q", "installed", "dependentof:absent"])),
+        ""
+    );
+    for selector in [
+        "dependentof:",
+        "rdependentof:",
+        "dependentof:pkg*",
+        "dependentof:curl@8.9",
+        "dependentof:curl",
+    ] {
+        let result = f.run(&["installed", "pkg2", selector]);
+        assert!(!result.status.success(), "{selector}");
+        assert!(result.stdout.is_empty());
+    }
+    assert!(f.run(&["installed", "active"]).status.success());
+}
+#[test]
+fn outdated_dependency_selectors_filter_active_images() {
+    let f = outdated_fixture(&[("curl", "version 99"), ("pkg2", "version 99")]);
+    Connection::open(&f.path).unwrap().execute_batch("CREATE TABLE dependencies(id INTEGER,name TEXT); INSERT INTO dependencies VALUES (2,'pkg2')").unwrap();
+    let output = stdout(f.run(&["-q", "outdated", "dependentof:pkg2"]));
+    assert!(output.contains("curl"));
+    assert!(!output.contains("pkg2"));
+}
+#[test]
+fn dependency_selector_chains_do_not_load_the_catalog() {
+    let f = dependent_fixture(&[("base", &[]), ("lib", &["base"]), ("app", &["lib"])]);
+    assert_eq!(
+        stdout(f.run(&[
+            "-q",
+            "installed",
+            "dependentof:base",
+            ";",
+            "installed",
+            "dependentof:lib"
+        ])),
+        "  lib @1_0 (active)\n  app @1_0 (active)\n"
+    );
+    assert!(!f.dir.path().join("missing-home").exists());
 }

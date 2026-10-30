@@ -1,8 +1,11 @@
 //! Boolean selection over installed image identities, preserving distinct versions.
-use super::{Entry, Registry, leaves::Leaves, specifications};
-use crate::{query::Matcher, spec::is_modifier};
+use super::{Entry, Registry, dependents::Graph, leaves::Leaves, specifications};
+use crate::{
+    query::Matcher,
+    spec::{PortSpec, is_modifier},
+};
 use anyhow::{Result, bail, ensure};
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 
 #[derive(Clone, Copy)]
 pub enum Missing {
@@ -27,6 +30,7 @@ pub fn select<'a>(
         missing,
         registry,
         leaves: None,
+        dependents: None,
     };
     let selected = parser.sequence()?;
     ensure!(
@@ -44,6 +48,7 @@ struct Expression<'a> {
     missing: Missing,
     registry: Option<&'a Registry>,
     leaves: Option<Leaves>,
+    dependents: Option<Graph<'a>>,
 }
 impl Expression<'_> {
     fn peek(&self) -> Option<&str> {
@@ -112,6 +117,11 @@ impl Expression<'_> {
         while self.peek().is_some_and(is_modifier) {
             self.cursor += 1;
         }
+        if let Some((selector, name)) = self.tokens[start].split_once(':')
+            && matches!(selector, "dependentof" | "rdependentof")
+        {
+            return self.dependency_atom(name, selector == "rdependentof", start + 1);
+        }
         let specs = specifications(&self.tokens[start..self.cursor])?;
         let spec = &specs[0];
         let pseudo = matches!(
@@ -167,5 +177,63 @@ impl Expression<'_> {
             }
         );
         Ok(result)
+    }
+    fn dependency_atom(
+        &mut self,
+        name: &str,
+        recursive: bool,
+        modifiers: usize,
+    ) -> Result<BTreeSet<usize>> {
+        ensure!(!name.is_empty(), "dependent selector requires a port name");
+        ensure!(
+            !name.contains(['@', ':', '/', '*', '?', '[', ']']),
+            "dependent selectors require an exact port name; put version filters after the selector"
+        );
+        let mut spec = PortSpec::named(name);
+        for token in &self.tokens[modifiers..self.cursor] {
+            spec.parse_modifier(token)?;
+        }
+        if !self
+            .entries
+            .iter()
+            .any(|entry| entry.name.eq_ignore_ascii_case(name))
+        {
+            return Ok(BTreeSet::new());
+        }
+        if self.dependents.is_none() {
+            let registry = self
+                .registry
+                .ok_or_else(|| anyhow::anyhow!("dependent selectors require an open registry"))?;
+            self.dependents = Some(Graph::build(registry, self.entries)?);
+        }
+        let graph = self.dependents.as_ref().unwrap();
+        let mut names = HashSet::new();
+        if recursive {
+            graph.walk(name, false, |entry, _, _| {
+                names.insert(entry.name.to_ascii_lowercase());
+                Ok(())
+            })?;
+        } else {
+            names.extend(
+                graph
+                    .direct(name)
+                    .map(|entry| entry.name.to_ascii_lowercase()),
+            );
+        }
+        // Upstream dependency selectors yield names, so selecting one name includes
+        // all its installed images, even if only one image records the dependency.
+        let version = spec.composite_version();
+        Ok(self
+            .entries
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| {
+                names.contains(&entry.name.to_ascii_lowercase())
+                    && (version.is_empty()
+                        || version == entry.version
+                        || version == entry.full_version())
+            })
+            .map(|(i, _)| i)
+            .collect())
     }
 }
