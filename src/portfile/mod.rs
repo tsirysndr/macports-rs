@@ -2,6 +2,8 @@
 //! This is an incremental MacPorts command implementation, not yet a complete
 //! PortSystem. Unsupported commands fail; deferred build hooks are retained.
 mod commands;
+mod groups;
+pub use groups::{LoadedGroup, PortGroups};
 mod variants;
 use crate::{index::Port, spec::PortSpec};
 use anyhow::{Result, ensure};
@@ -21,6 +23,7 @@ pub struct Hook {
     pub body: String,
 }
 pub struct Evaluation {
+    pub groups: Vec<LoadedGroup>,
     pub port: Port,
     pub variants: BTreeMap<String, Variant>,
     pub enabled: String,
@@ -28,6 +31,9 @@ pub struct Evaluation {
 }
 #[derive(Default)]
 struct State {
+    groups: PortGroups,
+    loaded_groups: Vec<LoadedGroup>,
+    group_failures: BTreeSet<String>,
     options: BTreeSet<String>,
     overrides: BTreeSet<String>,
     variants: BTreeMap<String, Variant>,
@@ -56,35 +62,37 @@ fn list(values: impl IntoIterator<Item = String>) -> Value {
 }
 
 /// Evaluate source supplied by the caller, using explicit platform/configuration
-/// variables. Does not load PortGroups, touch the filesystem, or execute hooks.
+/// variables. Does not search for PortGroups, touch the filesystem, or execute hooks.
 /// Callers must not treat success as approval to skip the returned hooks.
 pub fn evaluate(
     source: &str,
     variables: &BTreeMap<String, String>,
     requested: &PortSpec,
 ) -> Result<Evaluation> {
+    evaluate_with_groups(source, variables, requested, PortGroups::default())
+}
+
+/// Evaluate with caller-selected local or embedded PortGroup sources. Imported
+/// source is fingerprinted for later registry recording; fingerprints do not
+/// establish trust. Failed imports remain fatal even if script code catches them.
+pub fn evaluate_with_groups(
+    source: &str,
+    variables: &BTreeMap<String, String>,
+    requested: &PortSpec,
+    groups: PortGroups,
+) -> Result<Evaluation> {
     let mut interp = Interp::new();
     interp.set_recursion_limit(128);
     interp.eval("unset env").map_err(failure)?;
     let id = interp.save_context(State {
+        groups,
         selected: requested.variants.clone(),
         requested: requested.variants.clone(),
         ..State::default()
     });
     for command in [
-        "source",
-        "exit",
-        "puts",
-        "parse",
-        "pdump",
-        "pclear",
-        "exec",
-        "open",
-        "socket",
-        "load",
-        "PortGroup",
-        "default",
-        "platform",
+        "source", "exit", "puts", "parse", "pdump", "pclear", "exec", "open", "socket", "load",
+        "default", "platform",
     ] {
         interp.add_context_command(command, commands::unsupported, id);
     }
@@ -106,10 +114,6 @@ pub fn evaluate(
             .map_err(failure)?;
     }
     for (name, value) in &requested.options {
-        ensure!(
-            interp.context::<State>(id).options.contains(name),
-            "unknown port option {name}"
-        );
         interp
             .set_scalar(name, value.clone().into())
             .map_err(failure)?;
@@ -120,7 +124,14 @@ pub fn evaluate(
             .map_err(failure)?;
     }
     commands::install(&mut interp, id);
+    interp.add_context_command("PortGroup", groups::command, id);
     interp.eval(source).map_err(failure)?;
+    for (name, _) in &requested.options {
+        ensure!(
+            interp.context::<State>(id).options.contains(name),
+            "unknown port option {name}"
+        );
+    }
     variants::apply(&mut interp, id).map_err(failure)?;
     ensure!(
         interp.context::<State>(id).unsupported.is_empty(),
@@ -132,6 +143,17 @@ pub fn evaluate(
             .cloned()
             .collect::<Vec<_>>()
             .join(", ")
+    );
+    ensure!(
+        interp.context::<State>(id).group_failures.is_empty(),
+        "Portfile imports did not complete: {}",
+        interp
+            .context::<State>(id)
+            .group_failures
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("; ")
     );
     let options = interp.context::<State>(id).options.clone();
     let mut fields = BTreeMap::new();
@@ -188,6 +210,7 @@ pub fn evaluate(
     fields.insert("vinfo".into(), list(metadata).to_string());
     let enabled = state.active.iter().map(|name| format!("+{name}")).collect();
     Ok(Evaluation {
+        groups: std::mem::take(&mut state.loaded_groups),
         port: Port {
             name: requested.name.clone(),
             fields,

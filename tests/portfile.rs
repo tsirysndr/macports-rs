@@ -153,7 +153,6 @@ fn retains_hooks_without_executing_their_bodies() {
 #[test]
 fn unsupported_commands_cannot_be_hidden_by_catch() {
     for command in [
-        "PortGroup example 1.0",
         "source /etc/passwd",
         "exec anything",
         "exit",
