@@ -619,6 +619,15 @@ the command must not change process-wide credentials in the concurrent CLI.
 State warnings currently go to stderr; lock-wait progress and full UI routing,
 writable-tree ownership preparation, runtime `.home`/`.tmp` recreation after
 invalidation, and CLI phase scheduling remain unfinished.
+`Session::execute_target` runs a prepared dependency item's init, prerun,
+pre-hooks, body, post-hooks, and postrun callbacks. Initialization runs before
+completed-state and dry-run checks. Failures stop later callbacks and leave the
+phase unrecorded; successful non-always stateful targets append completion.
+The caller owns the state handle and its lifetime. This is the callback/state
+portion of `target_run`: runtime-package loading, prerequisites, environment,
+working directory, sandbox/tracing, privileges, and log copying still belong to
+the host driver and are not supplied by this method. The full PortSystem
+`target_run` command and CLI phase scheduling remain unfinished.
 Native `file join`, `dirname`, `tail`, `extension`, `rootname`, `split`,
 `pathtype`, and `separator` construct and inspect Unix paths without filesystem
 access. These follow the current MacPorts-bundled Tcl 9 lexical rules, including
