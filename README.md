@@ -402,6 +402,14 @@ pre/post hooks accumulate in declaration order. Only selected variant/subport/
 platform bodies register overrides. These scripts are not executed during
 metadata evaluation; phase execution and `do-*` delegation remain to be wired up.
 
+PortSystem dependency-item records now support `ditem_create`, key access,
+append/unique append, membership, snapshots, and deletion. `target_new` and
+target-property setters retain custom metadata; standard phase handles expose
+their names, requirements, and procedure references. Hook and override declarations
+update these records and define their user-procedure wrappers with global-variable
+access. Records are returned with the evaluation result. Dynamic `target_provides`,
+target scheduling, and built-in phase execution remain incomplete.
+
 PortGroups can be imported from explicitly configured local directories or
 embedded sources, with deterministic search precedence and one evaluation per
 name/version. Nested and recursive includes share the interpreter. Imported

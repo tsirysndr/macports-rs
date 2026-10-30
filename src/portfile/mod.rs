@@ -3,6 +3,7 @@
 //! PortSystem. Unsupported commands fail; deferred build hooks are retained.
 mod commands;
 mod defaults;
+mod ditems;
 mod groups;
 mod platform;
 mod source;
@@ -36,6 +37,9 @@ pub struct Evaluation {
     /// Custom phase bodies, replacing the built-in implementation for that phase.
     /// These are deferred scripts, not executed or validated build actions.
     pub targets: BTreeMap<String, String>,
+    /// Opaque dependency-item handles and their final metadata. These records
+    /// do not imply that the associated phase procedures can execute yet.
+    pub dependency_items: BTreeMap<String, BTreeMap<String, String>>,
 }
 #[derive(Default)]
 struct State {
@@ -54,6 +58,8 @@ struct State {
     changing_format: bool,
     hooks: Vec<Hook>,
     targets: BTreeMap<String, String>,
+    phase_items: BTreeMap<String, Value>,
+    ditems: ditems::Items,
     selected_subport: bool,
     active: BTreeSet<String>,
     unsupported: BTreeSet<String>,
@@ -136,7 +142,8 @@ pub fn evaluate_with_groups(
             .map_err(failure)?;
     }
     commands::install(&mut interp, id);
-    targets::install(&mut interp, id);
+    ditems::install(&mut interp, id);
+    targets::install(&mut interp, id).map_err(failure)?;
     interp.add_context_command("PortGroup", groups::command, id);
     interp.add_context_command("platform", platform::command, id);
     defaults::install(&mut interp, id).map_err(failure)?;
@@ -236,5 +243,6 @@ pub fn evaluate_with_groups(
         variants: std::mem::take(&mut state.variants),
         hooks: std::mem::take(&mut state.hooks),
         targets: std::mem::take(&mut state.targets),
+        dependency_items: state.ditems.snapshot(),
     })
 }
