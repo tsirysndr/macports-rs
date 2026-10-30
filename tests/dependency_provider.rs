@@ -363,3 +363,60 @@ fn evaluated_closure_and_final_graph_share_the_same_provider_decisions() {
             .is_satisfied()
     );
 }
+
+#[test]
+fn session_search_reads_live_environment_without_host_fallback() {
+    use port_rs::{
+        portfile::{PortGroups, Session},
+        spec::PortSpec,
+    };
+    let root = tempfile::tempdir().unwrap();
+    let mut session = Session::open(
+        "name app; version 1",
+        &BTreeMap::new(),
+        &PortSpec::named("app"),
+        PortGroups::default(),
+    )
+    .unwrap();
+    for (key, value) in [
+        ("prefix", root.path().to_str().unwrap()),
+        ("frameworks_dir", "/custom/frameworks"),
+        ("os.platform", "darwin"),
+        ("env(PATH)", root.path().to_str().unwrap()),
+        ("env(DYLD_LIBRARY_PATH)", "/one:/two"),
+        ("env(DYLD_FRAMEWORK_PATH)", ""),
+    ] {
+        session.invoke("set", &[key, value]).unwrap();
+    }
+    let search = Search::from_session(&mut session).unwrap();
+    assert_eq!(search.prefix, root.path());
+    assert_eq!(search.frameworks_dir, Path::new("/custom/frameworks"));
+    assert_eq!(search.platform, "darwin");
+    assert_eq!(search.environment["DYLD_LIBRARY_PATH"], "/one:/two");
+    assert_eq!(search.environment["DYLD_FRAMEWORK_PATH"], "");
+    let tool = root.path().join("tool");
+    fs::write(&tool, b"not executed").unwrap();
+    fs::set_permissions(&tool, fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(
+        Resolver::new(None, search)
+            .unwrap()
+            .resolve("bin:tool:fallback")
+            .unwrap(),
+        None
+    );
+    session.invoke("unset", &["env(PATH)"]).unwrap();
+    let search = Search::from_session(&mut session).unwrap();
+    assert!(!search.environment.contains_key("PATH"));
+    let resolver = Resolver::new(None, search).unwrap();
+    assert!(
+        resolver
+            .resolve("bin:tool:fallback")
+            .unwrap_err()
+            .to_string()
+            .contains("PATH is required")
+    );
+    assert_eq!(
+        resolver.resolve("port:required").unwrap(),
+        Some("required".into())
+    );
+}

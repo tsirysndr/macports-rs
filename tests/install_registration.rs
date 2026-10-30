@@ -176,3 +176,49 @@ fn rejects_stale_plans_and_unresolved_providers() {
         .is_err()
     );
 }
+
+#[test]
+fn resolves_registration_providers_using_live_session_context() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("provided"), b"provider").unwrap();
+    let spec = spec();
+    let port = port();
+    let mut session = session(&spec);
+    for (key, value) in [
+        ("prefix", root.path().to_str().unwrap()),
+        ("frameworks_dir", root.path().to_str().unwrap()),
+        ("os.platform", "darwin"),
+        ("depends_lib", "path:provided:fallback port:required"),
+        ("depends_run", "port:REQUIRED"),
+        ("depends_build", "port:build-only"),
+    ] {
+        session.invoke("set", &[key, value]).unwrap();
+    }
+    let (_, record) = registration::with_providers(
+        &mut session,
+        &item(&port),
+        &machine(),
+        &spec,
+        "retained".into(),
+        None,
+    )
+    .unwrap();
+    assert_eq!(record.dependencies, ["required"]);
+    assert_eq!(record.portfile, "retained");
+    session
+        .invoke(
+            "set",
+            &["prefix", root.path().join("other").to_str().unwrap()],
+        )
+        .unwrap();
+    let (_, record) = registration::with_providers(
+        &mut session,
+        &item(&port),
+        &machine(),
+        &spec,
+        String::new(),
+        None,
+    )
+    .unwrap();
+    assert_eq!(record.dependencies, ["fallback", "required"]);
+}

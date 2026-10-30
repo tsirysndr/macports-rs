@@ -14,6 +14,35 @@ pub struct Search {
     pub platform: String,
     pub environment: BTreeMap<String, String>,
 }
+impl Search {
+    /// Snapshot the Portfile's current search context, including its environment
+    /// array. Missing environment entries stay absent; never substitute the
+    /// Rust process environment after a Portfile has changed or unset them.
+    pub fn from_session(session: &mut crate::portfile::Session) -> Result<Self> {
+        let prefix = session.scalar("prefix")?.into();
+        let frameworks_dir = session.scalar("frameworks_dir")?.into();
+        let platform = session.scalar("os.platform")?;
+        let mut environment = BTreeMap::new();
+        for name in [
+            "PATH",
+            "DYLD_FRAMEWORK_PATH",
+            "DYLD_FALLBACK_FRAMEWORK_PATH",
+            "DYLD_LIBRARY_PATH",
+            "DYLD_FALLBACK_LIBRARY_PATH",
+        ] {
+            let variable = format!("env({name})");
+            if session.invoke("info", &["exists", &variable])? == "1" {
+                environment.insert(name.into(), session.invoke("set", &[&variable])?);
+            }
+        }
+        Ok(Self {
+            prefix,
+            frameworks_dir,
+            platform,
+            environment,
+        })
+    }
+}
 pub struct Resolver<'a> {
     registry: Option<&'a Registry>,
     active: HashSet<String>,

@@ -11,6 +11,32 @@ pub struct Inputs<'a> {
     pub portfile: String,
 }
 
+/// Derive runtime dependency names from the live Portfile and a current registry
+/// snapshot. Call after dependency installation, with a fresh registry reader;
+/// a planning snapshot cannot observe providers activated in the meantime.
+pub fn with_providers(
+    session: &mut Session,
+    item: &Item<'_>,
+    machine: &Platform,
+    requested: &PortSpec,
+    portfile: String,
+    registry: Option<&crate::registry::Registry>,
+) -> Result<(Target, NewImage)> {
+    use crate::dependencies::provider::{Resolver, Search};
+    let resolver = Resolver::new(registry, Search::from_session(session)?)?;
+    let dependencies = resolver.runtime_dependencies(session)?;
+    from_session(
+        session,
+        item,
+        machine,
+        Inputs {
+            requested,
+            dependencies,
+            portfile,
+        },
+    )
+}
+
 pub fn from_session(
     session: &mut Session,
     item: &Item<'_>,

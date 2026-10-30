@@ -1402,6 +1402,11 @@ without adding build/test dependencies. Tests cover probe semantics, active fall
 priority, alternate registered owners, system providers, environment paths, and
 runtime list changes. This resolves registration names; it does not itself install
 missing providers or authorize skipping dependency-plan checks.
+`Search::from_session` captures the live prefix, framework directory, platform,
+and provider-related environment entries without substituting host environment
+values for unset entries. `registration::with_providers` combines this context
+with runtime dependency resolution and registration metadata. Its registry reader
+must be opened after dependency activation so ownership reflects installed providers.
 
 Provider probes now return explicit evidence: an active registered port, an
 unregistered system path, or a missing fallback port. The existing registration-name
