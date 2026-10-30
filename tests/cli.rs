@@ -666,3 +666,87 @@ fn command_local_index_overrides_reset_between_actions() {
         "curl\ncurlish\nzlib\nother\ncurl\ncurlish\nzlib\n"
     );
 }
+
+#[test]
+fn version_action_works_without_index_home_or_external_tools() {
+    let directory = tempfile::tempdir().unwrap();
+    for quiet in [false, true] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_port"));
+        if quiet {
+            command.arg("-q");
+        }
+        let output = command
+            .arg("version")
+            .current_dir(directory.path())
+            .env("PORT_RS_INDEX", directory.path().join("missing-index"))
+            .env("HOME", directory.path().join("missing-home"))
+            .env("PATH", "")
+            .output()
+            .unwrap();
+        assert_eq!(
+            stdout(&output),
+            format!(
+                "{}{}\n",
+                if quiet { "" } else { "Version: " },
+                env!("CARGO_PKG_VERSION")
+            )
+        );
+    }
+    assert!(!directory.path().join("missing-home").exists());
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn platform_action_detects_host_without_loading_index_or_spawning_tools() {
+    let directory = tempfile::tempdir().unwrap();
+    for quiet in [false, true] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_port"));
+        if quiet {
+            command.arg("-q");
+        }
+        let output = command
+            .arg("platform")
+            .current_dir(directory.path())
+            .env("PORT_RS_INDEX", directory.path().join("missing-index"))
+            .env("HOME", directory.path().join("missing-home"))
+            .env("PATH", "")
+            .output()
+            .unwrap();
+        let output = stdout(&output);
+        let platform = output
+            .strip_prefix(if quiet { "" } else { "Platform: " })
+            .unwrap();
+        let fields: Vec<_> = platform.split_whitespace().collect();
+        assert_eq!(fields.len(), 3);
+        assert_eq!(fields[0], "darwin");
+        assert!(fields[1].parse::<u32>().unwrap() > 0);
+        assert!(["arm", "i386", "powerpc"].contains(&fields[2]));
+    }
+    assert!(!directory.path().join("missing-home").exists());
+}
+
+#[test]
+fn system_actions_reject_unexpected_port_arguments() {
+    let fixture = Fixture::new();
+    for action in ["version", "platform"] {
+        assert!(!fixture.run(&[action, "curl"]).status.success());
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn system_actions_can_be_chained_without_a_catalog() {
+    let directory = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_port"))
+        .args(["-q", "version", ";", "platform", ";", "version"])
+        .env("PORT_RS_INDEX", directory.path().join("missing-index"))
+        .env("PATH", "")
+        .output()
+        .unwrap();
+    let output = stdout(&output);
+    let lines: Vec<_> = output.lines().collect();
+    assert_eq!(lines.len(), 3);
+    assert_eq!(lines[0], env!("CARGO_PKG_VERSION"));
+    assert!(lines[1].starts_with("darwin "));
+    assert_eq!(lines[2], lines[0]);
+}

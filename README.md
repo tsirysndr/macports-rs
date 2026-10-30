@@ -63,6 +63,7 @@ unimplemented; removing the platform cache file triggers a fresh download.
 
 | Area | Status |
 | --- | --- |
+| `version`, `platform` | Native, index-free, supports quiet output |
 | `list [ports...]`, `list all` | Native, including upstream column formatting and no-argument default |
 | `search` | Name/description defaults, explicit metadata field filters, `--depends`, exact/glob/regex, quiet and line modes |
 | `info --index` | Ordered fields, `--line`, `--pretty`, metadata summaries, maintainer decoding, and dependency formatting |
@@ -78,6 +79,12 @@ unimplemented; removing the platform cache file triggers a fresh download.
 | Registry selectors, `depof`/`rdepof`, current directory, Portfile URLs | Not implemented |
 | Command chaining | Quoted `;` separators, per-action option reset, stops on first error |
 | Interactive mode and command files | Not implemented |
+
+`port version` reports this Rust implementation's package version, not a
+MacPorts base version. `port platform` prints `darwin <major> <architecture>`
+using the same native machine detection as automatic index selection (`arm` for
+Apple Silicon, `i386` for Intel). Both work without a catalog, network access,
+or external executables; `-q` omits the label.
 
 Chain actions with a quoted or escaped semicolon so your shell passes it to
 `port`, for example `port -q echo curl ';' info --index --version curl`.

@@ -4,6 +4,7 @@ mod download;
 mod info;
 mod inspect;
 mod search;
+mod system;
 
 use anyhow::{Result, bail, ensure};
 use clap::Subcommand;
@@ -14,6 +15,10 @@ use std::{
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Display the version of this standalone Rust implementation
+    Version,
+    /// Display the native MacPorts platform and architecture
+    Platform,
     /// List ports from a local MacPorts PortIndex
     List {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -84,7 +89,13 @@ impl Session {
         );
         let stdout = io::stdout();
         let mut out = io::BufWriter::new(stdout.lock());
-        if let Command::Download(args) = command {
+        if matches!(command, Command::Version | Command::Platform) {
+            match command {
+                Command::Version => system::version(&mut out, quiet)?,
+                Command::Platform => system::platform(&mut out, quiet)?,
+                _ => unreachable!(),
+            }
+        } else if let Command::Download(args) = command {
             download::run(&mut out, args, quiet)?;
         } else {
             // Offline index queries never initialize an async runtime or HTTP client.
@@ -115,7 +126,10 @@ impl Session {
                     quiet,
                     verbose,
                 )?,
-                Command::Download(_) | Command::Unsupported(_) => unreachable!(),
+                Command::Version
+                | Command::Platform
+                | Command::Download(_)
+                | Command::Unsupported(_) => unreachable!(),
             }
         }
         out.flush()?;
