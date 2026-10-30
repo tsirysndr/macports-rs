@@ -436,6 +436,21 @@ remain explicit errors. The synchronous interpreter must run on a worker when
 using the async build runner; this does not yet wire ordinary CLI installation,
 PortSystem target scheduling, or cancellation of the interpreter itself.
 
+With execution enabled, `command_exec` assembles command/pre/post argument shell
+fragments, supports `-varprefix` and shell prefixes/suffixes, prepares the command
+directory, applies the command environment and explicit compiler/SDK settings,
+and restores the session environment after success or failure. The executor uses
+fallible `SystemRequest::into_command` to prepare directories relative to its
+working directory. `parse_environment`, `append_to_environment_value`, and
+`environment_array_to_string` implement the corresponding native helpers.
+
+`portbuild::build_main` now executes configured build commands, including
+make/ninja job arguments and make directory logging. `do-build` can delegate to
+it from a custom build block. Compiler discovery, default command/directory
+selection, and PortSystem initialization are still required; callers must supply
+the execution configuration. Priority/terminal flags and native progress callbacks
+remain unsupported. A macOS integration test compiles a C program and verifies
+prefixed compiler diagnostics through this path.
 
 The `portfile` library now evaluates an initial set of Portfile metadata commands
 in Rust using [Molt](https://docs.rs/molt/latest/molt/), without `tclsh` or libtcl.
@@ -453,7 +468,8 @@ pre/post hooks accumulate in declaration order. Only selected variant/subport/
 platform bodies register overrides. These scripts are not executed during
 metadata evaluation. After an override, `do-<phase>` invokes the original
 procedure captured when the phase was registered, passing its phase name.
-Built-in phase procedures themselves still need native implementations.
+Most built-in phase procedures still need native implementations; the build
+procedure can run with explicitly supplied configuration.
 
 PortSystem dependency-item records now support `ditem_create`, key access,
 append/unique append, membership, snapshots, and deletion. `target_new` and
@@ -465,7 +481,7 @@ provided tokens and registers custom phase declarations and pre/post hooks.
 Existing phase commands retain their original binding when another target provides
 the same token; pre/post declarations bind to the latest provider. Renaming a
 phase declaration preserves its bound target identity. Full target execution,
-state-file integration, and built-in phase procedures remain incomplete.
+state-file integration, and the remaining built-in phase procedures are incomplete.
 
 The `commands` declaration creates the standard command-option families, including
 `.cmd`, `.dir`, `.args`, and `.env`. Configure/compiler and livecheck metadata

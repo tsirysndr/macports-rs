@@ -1,6 +1,7 @@
 //! Explicitly enabled PortSystem shell execution; never enabled for metadata queries.
 use super::*;
 use crate::build::{Command, ProcessResult};
+use anyhow::Context;
 use molt::{MoltResult, check_args};
 use std::{
     os::unix::process::ExitStatusExt,
@@ -15,12 +16,27 @@ pub struct SystemRequest {
     pub script: String,
     pub directory: Option<PathBuf>,
     pub environment: BTreeMap<String, String>,
+    /// Directory command_exec must create before launching its shell.
+    pub prepare_directory: Option<PathBuf>,
 }
 impl SystemRequest {
     /// MacPorts explicitly runs system scripts via /bin/sh -c. Resolve relative
     /// -W paths against the session's directory without changing the host cwd.
-    pub fn into_command(self, directory: &Path) -> Command {
-        Command {
+    /// For command_exec requests, prepare its directory relative to the same
+    /// base before returning the executable command.
+    pub fn into_command(self, directory: &Path) -> Result<Command> {
+        if let Some(path) = &self.prepare_directory {
+            let path = directory.join(path);
+            if !path
+                .try_exists()
+                .with_context(|| format!("cannot inspect command directory {}", path.display()))?
+            {
+                std::fs::create_dir_all(&path).with_context(|| {
+                    format!("cannot create command directory {}", path.display())
+                })?;
+            }
+        }
+        Ok(Command {
             program: "/bin/sh".into(),
             args: vec!["-c".into(), self.script.into()],
             directory: self
@@ -33,7 +49,7 @@ impl SystemRequest {
                 .map(|(k, v)| (k.into(), v.into()))
                 .collect(),
             clear_environment: true,
-        }
+        })
     }
 }
 
@@ -98,6 +114,7 @@ fn command(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     let request = SystemRequest {
         script: argv.last().unwrap().to_string(),
         directory,
+        prepare_directory: None,
         environment: environment
             .as_chunks::<2>()
             .0
@@ -105,6 +122,14 @@ fn command(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
             .map(|pair| (pair[0].to_string(), pair[1].to_string()))
             .collect(),
     };
+    execute_request(interp, id, request)
+}
+
+pub(super) fn execute_request(
+    interp: &mut Interp,
+    id: ContextID,
+    request: SystemRequest,
+) -> MoltResult {
     let result = interp
         .context::<State>(id)
         .system_executor

@@ -62,7 +62,7 @@ fn executes_shell_in_requested_directory_with_live_isolated_environment() {
             move |request| {
                 let mut output = sink.lock().unwrap();
                 runtime.block_on(build::run_status_to(
-                    &request.into_command(&directory),
+                    &request.into_command(&directory)?,
                     "git",
                     Phase::Build,
                     &mut *output,
@@ -102,7 +102,7 @@ fn catch_receives_childstatus_and_signaled_errors_and_can_recover() {
     session
         .enable_system(&BTreeMap::new(), move |request| {
             runtime.block_on(build::run_status_to(
-                &request.into_command(&directory),
+                &request.into_command(&directory)?,
                 "git",
                 Phase::Build,
                 &mut Vec::new(),
@@ -168,7 +168,7 @@ async fn portfile_system_streams_partial_logs_before_shell_exits() {
         session
             .enable_system(&BTreeMap::new(), move |request| {
                 runtime.block_on(build::run_status_to(
-                    &request.into_command(&path),
+                    &request.into_command(&path)?,
                     "git",
                     Phase::Build,
                     &mut writer,
@@ -227,7 +227,7 @@ fn native_scheduler_stops_dependent_shell_commands_after_build_failure() {
         .enable_system(&BTreeMap::new(), move |request| {
             let mut output = sink.lock().unwrap();
             runtime.block_on(build::run_status_to(
-                &request.into_command(&path),
+                &request.into_command(&path)?,
                 "git",
                 Phase::Build,
                 &mut *output,
