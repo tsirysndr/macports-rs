@@ -329,11 +329,13 @@ checks run before atomic, no-clobber publication. Verified files are reused;
 corrupt existing files are reported and preserved. Retries and alternative
 mirrors are supported. A batch failure still drains other pending downloads.
 
-Clap help headings, usage, command names, and option names share the **`#7517fc`**
-accent with progress output. Help retains automatic color detection and respects
+Help and progress use the Rocksky CLI palette: teal **`#00E8C6`** headings and
+phase markers, cyan **`#00C6E8`** command/option names and active progress,
+violet **`#8264FF`** arguments, green **`#64E882`** valid values, and coral
+**`#FF6464`** errors. Help retains automatic color detection and respects
 `NO_COLOR`; redirected help stays plain.
 
-The progress renderer uses that accent, compact spinners,
+The progress renderer uses cyan compact spinners,
 per-file bars, byte counts, throughput, and ETA. It handles unknown content
 lengths without inventing a percentage. Progress goes to stderr; redirected
 output uses plain phase messages. `NO_COLOR`, `TERM=dumb`, and `-q` are respected.

@@ -80,16 +80,18 @@ mod tests {
     use super::*;
     use clap::CommandFactory;
     #[test]
-    fn help_uses_exact_accent_including_subcommands() {
+    fn help_uses_rocksky_palette_including_subcommands() {
         let mut command = Cli::command();
         command.build();
         let help = command.render_long_help();
-        assert!(help.ansi().to_string().contains("\x1b[38;2;117;23;252m"));
+        assert!(help.ansi().to_string().contains("\x1b[38;2;0;232;198m"));
+        assert!(help.ansi().to_string().contains("\x1b[38;2;0;198;232m"));
+        assert!(help.ansi().to_string().contains("\x1b[38;2;130;100;255m"));
         assert!(!help.to_string().contains('\x1b'));
         for subcommand in command.get_subcommands_mut() {
             let help = subcommand.render_long_help().ansi().to_string();
             assert!(
-                help.contains("\x1b[38;2;117;23;252m"),
+                help.contains("\x1b[38;2;0;232;198m"),
                 "{}",
                 subcommand.get_name()
             );

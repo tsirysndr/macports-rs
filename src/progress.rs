@@ -1,6 +1,6 @@
 //! Terminal presentation shared by real fetch/build/install phases.
 //! Output stays on stderr; no terminal escapes are emitted into redirected logs.
-use crate::theme::ACCENT_RGB;
+use crate::theme::{PRIMARY_RGB, SECONDARY_RGB};
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use std::{io::IsTerminal, time::Duration};
 
@@ -29,7 +29,7 @@ impl Progress {
     pub fn phase(&self, message: &str) {
         if !self.quiet {
             let arrow = console::style("--->")
-                .true_color(ACCENT_RGB.0, ACCENT_RGB.1, ACCENT_RGB.2)
+                .true_color(PRIMARY_RGB.0, PRIMARY_RGB.1, PRIMARY_RGB.2)
                 .bold()
                 .force_styling(self.color);
             let message = format!("{arrow}  {}", sanitize(message));
@@ -86,20 +86,20 @@ impl Drop for TransferProgress {
 fn style(color: bool, known: bool) -> ProgressStyle {
     let template = match (color, known) {
         (true, true) => {
-            "  {purple_spinner} {prefix:22!} {purple_bar} {bytes:>10}/{total_bytes:10} {bytes_per_sec:>12} ETA {eta:4} {msg:.dim}"
+            "  {transfer_spinner} {prefix:22!} {transfer_bar} {bytes:>10}/{total_bytes:10} {bytes_per_sec:>12} ETA {eta:4} {msg:.dim}"
         }
         (false, true) => {
             "  {spinner} {prefix:22!} {bar:24} {bytes:>10}/{total_bytes:10} {bytes_per_sec:>12} ETA {eta:4} {msg}"
         }
         (true, false) => {
-            "  {purple_spinner} {prefix:22!} {bytes:>10} {bytes_per_sec:>12} {msg:.dim}"
+            "  {transfer_spinner} {prefix:22!} {bytes:>10} {bytes_per_sec:>12} {msg:.dim}"
         }
         (false, false) => "  {spinner} {prefix:22!} {bytes:>10} {bytes_per_sec:>12} {msg}",
     };
     ProgressStyle::with_template(template)
         .expect("static progress template")
         .with_key(
-            "purple_spinner",
+            "transfer_spinner",
             |state: &indicatif::ProgressState, writer: &mut dyn std::fmt::Write| {
                 let frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
                 let frame = frames[(state.elapsed().as_millis() / 100) as usize % frames.len()];
@@ -107,20 +107,20 @@ fn style(color: bool, known: bool) -> ProgressStyle {
                     writer,
                     "{}",
                     console::style(frame)
-                        .true_color(ACCENT_RGB.0, ACCENT_RGB.1, ACCENT_RGB.2)
+                        .true_color(SECONDARY_RGB.0, SECONDARY_RGB.1, SECONDARY_RGB.2)
                         .force_styling(true)
                 );
             },
         )
         .with_key(
-            "purple_bar",
+            "transfer_bar",
             |state: &indicatif::ProgressState, writer: &mut dyn std::fmt::Write| {
                 let filled = (state.fraction() * 24.0).floor() as usize;
                 let _ = write!(
                     writer,
                     "{}{}",
                     console::style("━".repeat(filled))
-                        .true_color(ACCENT_RGB.0, ACCENT_RGB.1, ACCENT_RGB.2)
+                        .true_color(SECONDARY_RGB.0, SECONDARY_RGB.1, SECONDARY_RGB.2)
                         .force_styling(true),
                     console::style("─".repeat(24 - filled))
                         .dim()
@@ -180,7 +180,7 @@ mod tests {
         }
     }
     #[test]
-    fn renders_exact_purple_and_plain_mode_has_no_ansi() {
+    fn renders_rocksky_cyan_and_plain_mode_has_no_ansi() {
         for color in [false, true] {
             let capture = Capture::default();
             let bar = ProgressBar::with_draw_target(
@@ -194,7 +194,7 @@ mod tests {
             let output = capture.0.lock().unwrap();
             assert!(output.contains("curl.tar.xz"));
             assert!(output.contains("ETA"));
-            assert_eq!(output.contains("\x1b[38;2;117;23;252m"), color);
+            assert_eq!(output.contains("\x1b[38;2;0;198;232m"), color);
             if !color {
                 assert!(!output.contains('\x1b'));
             }
