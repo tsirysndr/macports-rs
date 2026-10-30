@@ -384,9 +384,18 @@ even when caught by script code. Group-defined options accept user overrides. `p
 subplatform, release and architecture-family conditions using explicit machine
 variables, and execute matching bodies in the caller's scope.
 
+Lazy `default` values now resolve on global variable reads, including reads from
+expressions and procedures. Explicit writes/unsets cancel defaults; re-registering
+a default updates its template without overriding explicit values. Computed
+`distname` and `distfiles` follow name/version and archive-format changes. The
+`use_*` extraction choices act as radio buttons while preserving an explicit
+`extract.suffix`. Circular defaults and excessive evaluation depth are reported.
+The [vendored Molt core](vendor/molt/PORT-RS-PATCHES.md) provides host variable hooks;
+its upstream tests run in the macOS CI matrix alongside port-rs tests.
+
 This evaluator is not yet connected to CLI catalog loading or installation.
-Lazy `default` values and the complete PortSystem
-API still need implementation. Unsupported operations fail; guarded attempts to
+The complete PortSystem API still needs implementation, including namespace
+commands and build-stage defaults used by larger PortGroups. Unsupported operations fail; guarded attempts to
 call unsupported I/O commands are recorded and cannot yield approved metadata.
 The synthetic evaluation tests do not establish compatibility with curl's complete
 Portfile or the wider ports tree.

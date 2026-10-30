@@ -2,6 +2,7 @@
 //! This is an incremental MacPorts command implementation, not yet a complete
 //! PortSystem. Unsupported commands fail; deferred build hooks are retained.
 mod commands;
+mod defaults;
 mod groups;
 mod platform;
 pub use groups::{LoadedGroup, PortGroups};
@@ -42,6 +43,9 @@ struct State {
     selected: BTreeMap<String, bool>,
     requested: BTreeMap<String, bool>,
     defaults: BTreeMap<String, bool>,
+    lazy_defaults: BTreeMap<String, String>,
+    resolving_defaults: BTreeSet<String>,
+    changing_format: bool,
     hooks: Vec<Hook>,
     selected_subport: bool,
     active: BTreeSet<String>,
@@ -127,6 +131,7 @@ pub fn evaluate_with_groups(
     commands::install(&mut interp, id);
     interp.add_context_command("PortGroup", groups::command, id);
     interp.add_context_command("platform", platform::command, id);
+    defaults::install(&mut interp, id).map_err(failure)?;
     interp.eval(source).map_err(failure)?;
     for (name, _) in &requested.options {
         ensure!(
@@ -135,6 +140,14 @@ pub fn evaluate_with_groups(
         );
     }
     variants::apply(&mut interp, id).map_err(failure)?;
+    let options = interp.context::<State>(id).options.clone();
+    let mut fields = BTreeMap::new();
+    for name in options {
+        if interp.var_exists(&Value::from(name.clone())) {
+            let value = interp.scalar(&name).map_err(failure)?;
+            fields.insert(name, value.as_str().to_owned());
+        }
+    }
     ensure!(
         interp.context::<State>(id).unsupported.is_empty(),
         "Portfile used unsupported commands: {}",
@@ -157,13 +170,6 @@ pub fn evaluate_with_groups(
             .collect::<Vec<_>>()
             .join("; ")
     );
-    let options = interp.context::<State>(id).options.clone();
-    let mut fields = BTreeMap::new();
-    for name in options {
-        if let Ok(value) = interp.scalar(&name) {
-            fields.insert(name, value.as_str().to_owned());
-        }
-    }
     ensure!(
         fields.get("version").is_some_and(|v| !v.is_empty()),
         "Portfile did not set version"

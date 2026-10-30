@@ -30,6 +30,12 @@ pub(super) const OPTIONS: &[&str] = &[
     "patchfiles",
     "worksrcdir",
     "distname",
+    "extract.suffix",
+    "use_7z",
+    "use_dmg",
+    "use_lzip",
+    "use_lzma",
+    "use_tar",
     "configure.args",
     "configure.env",
     "configure.cflags",
@@ -136,13 +142,10 @@ fn option(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     if interp.context::<State>(id).overrides.contains(name) {
         return Ok(Value::empty());
     }
-    let mut values = if operation == "set" {
+    let mut values = if operation == "set" || !interp.var_exists(&Value::from(name)) {
         Vec::new()
     } else {
-        interp
-            .scalar(name)
-            .map(|value| value.as_list().map(|list| list.to_vec()))
-            .unwrap_or(Ok(Vec::new()))?
+        interp.scalar(name)?.as_list()?.to_vec()
     };
     match operation {
         "set" | "append" => values.extend_from_slice(&argv[1..]),
