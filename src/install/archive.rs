@@ -33,6 +33,17 @@ impl VerifiedArchive {
         file.seek(SeekFrom::Start(0))?;
         Ok(Self { file, verification })
     }
+    /// Take exclusive ownership of a private download file without copying it.
+    pub(crate) fn authenticate(
+        mut file: File,
+        signature: &str,
+        keys: &[TrustedKey],
+    ) -> Result<Self> {
+        file.seek(SeekFrom::Start(0))?;
+        let verification = signature::verify(&mut file, signature, keys)?;
+        file.seek(SeekFrom::Start(0))?;
+        Ok(Self { file, verification })
+    }
     pub fn verification(&self) -> &Verification {
         &self.verification
     }

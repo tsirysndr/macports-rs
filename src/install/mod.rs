@@ -9,3 +9,5 @@ pub mod archive;
 pub mod inspect;
 
 pub mod extract;
+
+pub mod fetch;

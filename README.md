@@ -404,6 +404,14 @@ savepoints; dropping a transaction rolls it back. Existing older or newer schema
 are refused without migration. This API does not yet coordinate live filesystem
 changes, and read-only commands never initialize a registry.
 
+Signed archive transport now uses Tokio and reqwest with bounded parallel
+transfers and ordered mirror fallback. Each archive and its `.sig` are fetched
+under size limits; signature verification runs on a blocking worker and retains
+the same private temporary file without a second archive copy. A mirror with an
+invalid signature is rejected. Batch failures drain pending transfers and drop
+all staged results. This transport is available to the installation engine;
+archive URL selection and the ordinary install command are not yet connected.
+
 ## Download engine and progress
 
 Tokio and reqwest provide bounded concurrent HTTP(S) transfers with a shared
