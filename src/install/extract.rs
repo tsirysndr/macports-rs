@@ -1,0 +1,117 @@
+//! Prepare an authenticated image in a private directory, never the live prefix.
+use super::{
+    Item,
+    archive::VerifiedArchive,
+    inspect::{self, Inspection, Kind, Limits},
+};
+use anyhow::{Context, Result, ensure};
+use std::{
+    fs::{self, OpenOptions},
+    io::{self, Read},
+    os::unix::fs::{OpenOptionsExt, symlink},
+    path::{Path, PathBuf},
+};
+
+pub struct PreparedImage {
+    directory: tempfile::TempDir,
+    inspection: Inspection,
+}
+impl PreparedImage {
+    pub fn payload(&self) -> PathBuf {
+        self.directory.path().join("payload")
+    }
+    pub fn controls(&self) -> PathBuf {
+        self.directory.path().join("controls")
+    }
+    pub fn inspection(&self) -> &Inspection {
+        &self.inspection
+    }
+}
+
+/// Inspect and bind package identity before creating any output. Extract only
+/// into a fresh owner-private temporary directory, deleted on error or drop.
+/// File modes, ownership and flags are retained as metadata for activation;
+/// staged files are non-executable, owner-readable/writable regular files.
+pub fn prepare(
+    archive: &mut VerifiedArchive,
+    expected: &Item<'_>,
+    directory: &Path,
+    limits: Limits,
+) -> Result<PreparedImage> {
+    let inspection = inspect::tbz2(archive, limits)?;
+    inspection.contents.matches(expected)?;
+    let prepared = PreparedImage {
+        directory: tempfile::Builder::new()
+            .prefix("port-rs-image-")
+            .tempdir_in(directory)?,
+        inspection,
+    };
+    let payload = prepared.payload();
+    let controls = prepared.controls();
+    fs::create_dir(&payload)?;
+    fs::create_dir(&controls)?;
+    // Build all directories before links. No operation follows a link created
+    // from the archive, including when its target is an absolute outside path.
+    for (name, member) in &prepared.inspection.members {
+        if name.is_empty() || name.starts_with('+') {
+            continue;
+        }
+        let destination = payload.join(name);
+        let parent = if member.kind == Kind::Directory {
+            destination.as_path()
+        } else {
+            destination.parent().context("missing image parent")?
+        };
+        fs::create_dir_all(parent)?;
+    }
+    let mut files: Vec<_> = prepared
+        .inspection
+        .members
+        .iter()
+        .filter(|(_, member)| member.kind == Kind::File)
+        .collect();
+    files.sort_by_key(|(_, member)| member.data_offset);
+    let mut source = bzip2::read::BzDecoder::new(archive.reader()?);
+    let mut position = 0;
+    for (name, member) in files {
+        ensure!(
+            member.data_offset >= position,
+            "overlapping archive file data"
+        );
+        let skip = member.data_offset - position;
+        ensure!(
+            io::copy(&mut source.by_ref().take(skip), &mut io::sink())? == skip,
+            "truncated archive before {name:?}"
+        );
+        let destination = if name.starts_with('+') {
+            controls.join(name)
+        } else {
+            payload.join(name)
+        };
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&destination)
+            .with_context(|| format!("cannot stage archive file {name:?}"))?;
+        ensure!(
+            io::copy(&mut source.by_ref().take(member.size), &mut file)? == member.size,
+            "truncated archive file {name:?}"
+        );
+        position = member
+            .data_offset
+            .checked_add(member.size)
+            .context("archive offset overflow")?;
+    }
+    for (name, member) in &prepared.inspection.members {
+        if let Kind::Hardlink(target) = &member.kind {
+            fs::hard_link(payload.join(target), payload.join(name))?;
+        }
+    }
+    for (name, member) in &prepared.inspection.members {
+        if let Kind::Symlink(target) = &member.kind {
+            symlink(target, payload.join(name))?;
+        }
+    }
+    Ok(prepared)
+}

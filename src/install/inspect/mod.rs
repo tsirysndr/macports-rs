@@ -35,6 +35,7 @@ pub struct Member {
     pub kind: Kind,
     pub size: u64,
     pub mode: u32,
+    pub data_offset: u64,
     pub attributes: BTreeMap<String, String>,
 }
 #[derive(Debug)]
@@ -179,12 +180,14 @@ pub fn tbz2(archive: &mut VerifiedArchive, limits: Limits) -> Result<Inspection>
             }
         }
         let mode = entry.header().mode()?;
+        let data_offset = entry.raw_file_position();
         members.insert(
             name,
             Member {
                 kind,
                 size,
                 mode,
+                data_offset,
                 attributes,
             },
         );
