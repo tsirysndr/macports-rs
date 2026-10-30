@@ -512,3 +512,42 @@ fn reload_rejects_links_special_files_and_authentic_but_wrong_identity() {
     symlink("moved", software.path().join("app")).unwrap();
     assert!(load().is_err());
 }
+
+#[test]
+fn prepared_inspection_reuse_is_bound_to_authenticated_bytes() {
+    use port_rs::install::extract;
+    let software = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let store = Store::open(software.path()).unwrap();
+    let port = port();
+    let item = item(&port);
+    let target = target("arm");
+    let mut archive = stage(&bytes());
+    let prepared =
+        extract::prepare_for_target(&mut archive, &item, &target, work.path(), Limits::default())
+            .unwrap();
+    let c = contents(&["opt/local/app"]);
+    let different = compress(&tar(&[
+        ("+CONTENTS", b'0', c.as_bytes(), ""),
+        ("opt/local/app", b'0', b"different payload", ""),
+    ]));
+    let mut other = stage(&different);
+    assert!(
+        store
+            .stage_prepared(&mut other, &item, &target, &prepared)
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("authenticated archive bytes")
+    );
+    assert_eq!(fs::read_dir(software.path()).unwrap().count(), 0);
+    let stored = store
+        .stage_prepared(&mut archive, &item, &target, &prepared)
+        .unwrap();
+    // Both views share the same immutable inventory instead of cloning entries.
+    assert!(std::ptr::eq(stored.inspection(), prepared.inspection()));
+    drop(prepared);
+    assert_eq!(stored.inspection().contents.name, "app");
+    assert_eq!(fs::read(stored.location()).unwrap(), bytes());
+    stored.rollback().unwrap();
+}

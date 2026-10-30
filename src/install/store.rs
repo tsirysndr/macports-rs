@@ -13,6 +13,7 @@ use std::{
     collections::BTreeSet,
     io::Read,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 pub struct Store {
@@ -72,8 +73,30 @@ impl Store {
         target: &Target,
         limits: Limits,
     ) -> Result<StoredImage> {
+        target.filename(item)?;
+        let inspection = Arc::new(inspect::tbz2(archive, limits)?);
+        self.stage_inspected(archive, item, target, inspection)
+    }
+    /// Reuse a prepared image's bounded inspection only for the same authenticated
+    /// bytes. Sharing the immutable inventory avoids another decompression pass.
+    pub fn stage_prepared(
+        &self,
+        archive: &mut VerifiedArchive,
+        item: &Item<'_>,
+        target: &Target,
+        prepared: &super::extract::PreparedImage,
+    ) -> Result<StoredImage> {
+        let inspection = prepared.inspection_for(archive)?;
+        self.stage_inspected(archive, item, target, inspection)
+    }
+    fn stage_inspected(
+        &self,
+        archive: &mut VerifiedArchive,
+        item: &Item<'_>,
+        target: &Target,
+        inspection: Arc<Inspection>,
+    ) -> Result<StoredImage> {
         let filename = target.filename(item)?;
-        let inspection = inspect::tbz2(archive, limits)?;
         inspection.contents.matches(item)?;
         target.matches(&inspection.contents)?;
         let relative = Path::new(&item.port.name).join(filename);
@@ -116,7 +139,7 @@ impl Store {
 pub struct StoredImage {
     location: PathBuf,
     signature_location: PathBuf,
-    inspection: Inspection,
+    inspection: Arc<Inspection>,
     files: Vec<PublishedFile>,
     directory: Option<PublishedDirectory>,
 }

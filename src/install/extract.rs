@@ -10,13 +10,22 @@ use std::{
     io::{self, Read},
     os::unix::fs::{OpenOptionsExt, symlink},
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 pub struct PreparedImage {
     directory: tempfile::TempDir,
-    inspection: Inspection,
+    inspection: Arc<Inspection>,
+    archive_digest: [u8; 32],
 }
 impl PreparedImage {
+    pub(crate) fn inspection_for(&self, archive: &VerifiedArchive) -> Result<Arc<Inspection>> {
+        ensure!(
+            self.archive_digest == archive.verification().sha256,
+            "prepared image does not match authenticated archive bytes"
+        );
+        Ok(Arc::clone(&self.inspection))
+    }
     /// Build native registry paths and binary classifications from the private
     /// image. Symlinks are recorded but never opened; hardlinks classify their
     /// regular inode, and archive control files/directories are excluded.
@@ -94,7 +103,8 @@ fn prepare_checked(
         directory: tempfile::Builder::new()
             .prefix("port-rs-image-")
             .tempdir_in(directory)?,
-        inspection,
+        inspection: Arc::new(inspection),
+        archive_digest: archive.verification().sha256,
     };
     let payload = prepared.payload();
     let controls = prepared.controls();
