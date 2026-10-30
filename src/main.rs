@@ -23,6 +23,9 @@ struct Cli {
     index_file: Option<PathBuf>,
     #[arg(short, long, global = true)]
     quiet: bool,
+    /// Include full dependency specifications in metadata output
+    #[arg(short, long, global = true)]
+    verbose: bool,
     #[command(subcommand)]
     command: Command,
 }
@@ -70,8 +73,8 @@ struct Search {
     regex: bool,
     #[arg(long)]
     case_sensitive: bool,
-    #[arg(long)]
-    name: bool,
+    #[command(flatten)]
+    fields: port_rs::fields::SearchFields,
     #[arg(long)]
     line: bool,
     #[arg(required = true)]
@@ -84,22 +87,14 @@ struct Info {
     index: bool,
     #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
     ports: Vec<String>,
+    #[command(flatten)]
+    fields: port_rs::fields::InfoFields,
+    /// Tab-separated output in the requested field order
     #[arg(long)]
-    name: bool,
+    line: bool,
+    /// Format fields as a human-readable summary
     #[arg(long)]
-    version: bool,
-    #[arg(long)]
-    description: bool,
-    #[arg(long)]
-    homepage: bool,
-    #[arg(long)]
-    categories: bool,
-    #[arg(long)]
-    license: bool,
-    #[arg(long)]
-    maintainers: bool,
-    #[arg(long)]
-    variants: bool,
+    pretty: bool,
 }
 fn main() {
     if let Err(error) = run(Cli::parse()) {
@@ -178,6 +173,11 @@ fn run(cli: Cli) -> Result<()> {
             render_selection(&mut out, &index, &s.ports, cli.quiet, action)?;
         }
         Command::Search(s) => {
+            let fields = if s.fields.ordered.is_empty() {
+                vec!["name".into(), "description".into()]
+            } else {
+                s.fields.ordered
+            };
             for (pattern_index, p) in s.patterns.iter().enumerate() {
                 if pattern_index > 0 {
                     writeln!(out, "--")?;
@@ -192,8 +192,11 @@ fn run(cli: Cli) -> Result<()> {
                     .ports
                     .values()
                     .filter(|port| {
-                        matcher.matches(&port.name)
-                            || (!s.name && matcher.matches(port.get("description")))
+                        fields.iter().any(|field| {
+                            port.fields
+                                .get(port_rs::fields::canonical(field))
+                                .is_some_and(|value| matcher.matches(value))
+                        })
                     })
                     .collect();
                 for (i, port) in matches.iter().enumerate() {
@@ -236,52 +239,28 @@ fn run(cli: Cli) -> Result<()> {
             }
         }
         Command::Info(s) => {
-            let fields = [
-                (s.name, "name"),
-                (s.version, "version"),
-                (s.description, "description"),
-                (s.homepage, "homepage"),
-                (s.categories, "categories"),
-                (s.license, "license"),
-                (s.maintainers, "maintainers"),
-                (s.variants, "variants"),
-            ];
             let specs = query::specifications(&index, &s.ports)?;
             ensure!(
                 s.index || specs.iter().all(|spec| !spec.has_modifiers()),
                 "evaluating version/variant/option-specific metadata requires the Portfile engine; use info --index for available indexed metadata"
             );
-            for spec in specs {
-                let port = query::lookup(&index, &spec.name)?;
-                if fields.iter().any(|(enabled, _)| *enabled) {
-                    for (_, field) in fields.iter().filter(|(enabled, _)| *enabled) {
-                        if cli.quiet {
-                            writeln!(out, "{}", port.get(field))?;
-                        } else {
-                            writeln!(out, "{field}: {}", port.get(field))?;
-                        }
-                    }
-                } else {
-                    writeln!(
-                        out,
-                        "{} @{} ({})",
-                        port.name,
-                        port.version(),
-                        port.get("categories")
-                    )?;
-                    for field in [
-                        "description",
-                        "long_description",
-                        "homepage",
-                        "license",
-                        "maintainers",
-                        "variants",
-                    ] {
-                        if !port.get(field).is_empty() {
-                            writeln!(out, "{field}: {}", port.get(field))?;
-                        }
-                    }
+            let ports = specs
+                .iter()
+                .map(|spec| query::lookup(&index, &spec.name))
+                .collect::<Result<Vec<_>>>()?;
+            let options = port_rs::info::Options {
+                fields: &s.fields.ordered,
+                line: s.line,
+                pretty: s.pretty,
+                quiet: cli.quiet,
+                verbose: cli.verbose,
+                width: usize::from(console::Term::stdout().size().1).max(40),
+            };
+            for (i, (spec, port)) in specs.iter().zip(ports).enumerate() {
+                if i > 0 && !s.line {
+                    writeln!(out, "--")?;
                 }
+                write!(out, "{}", port_rs::info::render(port, spec, &options)?)?;
             }
         }
         Command::Download { .. } | Command::Unsupported(_) => unreachable!(),

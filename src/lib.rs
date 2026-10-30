@@ -1,5 +1,7 @@
 pub mod download;
+pub mod fields;
 pub mod index;
+pub mod info;
 pub mod progress;
 pub mod query;
 pub mod source;

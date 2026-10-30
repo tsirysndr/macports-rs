@@ -23,6 +23,9 @@ cargo build --release --locked
 ./target/release/port list 'curl*'
 ./target/release/port search --name curl
 ./target/release/port search --exact --line curl
+./target/release/port search --categories net
+./target/release/port search --depends zlib
+./target/release/port info --index --line --name --version --categories curl zlib
 ./target/release/port -q info --index --version curl
 ./target/release/port -q echo category:net
 ./target/release/port -q echo '(' category:net or zlib ')' and not 'name:ish$'
@@ -58,8 +61,8 @@ unimplemented; removing the platform cache file triggers a fresh download.
 | Area | Status |
 | --- | --- |
 | `list [ports...]`, `list all` | Native, including upstream column formatting and no-argument default |
-| `search` | Native name/description search; exact/glob/regex, case sensitivity, quiet and line modes |
-| `info --index` | Selected metadata fields; default pretty formatting and full flag set are incomplete |
+| `search` | Name/description defaults, explicit metadata field filters, `--depends`, exact/glob/regex, quiet and line modes |
+| `info --index` | Ordered fields, `--line`, `--pretty`, metadata summaries, maintainer decoding, and dependency formatting |
 | `echo` | Names/globs, regex field selectors, logical expressions, versions, variants, and options |
 | `deps`, `variants` | Indexed metadata only; **not** evaluated Portfile results |
 | Index data | Serialized Tcl list data is parsed in Rust; no Tcl code is evaluated |
@@ -78,6 +81,20 @@ dependency fields. An unmatched glob or field selector produces an empty set.
 Adjacent expressions form a union; `not` binds tighter than `and`, and `and`
 binds tighter than `or`. Quote globs and shell parentheses.
 
+`search` defaults to matching names or brief descriptions. Supplying field flags
+replaces that default; multiple fields are ORed without duplicate results.
+Examples include `--categories`, `--maintainer`, `--version`, `--long_description`,
+and individual `--depends_lib`/`--depends_build` fields. `--depends` includes all
+seven dependency phases.
+
+`info` emits explicit fields in command-line order. `--line` removes labels and
+uses tabs between fields and commas within lists, preserving empty columns.
+Normal multi-port output uses `--` separators; line output uses one row per port.
+`--pretty` formats selected fields for reading; no field flags produce a metadata
+summary. Maintainer handles and obfuscated addresses are decoded. Dependencies
+show port names by default; `-v` retains full dependency specifications. Index
+queries still cannot determine how requested variants change dependencies.
+
 Specs can be attached (`curl@8.0_1+ssl`) or separated
 (`curl @8.0_1 +ssl -universal build.jobs=8`). Negative variants following a
 version can use a slash (`@8.0/-ssl`) to distinguish them from version suffixes
@@ -90,7 +107,7 @@ until native Portfile evaluation exists.
 
 Search regexes currently use Rust regex semantics, which differ from Tcl's
 advanced regular expressions. Glob behavior, dictionary sorting, description
-wrapping, field ordering, some metadata formatting, and error details still need
+wrapping, some metadata formatting edge cases, and error details still need
 full upstream parity tests. Tests currently check representative upstream-derived
 behavior; they are not a complete differential compatibility suite.
 

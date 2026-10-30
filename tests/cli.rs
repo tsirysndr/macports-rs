@@ -9,7 +9,7 @@ impl Fixture {
         for (name, fields) in [
             (
                 "curl",
-                "name curl version 8.0 revision 1 portdir net/curl categories {net www} description {Transfer data with URLs} homepage https://curl.se license curl variants {ssl universal} depends_lib {port:zlib}",
+                "name curl version 8.0 revision 1 portdir net/curl categories {net www} description {Transfer data with URLs} homepage https://curl.se license curl variants {ssl universal} depends_lib {port:zlib} depends_build {port:pkgconfig bin:make:gmake} platforms darwin long_description {A URL transfer tool.} maintainers {{example.org:dev @developer} openmaintainer}",
             ),
             (
                 "zlib",
@@ -379,4 +379,186 @@ fn invalid_expressions_fail_before_output() {
         assert!(output.stdout.is_empty());
         assert!(!String::from_utf8_lossy(&output.stderr).contains("panicked"));
     }
+}
+
+#[test]
+fn search_can_restrict_and_combine_metadata_fields() {
+    let fixture = Fixture::new();
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "search", "--categories", "archivers"])),
+        "zlib\n"
+    );
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "search", "--category", "--name", "zlib"])),
+        "zlib\n"
+    );
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "search", "--description", "curl"])),
+        "curlish\n"
+    );
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "search", "--maintainer", "developer"])),
+        "curl\n"
+    );
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "search", "--depends", "zlib"])),
+        "curl\n"
+    );
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "search", "--depends_build", "pkgconfig"])),
+        "curl\n"
+    );
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "search", "--long_description", "transfer"])),
+        "curl\n"
+    );
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "search", "--exact", "--version", "1.3"])),
+        "zlib\n"
+    );
+}
+
+#[test]
+fn info_preserves_field_order_and_alias_labels() {
+    let fixture = Fixture::new();
+    assert_eq!(
+        stdout(&fixture.run(&[
+            "info",
+            "--index",
+            "--version",
+            "--name",
+            "--category",
+            "curl"
+        ])),
+        "version: 8.0\nname: curl\ncategory: net, www\n"
+    );
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "info", "--index", "--homepage", "--version", "curl"])),
+        "https://curl.se\n8.0\n"
+    );
+}
+
+#[test]
+fn info_line_keeps_empty_columns_and_omits_port_separators() {
+    let fixture = Fixture::new();
+    assert_eq!(
+        stdout(&fixture.run(&[
+            "info",
+            "--index",
+            "--line",
+            "--version",
+            "--name",
+            "--categories",
+            "--homepage",
+            "curl",
+            "zlib"
+        ])),
+        "8.0\tcurl\tnet,www\thttps://curl.se\n1.3\tzlib\tarchivers\t\n"
+    );
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "info", "--index", "--name", "curl", "zlib"])),
+        "curl\n--\nzlib\n"
+    );
+}
+
+#[test]
+fn info_dependency_expansion_and_verbose_specs() {
+    let fixture = Fixture::new();
+    assert_eq!(
+        stdout(&fixture.run(&[
+            "info",
+            "--index",
+            "--depends_build",
+            "--depends_lib",
+            "curl"
+        ])),
+        "depends_build: pkgconfig, gmake\ndepends_lib: zlib\n"
+    );
+    assert_eq!(
+        stdout(&fixture.run(&[
+            "-v",
+            "info",
+            "--index",
+            "--line",
+            "--depends_build",
+            "--depends_lib",
+            "curl"
+        ])),
+        "port:pkgconfig,bin:make:gmake\tport:zlib\n"
+    );
+    assert_eq!(
+        stdout(&fixture.run(&[
+            "info",
+            "--index",
+            "--line",
+            "--name",
+            "--depends",
+            "--version",
+            "curl"
+        ])),
+        "curl\t\t\t\tpkgconfig,gmake\tzlib\t\t\t8.0\n"
+    );
+}
+
+#[test]
+fn info_decodes_maintainers_and_renders_pretty_fields() {
+    let fixture = Fixture::new();
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "info", "--index", "--maintainers", "curl"])),
+        "dev@example.org developer, openmaintainer\n"
+    );
+    assert_eq!(
+        stdout(&fixture.run(&["info", "--index", "--line", "--maintainer", "curl"])),
+        "dev@example.org developer,openmaintainer\n"
+    );
+    assert_eq!(
+        stdout(&fixture.run(&[
+            "info",
+            "--index",
+            "--pretty",
+            "--heading",
+            "--homepage",
+            "--variants",
+            "curl",
+            "+ssl",
+            "-universal"
+        ])),
+        "curl @8.0_1 (net, www)\nHomepage:             https://curl.se\nVariants:             +ssl, -universal\n"
+    );
+}
+
+#[test]
+fn info_default_summary_uses_heading_revision_and_readable_dependencies() {
+    let fixture = Fixture::new();
+    let text = stdout(&fixture.run(&["info", "--index", "curl"]));
+    assert!(text.starts_with("curl @8.0_1 (net, www)\n"));
+    assert!(text.contains("Description:          A URL transfer tool."));
+    assert!(text.contains("Build Dependencies:   pkgconfig, gmake"));
+    assert!(text.contains("Library Dependencies: zlib"));
+    assert!(text.contains("Maintainers:          Email: dev@example.org, GitHub: developer"));
+    let text = stdout(&fixture.run(&["info", "--index", "zlib"]));
+    assert!(text.starts_with("zlib @1.3 (archivers)\n"));
+    assert!(!text.contains("1.3_0"));
+}
+
+#[test]
+fn info_pretty_can_combine_with_line_and_simple_field_labels() {
+    let fixture = Fixture::new();
+    assert_eq!(
+        stdout(&fixture.run(&[
+            "info",
+            "--index",
+            "--pretty",
+            "--line",
+            "--heading",
+            "--version",
+            "--category",
+            "curl"
+        ])),
+        "curl @8.0_1 (net, www)\nversion: 8.0\tcategory: net,www\n"
+    );
+    assert_eq!(
+        stdout(&fixture.run(&["info", "--index", "--pretty", "--heading", "curl"])),
+        "curl @8.0_1 (net, www)\n"
+    );
 }
