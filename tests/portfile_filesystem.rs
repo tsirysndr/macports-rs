@@ -298,7 +298,7 @@ fn metadata_errors_are_catchable_and_expose_posix_error_codes() {
 }
 
 #[test]
-fn timestamp_setters_remain_explicitly_unsupported() {
+fn metadata_timestamp_setters_remain_explicitly_unsupported() {
     let error = Session::open(
         "name app; version 1; catch {file mtime /untouched 0}",
         &BTreeMap::new(),

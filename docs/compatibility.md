@@ -590,8 +590,11 @@ evaluation too, so compiler/dependency choices can depend on host files.
 `file size`, `mtime`, `atime`, `type`, `readlink`, `stat`, and `lstat` expose
 read-only metadata with catchable POSIX lookup errors. Stat follows symlinks;
 lstat and type inspect the link itself. Stat results support both Tcl 9 dictionary
-returns and caller-scope arrays. Timestamp setters remain unsupported, and
-readlink currently requires a UTF-8 target.
+returns and caller-scope arrays. Execution-enabled sessions can set `file atime`
+and `file mtime` using whole-second timestamps, preserving the other field's
+seconds and clearing subsecond precision in both fields, as Tcl does. Setters
+follow symlinks and return the value read back from the filesystem. Metadata
+sessions cannot set timestamps. Readlink currently requires a UTF-8 target.
 Execution-enabled sessions support native `file mkdir` with multiple paths,
 recursive parents, directory symlinks, and catchable POSIX errors. New directories
 use the session's creation mask; existing directory permissions are preserved.

@@ -56,12 +56,10 @@ fn file(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     if operation == "mkdir" {
         return filesystem_mutations::mkdir(interp, id, argv);
     }
+    if matches!(operation, "mtime" | "atime") {
+        return file_times::command(interp, id, argv);
+    }
     if filesystem::is_metadata_query(operation) {
-        if matches!(operation, "mtime" | "atime") && argv.len() == 4 {
-            let name = format!("file {operation} setter");
-            interp.context::<State>(id).unsupported.insert(name.clone());
-            return Err(error(format!("unsupported Portfile command {name}")));
-        }
         return filesystem::metadata_query(interp, argv);
     }
     if filesystem::is_predicate(operation) {
