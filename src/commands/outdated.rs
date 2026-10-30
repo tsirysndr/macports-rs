@@ -1,6 +1,5 @@
 use crate::{
     index::{Index, Port},
-    query::Matcher,
     registry::{self, Entry},
     source,
 };
@@ -22,49 +21,18 @@ pub(super) fn run<'a>(
     verbose: bool,
     load_index: impl FnOnce() -> Result<&'a Index>,
 ) -> Result<()> {
-    let specs = registry::specifications(&args.ports)?;
     let entries = registry::read(path)?;
-    let selectors = specs
-        .iter()
-        .map(|spec| {
-            Ok((
-                spec,
-                Matcher::new(
-                    &spec.name,
-                    !spec.name.contains(['*', '?', '[', ']']),
-                    false,
-                    false,
-                )?,
-                spec.composite_version(),
-            ))
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let selected: Vec<_> = entries
-        .iter()
-        .filter(|entry| {
-            entry.active
-                && (selectors.is_empty()
-                    || selectors.iter().any(|(spec, matcher, version)| {
-                        let name_matches = match spec.name.as_str() {
-                            "all" | "installed" | "active" => true,
-                            "inactive" => false,
-                            "requested" => entry.requested,
-                            "unrequested" => !entry.requested,
-                            _ => matcher.matches(&entry.name),
-                        };
-                        name_matches
-                            && (version.is_empty()
-                                || *version == entry.version
-                                || *version == entry.full_version())
-                    }))
-        })
-        .collect();
+    let selected: Vec<_> =
+        registry::expression::select(&entries, &args.ports, registry::expression::Missing::Empty)?
+            .into_iter()
+            .filter(|entry| entry.active)
+            .collect();
     if selected.is_empty() {
         if !quiet {
             writeln!(
                 out,
                 "{}",
-                if specs.is_empty() {
+                if args.ports.is_empty() {
                     "No ports are installed."
                 } else {
                     "None of the specified ports are outdated."

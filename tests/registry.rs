@@ -161,8 +161,8 @@ fn registry_override_chains_and_unsupported_expressions_are_explicit() {
         "  pkg2 @2.0_0 (active)\n  pkg10 @1.0_0\n"
     );
     for args in [
-        vec!["installed", "active", "and", "requested"],
         vec!["installed", "name:curl"],
+        vec!["installed", "category:net"],
     ] {
         let output = f.run(&args);
         assert!(!output.status.success());
@@ -769,4 +769,160 @@ fn outdated_globs_and_requested_filters_compose_with_command_chains() {
         .map(|line| line.split_whitespace().next().unwrap())
         .collect();
     assert_eq!(names, ["curl", "pkg2"]);
+}
+
+#[test]
+fn installed_logical_expressions_obey_precedence_and_parentheses() {
+    let f = Fixture::new();
+    assert_eq!(
+        stdout(f.run(&["-q", "installed", "active", "and", "requested"])),
+        "  curl @8.10_0+ssl (active)\n"
+    );
+    assert_eq!(
+        stdout(f.run(&[
+            "-q",
+            "installed",
+            "inactive",
+            "or",
+            "active",
+            "and",
+            "requested"
+        ])),
+        "  curl @8.9_1+ssl\n  curl @8.10_0+ssl (active)\n  pkg10 @1.0_0\n"
+    );
+    assert_eq!(
+        stdout(f.run(&[
+            "-q",
+            "installed",
+            "(",
+            "inactive",
+            "or",
+            "active",
+            ")",
+            "and",
+            "requested"
+        ])),
+        "  curl @8.9_1+ssl\n  curl @8.10_0+ssl (active)\n"
+    );
+}
+#[test]
+fn registry_complements_are_scoped_to_installed_images() {
+    let f = Fixture::new();
+    assert_eq!(
+        stdout(f.run(&["-q", "installed", "not", "active"])),
+        "  curl @8.9_1+ssl\n  pkg10 @1.0_0\n"
+    );
+    assert_eq!(
+        stdout(f.run(&["-q", "installed", "!", "requested", "and", "active"])),
+        "  pkg2 @2.0_0 (active)\n"
+    );
+    assert_eq!(
+        stdout(f.run(&["-q", "installed", "not", "(", "installed", ")"])),
+        ""
+    );
+    assert_eq!(
+        stdout(f.run(&["-q", "installed", "not", "absent*"])),
+        stdout(f.run(&["-q", "installed"]))
+    );
+}
+#[test]
+fn registry_set_operations_preserve_distinct_versions_and_variants() {
+    let f = Fixture::new();
+    assert_eq!(
+        stdout(f.run(&["-q", "installed", "curl", "and", "not", "curl@8.9"])),
+        "  curl @8.10_0+ssl (active)\n"
+    );
+    assert_eq!(
+        stdout(f.run(&[
+            "-q",
+            "installed",
+            "curl@8.9_1+ssl",
+            "or",
+            "curl@8.10_0+ssl",
+            "curl@8.9"
+        ])),
+        "  curl @8.9_1+ssl\n  curl @8.10_0+ssl (active)\n"
+    );
+    assert_eq!(
+        stdout(f.run(&["-q", "installed", "curl@8.9", "and", "curl@8.10"])),
+        ""
+    );
+    assert_eq!(
+        stdout(f.run(&["-q", "installed", "curl", "and", "curl", "@8.10_0", "+ssl"])),
+        "  curl @8.10_0+ssl (active)\n"
+    );
+}
+#[test]
+fn malformed_registry_expressions_fail_without_partial_output() {
+    let f = Fixture::new();
+    for expr in [
+        vec!["active", "and"],
+        vec!["(", "active"],
+        vec!["active", ")"],
+        vec!["(", ")"],
+        vec!["or", "active"],
+        vec!["not"],
+        vec!["+ssl"],
+    ] {
+        let mut args = vec!["installed"];
+        args.extend(expr);
+        let output = f.run(&args);
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("panicked"));
+    }
+    let mut args = vec!["installed"];
+    args.extend(std::iter::repeat_n("not", 130));
+    args.push("active");
+    let output = f.run(&args);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("nesting exceeds 128"));
+}
+#[test]
+fn outdated_logical_expressions_filter_images_before_comparison() {
+    let f = outdated_fixture(&[("curl", "version 99"), ("pkg2", "version 99")]);
+    let output = stdout(f.run(&[
+        "-q",
+        "outdated",
+        "(",
+        "curl",
+        "or",
+        "pkg*",
+        ")",
+        "and",
+        "not",
+        "requested",
+    ]));
+    let names: Vec<_> = output
+        .lines()
+        .map(|line| line.split_whitespace().next().unwrap())
+        .collect();
+    assert_eq!(names, ["pkg2"]);
+    assert_eq!(
+        stdout(f.run(&["-q", "outdated", "not", "(", "active", ")"])),
+        ""
+    );
+    assert_eq!(
+        stdout(f.run(&["-q", "outdated", "missing", "or", "curl"])),
+        stdout(f.run(&["-q", "outdated", "curl"]))
+    );
+}
+#[test]
+fn logical_registry_selections_work_in_command_chains() {
+    let f = Fixture::new();
+    assert_eq!(
+        stdout(f.run(&[
+            "-q",
+            "installed",
+            "active",
+            "and",
+            "requested",
+            ";",
+            "installed",
+            "inactive",
+            "and",
+            "unrequested"
+        ])),
+        "  curl @8.10_0+ssl (active)\n  pkg10 @1.0_0\n"
+    );
 }

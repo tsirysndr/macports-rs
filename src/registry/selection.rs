@@ -17,7 +17,7 @@ pub fn specifications(tokens: &[String]) -> Result<Vec<PortSpec>> {
                         .next()
                         .unwrap_or(token)
                         .contains([':', '/']),
-                "registry queries currently support names, globs, and installed/active/inactive/requested/unrequested selectors; logical and field expressions are not implemented"
+                "this selector is not implemented here; field/path selectors require catalog queries and logical operators require an expression-capable command"
             );
             let (name, version) = token
                 .split_once('@')

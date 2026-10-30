@@ -1,10 +1,7 @@
-use crate::{
-    query::Matcher,
-    registry::{self, Entry},
-};
+use crate::registry::{self, Entry};
 use anyhow::{Context, Result, ensure};
 use clap::Args;
-use std::{collections::HashSet, io::Write, path::Path};
+use std::{io::Write, path::Path};
 
 #[derive(Args)]
 pub struct Installed {
@@ -19,62 +16,19 @@ pub(super) fn run(
     quiet: bool,
     verbose: bool,
 ) -> Result<()> {
-    let specs = registry::specifications(&args.ports)?;
     let entries = registry::read(path)?;
-    let mut selected = HashSet::new();
-    if specs.is_empty() {
-        selected.extend(0..entries.len());
-    }
-    for spec in &specs {
-        let selector = matches!(
-            spec.name.as_str(),
-            "all" | "installed" | "active" | "inactive" | "requested" | "unrequested"
-        );
-        let glob = spec.name.contains(['*', '?', '[', ']']);
-        let matcher = Matcher::new(&spec.name, !glob, false, false)?;
-        let version = spec.composite_version();
-        let mut found = false;
-        for (i, entry) in entries.iter().enumerate() {
-            let name_matches = match spec.name.as_str() {
-                "all" | "installed" => true,
-                "active" => entry.active,
-                "inactive" => !entry.active,
-                "requested" => entry.requested,
-                "unrequested" => !entry.requested,
-                _ => matcher.matches(&entry.name),
-            };
-            if name_matches
-                && (version.is_empty()
-                    || version == entry.version
-                    || version == entry.full_version())
-            {
-                selected.insert(i);
-                found = true;
-            }
-        }
-        ensure!(
-            found || selector || glob,
-            "port {}{} is not registered as installed",
-            spec.name,
-            if version.is_empty() {
-                String::new()
-            } else {
-                format!(" @{version}")
-            }
-        );
-    }
-    let lines = entries
-        .iter()
-        .enumerate()
-        .filter(|(i, _)| selected.contains(i))
-        .map(|(_, entry)| render(entry, verbose))
+    let selected =
+        registry::expression::select(&entries, &args.ports, registry::expression::Missing::Error)?;
+    let lines = selected
+        .into_iter()
+        .map(|entry| render(entry, verbose))
         .collect::<Result<Vec<_>>>()?;
     if lines.is_empty() {
         if !quiet {
             writeln!(
                 out,
                 "{}",
-                if specs.is_empty() {
+                if args.ports.is_empty() {
                     "No ports are installed."
                 } else {
                     "None of the specified ports are installed."

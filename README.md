@@ -203,6 +203,8 @@ error. SQLite handles committed WAL data and concurrent readers normally.
 port installed
 port -q installed active
 port installed 'python*'
+port installed active and requested
+port installed '(' curl or 'python*' ')' and not inactive
 port installed curl @8.10.1_0+ssl
 port -v --registry-file /custom/registry.db installed requested
 ```
@@ -213,12 +215,13 @@ mode hides headings, while verbose mode includes recorded requested variants,
 platform, architectures, and local installation timestamps. Version filters
 match a plain version or the complete version/revision/variant string.
 
-This first registry query supports names, globs, `all`, `installed`, `active`,
-`inactive`, `requested`, and `unrequested`, with adjacent selectors forming a
-union. Globs match registry names, including ports removed from the current
-catalog. Logical/field expressions are explicitly rejected here; catalog query
-expressions and registry selectors are not yet unified. All registry mutations
-remain unimplemented.
+Registry queries support names, globs, `all`, `installed`, `active`, `inactive`,
+`requested`, and `unrequested`. Combine selectors with `not` (or `!`), `and`,
+and `or`, in that precedence order; parentheses override precedence and adjacent
+expressions form a union. Set operations preserve distinct installed images.
+Complements and globs use the installed registry, including ports removed from
+the catalog. Nesting is limited to 128 levels. Field/path selectors still require
+catalog queries; registry mutations remain unimplemented.
 
 `port contents curl` lists the active image's registered filesystem paths; if no
 active image matches, a single inactive image is used. When several inactive
@@ -262,8 +265,8 @@ unsupported for these actions. The dependency map is read once inside the same
 read transaction as the entries, and traversal is iterative for deep graphs.
 
 `port outdated` compares active installations with the current catalog, reusing
-`--registry-file` and `--index-file` overrides. It accepts the same simple name,
-glob, version, and state/requested filters as `installed`; inactive images are
+`--registry-file` and `--index-file` overrides. It accepts the same logical expressions, names,
+globs, versions, and state/requested filters as `installed`; inactive images are
 excluded. If no active entries match, the catalog is not loaded or downloaded.
 Removed catalog entries are skipped, and missing version fields produce warnings.
 
