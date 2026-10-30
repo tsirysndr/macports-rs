@@ -526,6 +526,11 @@ literal tildes, retained dot components, and `//server` roots. Read-only
 errors. Access checks use native OS permissions, not just mode bits; relative
 paths use the process working directory. These queries run during metadata
 evaluation too, so compiler/dependency choices can depend on host files.
+`file size`, `mtime`, `atime`, `type`, `readlink`, `stat`, and `lstat` expose
+read-only metadata with catchable POSIX lookup errors. Stat follows symlinks;
+lstat and type inspect the link itself. Stat results support both Tcl 9 dictionary
+returns and caller-scope arrays. Timestamp setters remain unsupported, and
+readlink currently requires a UTF-8 target.
 Other filesystem-backed `file` operations and subcommand abbreviations remain
 unimplemented.
 

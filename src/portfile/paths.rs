@@ -47,6 +47,14 @@ fn join<'a>(paths: impl IntoIterator<Item = &'a str>) -> String {
 fn file(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 2, 0, "subcommand ?arg ...?")?;
     let operation = argv[1].as_str();
+    if filesystem::is_metadata_query(operation) {
+        if matches!(operation, "mtime" | "atime") && argv.len() == 4 {
+            let name = format!("file {operation} setter");
+            interp.context::<State>(id).unsupported.insert(name.clone());
+            return Err(error(format!("unsupported Portfile command {name}")));
+        }
+        return filesystem::metadata_query(interp, argv);
+    }
     if filesystem::is_predicate(operation) {
         check_args(2, argv, 3, 3, "name")?;
         return Ok(filesystem::predicate(operation, argv[2].as_str()).into());

@@ -131,3 +131,181 @@ fn metadata_can_select_dependencies_using_host_file_probes() {
     );
     assert!(query(&mut session, "exists", &compiler));
 }
+
+#[test]
+fn metadata_queries_preserve_times_sizes_and_link_identity() {
+    use std::{
+        os::unix::fs::MetadataExt,
+        time::{Duration, UNIX_EPOCH},
+    };
+    let root = tempfile::tempdir().unwrap();
+    let file = root.path().join("source");
+    fs::write(&file, b"hello\0world").unwrap();
+    fs::File::open(&file)
+        .unwrap()
+        .set_times(
+            fs::FileTimes::new()
+                .set_modified(UNIX_EPOCH + Duration::from_secs(1234567890))
+                .set_accessed(UNIX_EPOCH + Duration::from_secs(1234567800)),
+        )
+        .unwrap();
+    let link = root.path().join("link");
+    symlink("source", &link).unwrap();
+    let broken = root.path().join("broken");
+    symlink("missing/../target", &broken).unwrap();
+    let mut session = session();
+    for path in [&file, &link] {
+        for (operation, expected) in [
+            ("size", "11"),
+            ("mtime", "1234567890"),
+            ("atime", "1234567800"),
+        ] {
+            assert_eq!(
+                session
+                    .invoke("file", &[operation, path.to_str().unwrap()])
+                    .unwrap(),
+                expected
+            );
+        }
+    }
+    for (path, expected) in [
+        (file.as_path(), "file"),
+        (link.as_path(), "link"),
+        (broken.as_path(), "link"),
+        (root.path(), "directory"),
+    ] {
+        assert_eq!(
+            session
+                .invoke("file", &["type", path.to_str().unwrap()])
+                .unwrap(),
+            expected
+        );
+    }
+    assert_eq!(
+        session
+            .invoke("file", &["readlink", broken.to_str().unwrap()])
+            .unwrap(),
+        "missing/../target"
+    );
+    let stat = session
+        .invoke("file", &["stat", link.to_str().unwrap()])
+        .unwrap();
+    let fields = port_rs::tcl_list::parse(&stat).unwrap();
+    let values: BTreeMap<_, _> = fields
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| (pair[0].as_str(), pair[1].as_str()))
+        .collect();
+    let metadata = fs::metadata(&file).unwrap();
+    assert_eq!(values["type"], "file");
+    assert_eq!(values["size"], "11");
+    assert_eq!(values["ino"], metadata.ino().to_string());
+    assert_eq!(values["mode"], metadata.mode().to_string());
+    assert_eq!(values["mtime"], "1234567890");
+    let lstat = session
+        .invoke("file", &["lstat", link.to_str().unwrap()])
+        .unwrap();
+    let fields = port_rs::tcl_list::parse(&lstat).unwrap();
+    let values: BTreeMap<_, _> = fields
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| (pair[0].as_str(), pair[1].as_str()))
+        .collect();
+    assert_eq!(values["type"], "link");
+    assert_eq!(values["size"], "6");
+}
+
+#[test]
+fn stat_populates_callers_array_and_preserves_existing_fields() {
+    let root = tempfile::tempdir().unwrap();
+    let file = root.path().join("data");
+    fs::write(&file, "1234").unwrap();
+    let mut session = Session::open(
+        r#"
+        name app; version 1
+        proc inspect {path} {
+            set info(existing) retained
+            set result [file stat $path info]
+            return [list $result $info(type) $info(size) $info(existing)]
+        }
+        proc scalar_conflict {path} {
+            set info scalar
+            catch {file stat $path info} message
+            return [list $info $message]
+        }
+    "#,
+        &BTreeMap::new(),
+        &PortSpec::named("app"),
+        PortGroups::default(),
+    )
+    .unwrap();
+    let result = session
+        .invoke("inspect", &[file.to_str().unwrap()])
+        .unwrap();
+    assert_eq!(
+        port_rs::tcl_list::parse(&result).unwrap(),
+        ["", "file", "4", "retained"]
+    );
+    let result = session
+        .invoke("scalar_conflict", &[file.to_str().unwrap()])
+        .unwrap();
+    let values = port_rs::tcl_list::parse(&result).unwrap();
+    assert_eq!(values[0], "scalar");
+    assert!(values[1].contains("isn't array"));
+}
+
+#[test]
+fn metadata_errors_are_catchable_and_expose_posix_error_codes() {
+    let root = tempfile::tempdir().unwrap();
+    let missing = root.path().join("missing");
+    let file = root.path().join("file");
+    fs::write(&file, "data").unwrap();
+    let mut session = Session::open(
+        r#"
+        name app; version 1
+        proc failure {operation path} {
+            catch {file $operation $path} message options
+            return [list $message [dict get $options -errorcode]]
+        }
+    "#,
+        &BTreeMap::new(),
+        &PortSpec::named("app"),
+        PortGroups::default(),
+    )
+    .unwrap();
+    for (operation, path, code) in [
+        ("stat", &missing, "ENOENT"),
+        ("readlink", &file, "EINVAL"),
+        ("size", &file.join("child"), "ENOTDIR"),
+    ] {
+        let result = session
+            .invoke("failure", &[operation, path.to_str().unwrap()])
+            .unwrap();
+        let values = port_rs::tcl_list::parse(&result).unwrap();
+        let error_code = port_rs::tcl_list::parse(&values[1]).unwrap();
+        assert_eq!(error_code[0], "POSIX");
+        assert_eq!(error_code[1], code);
+        assert!(values[0].contains(path.to_str().unwrap()));
+    }
+    assert_eq!(
+        session
+            .invoke("file", &["size", file.to_str().unwrap()])
+            .unwrap(),
+        "4"
+    );
+}
+
+#[test]
+fn timestamp_setters_remain_explicitly_unsupported() {
+    let error = Session::open(
+        "name app; version 1; catch {file mtime /untouched 0}",
+        &BTreeMap::new(),
+        &PortSpec::named("app"),
+        PortGroups::default(),
+    )
+    .err()
+    .unwrap();
+    assert!(error.to_string().contains("file mtime setter"));
+}
