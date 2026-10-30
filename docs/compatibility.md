@@ -924,3 +924,13 @@ and [PortIndex writer](https://github.com/macports/macports-base/blob/master/src
 ## License
 
 [MIT](../LICENSE) — Copyright (c) 2026 Tsiry Sandratraina <tsiry.sndr@rocksky.app>.
+
+`Session::clean_destroot_libtool` supplies the libtool portion of destroot finish.
+It recognizes the first-line libtool marker, removes archives when requested,
+or clears dependency_libs quote contents in regular files without rewriting
+symlinks. Absolute symlink targets are checked inside the staging root. Link
+recognition precedes deletion so traversal order cannot leave recognized aliases
+behind. Rewrites preserve inode, hardlinks, owner/group, and permissions and
+support non-UTF-8 content. This helper assumes ownership preparation is complete;
+it does not yet perform the remaining destroot finish operations or record phase
+completion. The full destroot startup/finish callbacks remain unfinished.
