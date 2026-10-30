@@ -48,7 +48,7 @@ impl ReverseIndex {
                 }
             }
         }
-        result.sort();
+        result.sort_by(|a, b| crate::order::dictionary(a, b));
         result
     }
 }

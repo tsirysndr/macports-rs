@@ -397,3 +397,52 @@ fn reverse_selectors_handle_deep_graphs_iteratively() {
     let output = stdout(&fixture.run(&["-q", "echo", "rdepends:node5000"]));
     assert_eq!(output.lines().count(), 5000);
 }
+
+#[test]
+fn catalog_expansions_and_search_use_dictionary_order() {
+    let fixture = Fixture::new(&[
+        ("pkg10", "depends_lib port:base"),
+        ("pkg2", "depends_lib port:base"),
+        ("Pkg1", "depends_lib port:base"),
+        ("pkg01", "depends_lib port:base"),
+        ("pkg1", "depends_lib port:base"),
+    ]);
+    let expected = "Pkg1\npkg1\npkg01\npkg2\npkg10\n";
+    for args in [
+        vec!["-q", "echo", "all"],
+        vec!["-q", "echo", "pkg*"],
+        vec!["-q", "echo", "name:pkg"],
+        vec!["-q", "echo", "not", "absent"],
+        vec!["-q", "search", "pkg"],
+    ] {
+        assert_eq!(stdout(&fixture.run(&args)), expected, "{args:?}");
+    }
+    // Reverse traversal deduplicates names case-insensitively, as upstream does.
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "echo", "rdepends:base"])),
+        "Pkg1\npkg01\npkg2\npkg10\n"
+    );
+    let listing = stdout(&fixture.run(&["list"]));
+    let names: Vec<_> = listing
+        .lines()
+        .map(|line| line.split_whitespace().next().unwrap())
+        .collect();
+    assert_eq!(names.join("\n") + "\n", expected);
+}
+
+#[test]
+fn explicit_port_order_and_union_order_are_preserved() {
+    let fixture = Fixture::new(&[("pkg10", ""), ("pkg2", ""), ("pkg1", "")]);
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "echo", "pkg10", "pkg1", "pkg2"])),
+        "pkg10\npkg1\npkg2\n"
+    );
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "echo", "pkg10", "or", "pkg*"])),
+        "pkg10\npkg1\npkg2\n"
+    );
+    assert_eq!(
+        stdout(&fixture.run(&["-q", "echo", "pkg*", "and", "not", "pkg2"])),
+        "pkg1\npkg10\n"
+    );
+}

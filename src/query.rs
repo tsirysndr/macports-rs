@@ -178,7 +178,9 @@ impl Expression<'_> {
         result
     }
     fn all(&self) -> Vec<PortSpec> {
-        self.index.ports.keys().map(PortSpec::named).collect()
+        let mut ports: Vec<_> = self.index.ports.keys().map(PortSpec::named).collect();
+        ports.sort_by(|a, b| crate::order::dictionary(&a.name, &b.name));
+        ports
     }
     fn atom(&mut self) -> Result<Vec<PortSpec>> {
         let token = &self.tokens[self.cursor];
@@ -275,6 +277,12 @@ impl Expression<'_> {
             } else {
                 vec![PortSpec::named(name)]
             };
+        }
+        // Sort each expansion, preserving the order of explicitly supplied selectors.
+        if !token.starts_with("rdepends:")
+            && (token.contains(':') || token.contains(['*', '?', '[', ']']))
+        {
+            selected.sort_by(|a, b| crate::order::dictionary(&a.name, &b.name));
         }
         while let Some(token) = self.peek().filter(|t| is_modifier(t)) {
             modifiers.parse_modifier(token)?;

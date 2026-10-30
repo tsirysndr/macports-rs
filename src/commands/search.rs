@@ -37,7 +37,7 @@ pub(super) fn run(out: &mut impl Write, index: &Index, s: Search, quiet: bool) -
             p.clone()
         };
         let matcher = Matcher::new(&pattern, s.exact, s.regex, s.case_sensitive)?;
-        let matches: Vec<_> = index
+        let mut matches: Vec<_> = index
             .ports
             .values()
             .filter(|port| {
@@ -48,6 +48,7 @@ pub(super) fn run(out: &mut impl Write, index: &Index, s: Search, quiet: bool) -
                 })
             })
             .collect();
+        matches.sort_by(|a, b| crate::order::dictionary(&a.name, &b.name));
         for (i, port) in matches.iter().enumerate() {
             if quiet {
                 writeln!(out, "{}", port.name)?;

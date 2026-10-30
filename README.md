@@ -129,8 +129,14 @@ built once per expression, and cycles terminate without duplicates. A cyclic
 path can include the named port itself. Unlike `dependentof`/`rdependentof`, this
 selector does not inspect the installed-port registry.
 
+Catalog expansions and search results use dictionary ordering: numeric runs
+compare by value (`python9` before `python10`), with case and leading zeros
+breaking ties. Explicit port arguments and unions retain their input order.
+Non-ASCII case mapping uses Rust Unicode tables, which can differ from the
+Unicode version used by a particular Tcl release.
+
 Search regexes currently use Rust regex semantics, which differ from Tcl's
-advanced regular expressions. Glob behavior, dictionary sorting, description
+advanced regular expressions. Glob behavior, Unicode sorting edge cases, description
 wrapping, some metadata formatting edge cases, and error details still need
 full upstream parity tests. Tests currently check representative upstream-derived
 behavior; they are not a complete differential compatibility suite.
@@ -217,7 +223,8 @@ memory measurements and differential benchmarks on the same machine remain requi
 - `src/dependencies/`: dependency specifications, phase filters, graph traversal,
   and direct/tree output.
 - `src/index.rs`, `src/source.rs`, `src/tcl_list.rs`: catalog parsing and discovery.
-- `src/query.rs`, `src/spec.rs`: selectors, expressions, and port specifications.
+- `src/query.rs`, `src/spec.rs`, `src/order.rs`: selectors, expressions, port
+  specifications, and dictionary ordering.
 - `src/info.rs`, `src/fields.rs`, `src/output.rs`: metadata and text formatting.
 - `src/download.rs`, `src/progress.rs`, `src/theme.rs`: transfers and terminal UI.
 
