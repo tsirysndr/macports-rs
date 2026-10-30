@@ -3,13 +3,7 @@ mod archives;
 use archives::*;
 use port_rs::{
     index::Port,
-    install::{
-        Action, Item,
-        binary::Installer,
-        inspect::Limits,
-        store::Store,
-        target::{Architecture, Target},
-    },
+    install::{Action, Item, binary::Installer, inspect::Limits, store::Store, target::Target},
     progress::Progress,
     registry::write::{NewImage, Writer},
     source::Platform,
@@ -35,13 +29,19 @@ fn item(port: &Port) -> Item<'_> {
     }
 }
 fn target() -> Target {
-    Target::macos(
+    let mut session = port_rs::portfile::Session::open(
+        "name app; version 1; platforms darwin; set configure.build_arch arm64; set os.arch arm",
+        &BTreeMap::new(),
+        &port_rs::spec::PortSpec::named("app"),
+        port_rs::portfile::PortGroups::default(),
+    )
+    .unwrap();
+    Target::from_session(
+        &mut session,
         &Platform {
             darwin_major: 24,
             architecture: "arm",
         },
-        "darwin",
-        Architecture::Native,
     )
     .unwrap()
 }

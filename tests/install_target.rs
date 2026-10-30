@@ -141,3 +141,77 @@ fn url_components_cannot_change_mirror_host_or_path_structure() {
     assert!(url.query().is_none() && url.fragment().is_none());
     assert_eq!(url.path_segments().unwrap().count(), 2);
 }
+
+fn live_session(body: &str, variants: &str) -> port_rs::portfile::Session {
+    let mut spec = port_rs::spec::PortSpec::named("app");
+    if !variants.is_empty() {
+        spec.parse_modifier(variants).unwrap();
+    }
+    port_rs::portfile::Session::open(&format!("name app; version 1; set os.arch arm; set configure.build_arch arm64; platforms darwin; {body}"),
+        &BTreeMap::new(), &spec, port_rs::portfile::PortGroups::default()).unwrap()
+}
+
+#[test]
+fn live_portfile_target_uses_selected_architectures_and_runtime_changes() {
+    let mut session = live_session(
+        "variant universal {}; set configure.universal_archs {x86_64 arm64}",
+        "+universal",
+    );
+    let target = Target::from_session(&mut session, &machine("arm")).unwrap();
+    assert_eq!(target.architectures(), ["arm64", "x86_64"]);
+    assert_eq!(target.platform(), "darwin_24");
+    session
+        .invoke("set", &["configure.universal_archs", "arm64"])
+        .unwrap();
+    session
+        .invoke("set", &["configure.build_arch", "x86_64"])
+        .unwrap();
+    let target = Target::from_session(&mut session, &machine("arm")).unwrap();
+    assert_eq!(target.architectures(), ["x86_64"]);
+    session
+        .invoke("set", &["supported_archs", "noarch"])
+        .unwrap();
+    session.invoke("set", &["platforms", "any"]).unwrap();
+    let target = Target::from_session(&mut session, &machine("arm")).unwrap();
+    assert_eq!(target.architectures(), ["noarch"]);
+    assert_eq!(target.platform(), "any_any");
+}
+
+#[test]
+fn disabled_universal_and_platform_compatibility_come_from_live_portfile() {
+    let mut session = live_session(
+        "variant universal {}; default_variants +universal; set configure.universal_archs {x86_64 arm64}; platforms {darwin any}",
+        "-universal",
+    );
+    let target = Target::from_session(&mut session, &machine("arm")).unwrap();
+    assert_eq!(target.architectures(), ["arm64"]);
+    assert_eq!(target.platform(), "darwin_any");
+    // The architecture is the evaluated build target, not this machine's native
+    // architecture; changing the machine only changes the default OS suffix.
+    let target = Target::from_session(&mut session, &machine("i386")).unwrap();
+    assert_eq!(target.architectures(), ["arm64"]);
+}
+
+#[test]
+fn live_target_rejects_empty_duplicate_and_malformed_architectures() {
+    for archs in [
+        "",
+        "arm64 arm64",
+        "noarch arm64",
+        "../escape",
+        "{unterminated",
+    ] {
+        let mut session = live_session("", "");
+        // Override the canonical procedure to exercise validation at the boundary
+        // between the retained interpreter and archive coordinate construction.
+        session.invoke("set", &["test_archs", archs]).unwrap();
+        let body = "global test_archs; return $test_archs";
+        session
+            .invoke("proc", &["get_canonical_archs", "", body])
+            .unwrap();
+        assert!(
+            Target::from_session(&mut session, &machine("arm")).is_err(),
+            "{archs}"
+        );
+    }
+}

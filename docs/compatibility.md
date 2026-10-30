@@ -1346,3 +1346,14 @@ Integration tests use a concurrent local HTTP server to verify download concurre
 ordered activation, pre-network order validation, and zero installation side effects
 when one archive fails authentication. Caller-managed hooks, evaluated metadata,
 external dependency checks, and exclusive filesystem management remain required.
+
+`Target::from_session` connects the retained Portfile interpreter to archive
+coordinate selection. It reads the live `platforms` value and invokes
+`get_canonical_archs`, honoring selected universal variants, noarch, explicit build
+architecture, and runtime changes after the initial metadata snapshot. It reuses
+strict target validation for empty, duplicate, malformed, or mixed noarch lists.
+The caller still initializes build properties and runs required hooks; this helper
+does not infer missing state from PortIndex or replace a selected architecture with
+the host's native architecture. Tests cover universal enable/disable, platform
+independence, runtime changes, invalid lists, and binary-install/batch integration
+using targets resolved from retained sessions.

@@ -18,6 +18,26 @@ pub struct Target {
     archs: Vec<String>,
 }
 impl Target {
+    /// Resolve coordinates from the live PortSystem state, including selected
+    /// variants and lazy architecture defaults. The caller must initialize the
+    /// session's build properties first; missing state is not guessed from index
+    /// metadata. This does not run PortSystem initialization or target hooks.
+    pub fn from_session(
+        session: &mut crate::portfile::Session,
+        machine: &Platform,
+    ) -> Result<Self> {
+        let platforms = session.scalar("platforms")?;
+        let canonical = session.invoke("get_canonical_archs", &[])?;
+        let archs = tcl_list::parse(&canonical)?;
+        let refs: Vec<_> = archs.iter().map(String::as_str).collect();
+        let architecture = match refs.as_slice() {
+            [] => anyhow::bail!("PortSystem returned no canonical archive architectures"),
+            ["noarch"] => Architecture::Noarch,
+            [arch] => Architecture::Build(arch),
+            _ => Architecture::Universal(&refs),
+        };
+        Self::macos(machine, &platforms, architecture)
+    }
     /// `platforms` is the evaluated MacPorts platforms list. Native architecture
     /// uses physical-machine detection (including Apple Silicon under Rosetta).
     pub fn macos(
