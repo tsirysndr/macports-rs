@@ -292,3 +292,34 @@ fn system_parses_session_and_priority_options_with_native_integer_bounds() {
         Some((false, Some(8)))
     );
 }
+
+#[test]
+fn enabling_execution_can_preserve_environment_changes_from_evaluation() {
+    use std::os::unix::process::ExitStatusExt;
+    let mut session = Session::open_with_environment(
+        "name git; version 1; unset env(REMOVE); set env(NEW) changed",
+        &BTreeMap::new(),
+        &PortSpec::named("git"),
+        PortGroups::default(),
+        &BTreeMap::from([
+            ("REMOVE".into(), "initial".into()),
+            ("PATH".into(), "/explicit/bin".into()),
+        ]),
+    )
+    .unwrap();
+    session
+        .enable_system_with_current_environment(|request| {
+            assert_eq!(request.environment["PATH"], "/explicit/bin");
+            assert_eq!(request.environment["NEW"], "changed");
+            assert!(!request.environment.contains_key("REMOVE"));
+            assert!(!request.environment.contains_key("HOME"));
+            Ok(build::ProcessResult {
+                pid: 1,
+                status: std::process::ExitStatus::from_raw(0),
+            })
+        })
+        .unwrap();
+    session
+        .invoke("system", &["not actually executed"])
+        .unwrap();
+}

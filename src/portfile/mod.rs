@@ -50,7 +50,7 @@ mod session;
 mod state_open;
 pub use session::Session;
 mod source;
-pub use source::{evaluate_from_tree, open_from_tree};
+pub use source::{evaluate_from_tree, open_from_tree, open_from_tree_with_environment};
 mod system;
 pub use system::SystemRequest;
 mod target_execution;
@@ -166,10 +166,18 @@ fn open(
     variables: &BTreeMap<String, String>,
     requested: &PortSpec,
     groups: PortGroups,
+    environment: Option<&BTreeMap<String, String>>,
 ) -> Result<Session> {
     let mut interp = Interp::new();
     interp.set_recursion_limit(128);
     interp.eval("unset env").map_err(failure)?;
+    if let Some(environment) = environment {
+        let values = environment
+            .iter()
+            .flat_map(|(name, value)| [Value::from(name.clone()), Value::from(value.clone())])
+            .collect::<Vec<_>>();
+        interp.array_set("env", &values).map_err(failure)?;
+    }
     let id = interp.save_context(State {
         creation_mask: crate::source::startup_creation_mask(),
         groups,

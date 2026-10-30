@@ -30,7 +30,20 @@ impl Session {
         requested: &PortSpec,
         groups: PortGroups,
     ) -> Result<Self> {
-        super::open(source, variables, requested, groups)
+        super::open(source, variables, requested, groups, None)
+    }
+
+    /// Evaluate with an explicit initial environment available to the Portfile
+    /// and imported PortGroups. Does not inherit the host environment or enable
+    /// shell execution. The caller supplies MacPorts-filtered startup values.
+    pub fn open_with_environment(
+        source: &str,
+        variables: &BTreeMap<String, String>,
+        requested: &PortSpec,
+        groups: PortGroups,
+        environment: &BTreeMap<String, String>,
+    ) -> Result<Self> {
+        super::open(source, variables, requested, groups, Some(environment))
     }
 
     /// Snapshot taken after initial evaluation and variant application. Later

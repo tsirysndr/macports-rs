@@ -84,6 +84,16 @@ impl Session {
             .flat_map(|(k, v)| [Value::from(k.clone()), Value::from(v.clone())])
             .collect::<Vec<_>>();
         self.interp.array_set("env", &values).map_err(failure)?;
+        self.enable_system_with_current_environment(executor)
+    }
+
+    /// Enable execution without replacing environment mutations made while
+    /// evaluating the Portfile or its PortGroups.
+    pub fn enable_system_with_current_environment(
+        &mut self,
+        executor: impl FnMut(SystemRequest) -> Result<ProcessResult> + 'static,
+    ) -> Result<()> {
+        check_supported(&mut self.interp, self.id)?;
         build_defaults::initialize(&mut self.interp, self.id).map_err(failure)?;
         self.interp.context::<State>(self.id).system_executor = Some(Box::new(executor));
         self.interp.add_context_command("system", command, self.id);

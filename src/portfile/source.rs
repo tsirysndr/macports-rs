@@ -28,6 +28,28 @@ pub fn open_from_tree(
     variables: &BTreeMap<String, String>,
     requested: &PortSpec,
 ) -> Result<Session> {
+    open_tree(root, indexed, variables, requested, None)
+}
+
+/// Load a persistent Portfile with explicit environment values available during
+/// evaluation. Shell execution remains disabled, as with `open_from_tree`.
+pub fn open_from_tree_with_environment(
+    root: &Path,
+    indexed: &Port,
+    variables: &BTreeMap<String, String>,
+    requested: &PortSpec,
+    environment: &BTreeMap<String, String>,
+) -> Result<Session> {
+    open_tree(root, indexed, variables, requested, Some(environment))
+}
+
+fn open_tree(
+    root: &Path,
+    indexed: &Port,
+    variables: &BTreeMap<String, String>,
+    requested: &PortSpec,
+    environment: Option<&BTreeMap<String, String>>,
+) -> Result<Session> {
     let relative = Path::new(indexed.get("portdir"));
     ensure!(
         !relative.as_os_str().is_empty()
@@ -70,11 +92,12 @@ pub fn open_from_tree(
         "portpath".into(),
         path.parent().unwrap().to_string_lossy().into_owned(),
     );
-    Session::open(
+    super::open(
         &source,
         &variables,
         requested,
         PortGroups::from_directories(vec![root.join("_resources/port1.0/group")]),
+        environment,
     )
     .with_context(|| format!("{}: {}", requested.name, path.display()))
 }

@@ -1441,3 +1441,11 @@ retains interpreters for later target execution. Repeated evaluations of a share
 port must agree on both metadata and search context. The CLI's preliminary local
 preview still uses conservative planning until runtime environment initialization
 is wired; this API requires the loader to supply that context explicitly.
+
+`Session::open_with_environment` and `open_from_tree_with_environment` accept an
+explicit environment before Portfile and PortGroup evaluation. They do not inherit
+the process environment or enable shell execution. The default metadata APIs
+remain isolated. `enable_system_with_current_environment` later enables execution
+while retaining environment changes made during evaluation; the existing
+`enable_system` API still replaces the environment explicitly. Startup filtering,
+configuration loading, and CLI lifecycle integration remain caller responsibilities.

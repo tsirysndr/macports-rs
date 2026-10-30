@@ -227,3 +227,84 @@ fn qualified_global_build_options_resolve_defaults_and_keep_local_shadows() {
     session.invoke("clear", &[]).unwrap();
     assert_eq!(session.scalar("distname").unwrap(), "explicit");
 }
+
+#[test]
+fn explicit_environment_is_available_during_tree_and_group_evaluation() {
+    let tree = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(tree.path().join("net/app")).unwrap();
+    std::fs::create_dir_all(tree.path().join("_resources/port1.0/group")).unwrap();
+    std::fs::write(tree.path().join("net/app/Portfile"),
+        "name app; version $env(VERSION); PortGroup helper 1.0; unset env(REMOVE); set env(NEW) changed").unwrap();
+    std::fs::write(
+        tree.path().join("_resources/port1.0/group/helper-1.0.tcl"),
+        "description $env(TEXT); set env(FROM_GROUP) yes",
+    )
+    .unwrap();
+    let port = port_rs::index::Port {
+        name: "app".into(),
+        fields: BTreeMap::from([("portdir".into(), "net/app".into())]),
+    };
+    let environment = BTreeMap::from([
+        ("VERSION".into(), "7".into()),
+        ("TEXT".into(), "literal $name [error injected]; text".into()),
+        ("REMOVE".into(), "initial".into()),
+    ]);
+    let mut session = portfile::open_from_tree_with_environment(
+        tree.path(),
+        &port,
+        &BTreeMap::new(),
+        &PortSpec::named("app"),
+        &environment,
+    )
+    .unwrap();
+    assert_eq!(session.metadata().port.get("version"), "7");
+    assert_eq!(
+        session.metadata().port.get("description"),
+        environment["TEXT"]
+    );
+    assert_eq!(session.invoke("set", &["env(FROM_GROUP)"]).unwrap(), "yes");
+    assert_eq!(session.invoke("set", &["env(NEW)"]).unwrap(), "changed");
+    assert_eq!(
+        session.invoke("info", &["exists", "env(REMOVE)"]).unwrap(),
+        "0"
+    );
+    assert_eq!(
+        session.invoke("info", &["exists", "env(HOME)"]).unwrap(),
+        "0"
+    );
+    assert!(environment.contains_key("REMOVE"));
+    assert!(
+        portfile::open_from_tree(
+            tree.path(),
+            &port,
+            &BTreeMap::new(),
+            &PortSpec::named("app")
+        )
+        .is_err()
+    );
+    assert!(session.invoke("system", &["exit 0"]).is_err());
+}
+
+#[test]
+fn empty_explicit_environment_is_an_array_and_does_not_enable_execution() {
+    let mut session = Session::open_with_environment(
+        "name app; version 1; set array_exists [array exists env]",
+        &BTreeMap::new(),
+        &PortSpec::named("app"),
+        PortGroups::default(),
+        &BTreeMap::new(),
+    )
+    .unwrap();
+    assert_eq!(session.scalar("array_exists").unwrap(), "1");
+    assert_eq!(session.invoke("array", &["size", "env"]).unwrap(), "0");
+    assert!(
+        Session::open_with_environment(
+            "name app; version 1; catch {system {exit 0}}",
+            &BTreeMap::new(),
+            &PortSpec::named("app"),
+            PortGroups::default(),
+            &BTreeMap::new()
+        )
+        .is_err()
+    );
+}
