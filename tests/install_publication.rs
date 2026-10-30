@@ -117,3 +117,84 @@ fn rollback_uses_the_held_parent_even_if_its_old_path_becomes_a_symlink() {
     assert!(!moved.join("app").exists());
     assert_eq!(fs::read(outside.path().join("app")).unwrap(), b"preserve");
 }
+
+#[test]
+fn hardlinks_share_inode_and_survive_rollback_of_the_original_name() {
+    use std::os::unix::fs::MetadataExt;
+    let temp = tempfile::tempdir().unwrap();
+    fs::create_dir(temp.path().join("bin")).unwrap();
+    let root = Root::open(temp.path()).unwrap();
+    let original = root
+        .publish_file(Path::new("app"), &mut &b"payload"[..], 0o755)
+        .unwrap();
+    let alias = root
+        .publish_hardlink(Path::new("bin/alias"), &original)
+        .unwrap();
+    assert_eq!(
+        fs::metadata(temp.path().join("app")).unwrap().ino(),
+        fs::metadata(temp.path().join("bin/alias")).unwrap().ino()
+    );
+    original.rollback().unwrap();
+    assert!(!temp.path().join("app").exists());
+    assert_eq!(fs::read(temp.path().join("bin/alias")).unwrap(), b"payload");
+    assert_eq!(
+        fs::metadata(temp.path().join("bin/alias"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o755
+    );
+    alias.persist();
+    assert_eq!(fs::read(temp.path().join("bin/alias")).unwrap(), b"payload");
+}
+
+#[test]
+fn hardlink_rollback_removes_only_its_own_name_and_never_overwrites() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = Root::open(temp.path()).unwrap();
+    let original = root
+        .publish_file(Path::new("app"), &mut &b"payload"[..], 0o644)
+        .unwrap();
+    fs::write(temp.path().join("occupied"), b"keep").unwrap();
+    symlink("missing", temp.path().join("dangling")).unwrap();
+    for name in ["app", "occupied", "dangling"] {
+        assert!(root.publish_hardlink(Path::new(name), &original).is_err());
+    }
+    let alias = root
+        .publish_hardlink(Path::new("alias"), &original)
+        .unwrap();
+    drop(alias);
+    assert!(!temp.path().join("alias").exists());
+    assert_eq!(fs::read(temp.path().join("app")).unwrap(), b"payload");
+    assert_eq!(fs::read(temp.path().join("occupied")).unwrap(), b"keep");
+    assert_eq!(
+        fs::read_link(temp.path().join("dangling")).unwrap(),
+        Path::new("missing")
+    );
+}
+
+#[test]
+fn hardlink_source_replacement_and_destination_parent_links_are_rejected() {
+    let temp = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let root = Root::open(temp.path()).unwrap();
+    let original = root
+        .publish_file(Path::new("app"), &mut &b"payload"[..], 0o644)
+        .unwrap();
+    symlink(outside.path(), temp.path().join("parent")).unwrap();
+    assert!(
+        root.publish_hardlink(Path::new("parent/alias"), &original)
+            .is_err()
+    );
+    fs::rename(temp.path().join("app"), temp.path().join("old")).unwrap();
+    symlink("old", temp.path().join("app")).unwrap();
+    assert!(
+        root.publish_hardlink(Path::new("alias"), &original)
+            .is_err()
+    );
+    assert!(!temp.path().join("alias").exists());
+    assert!(original.rollback().is_err());
+    assert_eq!(fs::read(temp.path().join("old")).unwrap(), b"payload");
+    assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
+}

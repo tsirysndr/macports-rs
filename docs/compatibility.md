@@ -1133,7 +1133,18 @@ identity before unlinking, and uses the held parent even if its original path
 has been renamed. Persisting a receipt retains the file after coordination.
 The caller must exclusively manage the destination directories throughout these
 operations. These primitives do not supply crash recovery, directory creation,
-symlink/hardlink payload publication, archive ownership/flags/timestamps, or a
+symlink payload publication, archive ownership/flags/timestamps, or a
 registry transaction coordinator, and are not wired to CLI install yet. Tests
 cover publication/retention, failed streams, collisions, path escapes, replacement
 inodes, and renamed-parent rollback without altering external symlink targets.
+
+
+`Root::publish_hardlink` publishes an alias from a still-held publication receipt.
+It verifies the source name's device/inode before linking, uses held directory
+descriptors for both paths, and refuses existing destinations. The alias shares
+the source's inode, mode, ownership, and data; its receipt anchors that inode and
+can independently roll back or retain the alias. Source receipts must remain
+available until their aliases are created. Tests verify shared inode identity,
+independent rollback/retention, dangling-link collisions, replaced-source
+rejection, and destination-parent symlink rejection. The same exclusive-directory
+access requirement applies; this does not yet add durable recovery or CLI wiring.

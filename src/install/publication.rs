@@ -1,4 +1,4 @@
-//! Descriptor-relative, non-overwriting regular-file publication.
+//! Descriptor-relative, non-overwriting regular-file and hardlink publication.
 //! A coordinator must exclusively manage the destination directories while using
 //! these primitives. Receipts provide in-process rollback, not crash recovery.
 use anyhow::{Context, Result, ensure};
@@ -72,6 +72,63 @@ impl Root {
             _anchor: file,
         };
         temporary.rollback()?;
+        published.parent.sync_all()?;
+        Ok(published)
+    }
+    /// Publish another name for an inode still held by a publication receipt.
+    /// The source name must still refer to that inode. Both parents remain
+    /// descriptor-relative, and an existing destination is never replaced.
+    pub fn publish_hardlink(
+        &self,
+        relative: &Path,
+        source: &PublishedFile,
+    ) -> Result<PublishedFile> {
+        let (parent, name) = self.parent(relative)?;
+        // SAFETY: source owns its parent descriptor and NUL-terminated name.
+        let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+        if unsafe {
+            libc::fstatat(
+                source.parent.as_raw_fd(),
+                source.name.as_ptr(),
+                &mut stat,
+                libc::AT_SYMLINK_NOFOLLOW,
+            )
+        } != 0
+        {
+            return Err(io::Error::last_os_error()).context("cannot inspect hardlink source");
+        }
+        ensure!(
+            stat.st_dev as u64 == source.device && stat.st_ino as u64 == source.inode,
+            "hardlink source no longer matches its publication receipt"
+        );
+        ensure!(
+            source._anchor.metadata()?.is_file(),
+            "hardlink source must be a regular file"
+        );
+        // SAFETY: both parent descriptors and names remain live; no flags means
+        // linkat does not follow the source leaf if it is replaced by a symlink.
+        // The caller's exclusive directory access covers verification/publication.
+        if unsafe {
+            libc::linkat(
+                source.parent.as_raw_fd(),
+                source.name.as_ptr(),
+                parent.as_raw_fd(),
+                name.as_ptr(),
+                0,
+            )
+        } != 0
+        {
+            return Err(io::Error::last_os_error())
+                .context("cannot publish hardlink without overwriting");
+        }
+        let published = PublishedFile {
+            parent,
+            name,
+            device: source.device,
+            inode: source.inode,
+            retained: false,
+            _anchor: Arc::clone(&source._anchor),
+        };
         published.parent.sync_all()?;
         Ok(published)
     }
