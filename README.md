@@ -397,6 +397,13 @@ are retained as metadata for later activation. Failures and dropped images remov
 the entire temporary directory. This does not write into the live prefix, execute
 Portfile hooks, or register installed ports.
 
+The native registry writer now initializes schema 1.215 and provides explicit
+transactions for image registration, file ownership, activation, deactivation,
+requested flags, and removal. Failed registrations and activations roll back to
+savepoints; dropping a transaction rolls it back. Existing older or newer schemas
+are refused without migration. This API does not yet coordinate live filesystem
+changes, and read-only commands never initialize a registry.
+
 ## Download engine and progress
 
 Tokio and reqwest provide bounded concurrent HTTP(S) transfers with a shared
@@ -487,7 +494,7 @@ memory measurements and differential benchmarks on the same machine remain requi
   action expansion, and exit handling.
 - `src/commands/`: action-specific arguments and handlers for search, info,
   dependency queries, downloads, and basic index inspection.
-- `src/registry/`: read-only SQLite entries and MacPorts version comparison.
+- `src/registry/`: SQLite readers, explicit transactional writes, and MacPorts version comparison.
 - `src/dependencies/`: dependency specifications, phase filters, graph traversal,
   and direct/tree output.
 - `src/index.rs`, `src/source.rs`, `src/tcl_list.rs`: catalog parsing and discovery.

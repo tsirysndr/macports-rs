@@ -1,10 +1,11 @@
-//! Read-only access to the MacPorts SQLite registry; never initializes or migrates it.
+//! Native MacPorts registry access. Readers never initialize or migrate databases.
 pub mod dependents;
 pub mod expression;
 mod leaves;
 pub mod path;
 mod selection;
 mod version;
+pub mod write;
 use anyhow::{Context, Result, ensure};
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 pub use selection::specifications;
