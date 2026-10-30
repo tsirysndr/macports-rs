@@ -148,6 +148,51 @@ impl<'a> Plan<'a> {
             conflicts,
         })
     }
+    /// Build and check the complete registry mapping while the caller retains
+    /// the writer transaction. This does not activate the image or publish files.
+    pub fn check_registry(
+        &self,
+        transaction: &crate::registry::write::WriteTransaction<'_>,
+        image_id: i64,
+    ) -> Result<Vec<crate::registry::write::ActivationFile>> {
+        self.ensure_clear()?;
+        let identity = transaction.image_identity(image_id)?;
+        let contents = &self.image.inspection().contents;
+        let variants: String = contents
+            .variants
+            .iter()
+            .map(|variant| format!("+{variant}"))
+            .collect();
+        let mut archs: Vec<_> = identity.archs.split_whitespace().collect();
+        archs.sort_unstable();
+        let mut expected_archs: Vec<_> = contents.archs.iter().map(String::as_str).collect();
+        expected_archs.sort_unstable();
+        ensure!(
+            identity.name.eq_ignore_ascii_case(&contents.name)
+                && identity.version == contents.version
+                && u64::try_from(identity.revision).ok() == Some(contents.revision)
+                && u64::try_from(identity.epoch).ok() == Some(contents.epoch)
+                && identity.variants == variants
+                && archs == expected_archs,
+            "registered image identity does not match the verified archive"
+        );
+        let mappings = self
+            .files
+            .iter()
+            .map(|file| {
+                Ok(crate::registry::write::ActivationFile {
+                    path: file.installed_path.clone(),
+                    actual_path: file
+                        .destination
+                        .to_str()
+                        .context("activation destination is not UTF-8")?
+                        .to_owned(),
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        transaction.check_activation(image_id, &mappings)?;
+        Ok(mappings)
+    }
     /// Refuse publication until all conflicts are explicitly resolved.
     pub fn ensure_clear(&self) -> Result<()> {
         ensure!(

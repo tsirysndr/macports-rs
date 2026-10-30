@@ -39,6 +39,14 @@ pub struct ImageFile {
     pub path: String,
     pub binary: bool,
 }
+pub struct ImageIdentity {
+    pub name: String,
+    pub version: String,
+    pub revision: i64,
+    pub epoch: i64,
+    pub variants: String,
+    pub archs: String,
+}
 pub struct ActivationFile {
     pub path: String,
     pub actual_path: String,
@@ -141,6 +149,25 @@ impl WriteTransaction<'_> {
     pub fn entries(&self) -> Result<Vec<Entry>> {
         read_entries(&self.transaction)
     }
+    /// Read one image's identity from the same locked snapshot used for writes.
+    pub fn image_identity(&self, id: i64) -> Result<ImageIdentity> {
+        self.transaction
+            .query_row(
+                "SELECT name,version,revision,epoch,variants,archs FROM ports WHERE id=?1",
+                [id],
+                |row| {
+                    Ok(ImageIdentity {
+                        name: row.get(0)?,
+                        version: row.get(1)?,
+                        revision: row.get(2)?,
+                        epoch: row.get(3)?,
+                        variants: row.get(4)?,
+                        archs: row.get(5)?,
+                    })
+                },
+            )
+            .context("image is not registered")
+    }
     /// Register an inactive image, its complete file map, and runtime dependencies.
     /// A savepoint ensures a failed operation cannot leave a partial image even
     /// if the caller catches the error and commits other operations afterwards.
@@ -171,11 +198,12 @@ impl WriteTransaction<'_> {
         savepoint.commit()?;
         Ok(id)
     }
-    /// Record a complete activation after a filesystem coordinator has prepared
-    /// the same mappings. This method itself does not create or replace files.
-    pub fn activate(&mut self, id: i64, files: &[ActivationFile]) -> Result<()> {
-        let savepoint = self.transaction.savepoint()?;
-        let (name, state): (String, String) = savepoint
+    /// Validate complete file mappings and ownership under this transaction's
+    /// immediate writer lock, without changing any registry records. Call this
+    /// before filesystem publication; activate rechecks before recording success.
+    pub fn check_activation(&self, id: i64, files: &[ActivationFile]) -> Result<()> {
+        let (name, state): (String, String) = self
+            .transaction
             .query_row("SELECT name,state FROM ports WHERE id=?1", [id], |r| {
                 Ok((r.get(0)?, r.get(1)?))
             })
@@ -184,7 +212,8 @@ impl WriteTransaction<'_> {
             state == "imaged",
             "image must be inactive before activation"
         );
-        let conflict: Option<String> = savepoint
+        let conflict: Option<String> = self
+            .transaction
             .query_row(
                 "SELECT name FROM ports WHERE name=?1 COLLATE NOCASE AND state='installed' LIMIT 1",
                 [&name],
@@ -195,12 +224,19 @@ impl WriteTransaction<'_> {
             conflict.is_none(),
             "another image of {name} is already active"
         );
-        let registered: HashSet<String> = savepoint
+        let registered: Vec<String> = self
+            .transaction
             .prepare("SELECT path FROM files WHERE id=?1")?
             .query_map([id], |r| r.get(0))?
             .collect::<rusqlite::Result<_>>()?;
+        let count = registered.len();
+        let registered: HashSet<_> = registered.into_iter().collect();
+        ensure!(registered.len() == count, "duplicate registered file map");
         let mut mappings = BTreeMap::new();
         let mut destinations = HashSet::new();
+        let mut owner_query = self.transaction.prepare(
+            "SELECT id FROM files WHERE active AND actual_path=?1 COLLATE NOCASE LIMIT 1",
+        )?;
         for file in files {
             absolute_path(&file.path)?;
             absolute_path(&file.actual_path)?;
@@ -212,12 +248,8 @@ impl WriteTransaction<'_> {
                 destinations.insert(file.actual_path.to_ascii_lowercase()),
                 "duplicate activation destination"
             );
-            let owner: Option<i64> = savepoint
-                .query_row(
-                    "SELECT id FROM files WHERE active AND actual_path=?1 COLLATE NOCASE LIMIT 1",
-                    [&file.actual_path],
-                    |r| r.get(0),
-                )
+            let owner: Option<i64> = owner_query
+                .query_row([&file.actual_path], |r| r.get(0))
                 .optional()?;
             ensure!(
                 owner.is_none(),
@@ -230,12 +262,19 @@ impl WriteTransaction<'_> {
                 && registered.iter().all(|path| mappings.contains_key(path)),
             "activation mapping must cover exactly the registered image files"
         );
+        Ok(())
+    }
+    /// Record activation after the filesystem coordinator published these files.
+    /// This method itself does not create or replace filesystem entries.
+    pub fn activate(&mut self, id: i64, files: &[ActivationFile]) -> Result<()> {
+        self.check_activation(id, files)?;
+        let savepoint = self.transaction.savepoint()?;
         {
             let mut update = savepoint
                 .prepare("UPDATE files SET actual_path=?1,active=1 WHERE id=?2 AND path=?3")?;
-            for (path, actual) in mappings {
+            for file in files {
                 ensure!(
-                    update.execute(params![actual, id, path])? == 1,
+                    update.execute(params![file.actual_path, id, file.path])? == 1,
                     "duplicate registered file map"
                 );
             }

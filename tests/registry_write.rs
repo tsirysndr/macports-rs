@@ -329,3 +329,111 @@ fn writer_accepts_symlinked_parent_but_rejects_symlinked_database() {
     symlink(real.join("registry.db"), &link).unwrap();
     assert!(Writer::open(&link).is_err());
 }
+
+#[test]
+fn activation_preflight_is_read_only_and_activation_rechecks_ownership() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("registry.db");
+    let mut writer = Writer::create(&path).unwrap();
+    let mut tx = writer.transaction().unwrap();
+    let first = tx.register(&image("first")).unwrap();
+    let second = tx.register(&image("second")).unwrap();
+    tx.check_activation(first, &mapping("first")).unwrap();
+    assert!(
+        !tx.entries()
+            .unwrap()
+            .iter()
+            .find(|entry| entry.id == first)
+            .unwrap()
+            .active
+    );
+    assert!(tx.check_activation(first, &[]).is_err());
+    assert!(tx.check_activation(i64::MAX, &mapping("first")).is_err());
+    tx.activate(
+        second,
+        &[ActivationFile {
+            path: "/opt/local/bin/second".into(),
+            actual_path: "/OPT/LOCAL/BIN/FIRST".into(),
+        }],
+    )
+    .unwrap();
+    assert!(tx.check_activation(first, &mapping("first")).is_err());
+    assert!(tx.activate(first, &mapping("first")).is_err());
+    tx.commit().unwrap();
+    let entries = registry::read(Some(&path)).unwrap();
+    assert!(
+        !entries
+            .iter()
+            .find(|entry| entry.id == first)
+            .unwrap()
+            .active
+    );
+    assert!(
+        entries
+            .iter()
+            .find(|entry| entry.id == second)
+            .unwrap()
+            .active
+    );
+}
+
+#[test]
+fn preflight_rejects_duplicate_rows_in_a_damaged_image_map() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("registry.db");
+    let mut writer = Writer::create(&path).unwrap();
+    let mut tx = writer.transaction().unwrap();
+    let id = tx.register(&image("app")).unwrap();
+    tx.commit().unwrap();
+    let db = Connection::open(&path).unwrap();
+    db.execute("INSERT INTO files SELECT * FROM files WHERE id=?1", [id])
+        .unwrap();
+    let tx = writer.transaction().unwrap();
+    assert!(
+        tx.check_activation(id, &mapping("app"))
+            .unwrap_err()
+            .to_string()
+            .contains("duplicate registered file map")
+    );
+    tx.commit().unwrap();
+    assert_eq!(
+        db.query_row("SELECT COUNT(*) FROM files WHERE active", [], |r| r
+            .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+}
+
+#[test]
+fn failed_activation_after_preflight_rolls_back_all_file_updates() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("registry.db");
+    let mut writer = Writer::create(&path).unwrap();
+    let db = Connection::open(&path).unwrap();
+    db.execute_batch("CREATE TRIGGER reject_activation BEFORE UPDATE OF active ON files WHEN NEW.path='/second' AND NEW.active=1 BEGIN SELECT RAISE(FAIL,'test failure'); END;").unwrap();
+    let mut tx = writer.transaction().unwrap();
+    let mut record = image("app");
+    record.files.push(ImageFile {
+        path: "/second".into(),
+        binary: false,
+    });
+    let id = tx.register(&record).unwrap();
+    let mut files = mapping("app");
+    files.push(ActivationFile {
+        path: "/second".into(),
+        actual_path: "/second".into(),
+    });
+    tx.check_activation(id, &files).unwrap();
+    assert!(tx.activate(id, &files).is_err());
+    tx.commit().unwrap();
+    assert_eq!(
+        db.query_row(
+            "SELECT COUNT(*) FROM files WHERE active OR actual_path IS NOT NULL",
+            [],
+            |r| r.get::<_, i64>(0)
+        )
+        .unwrap(),
+        0
+    );
+    assert!(!registry::read(Some(&path)).unwrap()[0].active);
+}

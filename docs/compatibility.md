@@ -1094,3 +1094,19 @@ checks under the writer lock, publication-time path revalidation, metadata
 application, rollback/recovery, and CLI activation orchestration remain required.
 Tests use signed archive fixtures and verify that both the destination root and
 external symlink targets remain unchanged during preflight.
+
+`WriteTransaction::check_activation` now validates image state, complete file
+mappings, duplicate sources/destinations, competing active versions, and exact
+active-path ownership without changing records. It runs under the same immediate
+SQLite writer transaction that will record activation. `activate` rechecks those
+conditions and retains savepoint rollback for partial database-update failures.
+Ownership checks reuse one indexed prepared query across the file list.
+`install::activation::Plan::check_registry` connects filesystem preflight to this
+validation, verifies the registered name/version/revision/epoch/variants/architectures
+against the authenticated archive, and returns the registry mappings. Registered
+ownership is enforced even when the corresponding file is missing from disk.
+These checks do not publish or reserve filesystem paths: a filesystem coordinator
+must still revalidate paths, apply metadata, handle rollback/crash recovery, and
+record activation only after successful publication. Tests cover read-only
+preflight, identity mismatch, ownership changes, damaged duplicate file maps,
+and rollback after a deliberately failed activation update.

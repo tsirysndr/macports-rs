@@ -106,3 +106,75 @@ fn file_ancestors_and_symlink_roots_are_rejected() {
     assert!(Plan::inspect(&image, &link).is_err());
     assert!(Plan::inspect(&image, &link.join("")).is_err());
 }
+
+#[test]
+fn registry_preflight_binds_identity_and_detects_owners_without_disk_files() {
+    use port_rs::registry::write::{ActivationFile, ImageFile, NewImage, Writer};
+    let temp = tempfile::tempdir().unwrap();
+    let image = image(temp.path());
+    let root = tempfile::tempdir().unwrap();
+    let plan = Plan::inspect(&image, root.path()).unwrap();
+    let mut writer = Writer::create(&temp.path().join("registry.db")).unwrap();
+    let mut tx = writer.transaction().unwrap();
+    let contents = &image.inspection().contents;
+    let mut registered = NewImage {
+        name: contents.name.clone(),
+        version: contents.version.clone(),
+        revision: contents.revision as i64,
+        epoch: contents.epoch as i64,
+        variants: contents.variants.iter().map(|v| format!("+{v}")).collect(),
+        archs: contents.archs.join(" "),
+        location: "/images/app.tbz2".into(),
+        files: plan
+            .files
+            .iter()
+            .map(|f| ImageFile {
+                path: f.installed_path.clone(),
+                binary: false,
+            })
+            .collect(),
+        ..NewImage::default()
+    };
+    let id = tx.register(&registered).unwrap();
+    let mappings = plan.check_registry(&tx, id).unwrap();
+    assert_eq!(mappings.len(), 3);
+    assert!(!tx.entries().unwrap()[0].active);
+    assert_eq!(fs::read_dir(root.path()).unwrap().count(), 0);
+    registered.version = "2".into();
+    let wrong = tx.register(&registered).unwrap();
+    assert!(
+        plan.check_registry(&tx, wrong)
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("identity")
+    );
+    let owner = tx
+        .register(&NewImage {
+            name: "owner".into(),
+            version: "1".into(),
+            location: "/images/owner.tbz2".into(),
+            files: vec![ImageFile {
+                path: "/owner-file".into(),
+                binary: false,
+            }],
+            ..NewImage::default()
+        })
+        .unwrap();
+    tx.activate(
+        owner,
+        &[ActivationFile {
+            path: "/owner-file".into(),
+            actual_path: mappings[0].actual_path.clone(),
+        }],
+    )
+    .unwrap();
+    assert!(
+        plan.check_registry(&tx, id)
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("owned by another image")
+    );
+    assert_eq!(fs::read_dir(root.path()).unwrap().count(), 0);
+}
