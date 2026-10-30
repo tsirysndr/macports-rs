@@ -1458,3 +1458,11 @@ rules, including symlink targets. It does not mutate process environment or
 credentials. Configuration parsing, account resolution, and system/configured
 proxy overrides still belong to the startup driver; the filtered map can be
 passed directly to environment-aware Portfile loading.
+
+`install::proxy::apply` applies configured and supplied system proxy settings to
+the filtered environment using upstream precedence and proxy_override_env rules.
+It returns the resolved protocol proxy map and bypass value without modifying
+process environment. Tests cover lower/uppercase precedence, absent versus empty
+values, configured/system fallback, rsync, and override behavior when no replacement
+exists. Native system proxy discovery and transport-client integration remain
+separate work; this helper does not alter current downloader routing.

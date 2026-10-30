@@ -26,3 +26,4 @@ pub mod registration;
 pub mod store;
 
 pub mod environment;
+pub mod proxy;
