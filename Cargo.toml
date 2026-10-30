@@ -29,6 +29,7 @@ base64 = "0.22"
 tar = { version = "0.4", default-features = false }
 bzip2 = "0.6"
 ripemd = "0.2"
+molt = "0.3.1"
 
 [profile.release]
 lto = "thin"

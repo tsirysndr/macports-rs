@@ -366,6 +366,22 @@ files. Ordinary `port install` remains blocked before index/registry access unti
 archive verification, extraction, activation, and registry transactions are ready.
 `-y` currently applies only to `install`; other actions reject it.
 
+The `portfile` library now evaluates an initial set of Portfile metadata commands
+in Rust using [Molt](https://docs.rs/molt/latest/molt/), without `tclsh` or libtcl.
+It supports language substitutions, expressions, procedures and loops, option
+set/append/prepend/delete/replace operations, explicit option overrides, subports,
+variant declarations, conditional defaults, requirements and conflicts. Selected
+variant bodies update dependency/build metadata in requirement order. Hook bodies
+are retained without execution, and configuration variables are supplied explicitly
+instead of inheriting the process environment.
+
+This evaluator is not yet connected to CLI catalog loading or installation.
+PortGroups, lazy `default` values, `platform` blocks and the complete PortSystem
+API still need implementation. Unsupported operations fail; guarded attempts to
+call unsupported I/O commands are recorded and cannot yield approved metadata.
+The synthetic evaluation tests do not establish compatibility with curl's complete
+Portfile or the wider ports tree.
+
 The installer library now includes streaming Signify/Ed25519 `.sig`
 authentication with the pinned MacPorts 2025 archive key. Verification reads
 64 KiB chunks, authenticates through EOF, and returns the byte count and SHA-256.
@@ -511,6 +527,7 @@ memory measurements and differential benchmarks on the same machine remain requi
   action expansion, and exit handling.
 - `src/commands/`: action-specific arguments and handlers for search, info,
   dependency queries, downloads, and basic index inspection.
+- `src/portfile/`: Rust metadata evaluation, options, and variant selection.
 - `src/registry/`: SQLite readers, explicit transactional writes, and MacPorts version comparison.
 - `src/dependencies/`: dependency specifications, phase filters, graph traversal,
   and direct/tree output.
