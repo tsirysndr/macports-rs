@@ -42,12 +42,12 @@ async fn initializes_valid_index_then_works_offline() {
     let index = source::initialize(&path, &url, &Progress::new(true))
         .await
         .unwrap();
-    assert_eq!(index.ports.len(), 1);
+    assert_eq!(index.ports().len(), 1);
     assert_eq!(std::fs::read_to_string(&path).unwrap(), data);
     let index = source::initialize(&path, "http://127.0.0.1:0/offline", &Progress::new(true))
         .await
         .unwrap();
-    assert_eq!(index.ports["curl"].get("version"), "8.0");
+    assert_eq!(index.ports()["curl"].get("version"), "8.0");
     assert_eq!(
         std::fs::read_dir(path.parent().unwrap()).unwrap().count(),
         1
@@ -107,8 +107,8 @@ async fn simultaneous_initializers_publish_one_complete_index() {
         source::initialize(&path, &a, &progress),
         source::initialize(&path, &b, &progress)
     );
-    assert_eq!(a.unwrap().ports.len(), 1);
-    assert_eq!(b.unwrap().ports.len(), 1);
+    assert_eq!(a.unwrap().ports().len(), 1);
+    assert_eq!(b.unwrap().ports().len(), 1);
     assert_eq!(std::fs::read_to_string(path).unwrap(), record());
     assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
 }

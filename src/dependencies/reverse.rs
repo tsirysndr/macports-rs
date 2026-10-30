@@ -10,7 +10,7 @@ pub struct ReverseIndex {
 impl ReverseIndex {
     pub fn build(index: &Index) -> Result<Self> {
         let mut edges: HashMap<String, Vec<String>> = HashMap::new();
-        for port in index.ports.values() {
+        for port in index.ports().values() {
             let mut seen = HashSet::new();
             for field in fields::DEPENDENCIES {
                 for specification in tcl_list::parse(port.get(field))

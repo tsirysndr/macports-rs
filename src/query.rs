@@ -66,14 +66,7 @@ pub fn specifications(index: &Index, tokens: &[String]) -> Result<Vec<PortSpec>>
 
 pub fn lookup<'a>(index: &'a Index, name: &str) -> Result<&'a Port> {
     index
-        .ports
-        .get(name)
-        .or_else(|| {
-            index
-                .ports
-                .values()
-                .find(|p| p.name.eq_ignore_ascii_case(name))
-        })
+        .lookup(name)
         .ok_or_else(|| anyhow::anyhow!("port {name:?} not found"))
 }
 
@@ -173,7 +166,7 @@ impl Expression<'_> {
         result
     }
     fn all(&self) -> Vec<PortSpec> {
-        let mut ports: Vec<_> = self.index.ports.keys().map(PortSpec::named).collect();
+        let mut ports: Vec<_> = self.index.ports().keys().map(PortSpec::named).collect();
         ports.sort_by(|a, b| crate::order::dictionary(&a.name, &b.name));
         ports
     }
@@ -219,7 +212,7 @@ impl Expression<'_> {
                 let matcher = Matcher::new(pattern, false, true, false)?;
                 selected = self
                     .index
-                    .ports
+                    .ports()
                     .values()
                     .filter(|p| {
                         fields.iter().any(|f| {
@@ -264,7 +257,7 @@ impl Expression<'_> {
             } else if name.contains(['*', '?', '[', ']']) {
                 let matcher = Matcher::new(name, false, false, false)?;
                 self.index
-                    .ports
+                    .ports()
                     .keys()
                     .filter(|n| matcher.matches(n))
                     .map(PortSpec::named)

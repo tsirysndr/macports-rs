@@ -242,11 +242,19 @@ CLI tests run with an empty `PATH` to detect accidental subprocess dependencies.
 CI runs formatting, lint, tests, and a release build exclusively on native macOS
 Apple Silicon (`aarch64-apple-darwin`) and Intel (`x86_64-apple-darwin`) runners.
 
-Cached and explicitly configured index queries do not initialize Tokio or reqwest. The benchmark reports
-index parsing and in-memory search separately using 50,000 synthetic ports.
-One local optimized run parsed the 9.4 MiB synthetic index in **101.78 ms**
-and searched the loaded index in **1.53 ms** per iteration. These measurements
-exclude startup, disk I/O, and real-world Portfile evaluation.
+Cached and explicitly configured index queries do not initialize Tokio or
+reqwest. Catalogs expose read-only access after parsing. Exact names use the
+ordered catalog directly; the first case-insensitive fallback builds a shared,
+thread-safe name cache. Exact spelling still wins if names differ only in case.
+The cache is reused by dependency traversal and subsequent actions in a chain.
+
+The benchmark uses 50,000 synthetic ports. One local optimized run parsed the
+9.4 MiB index in **95.36 ms** and searched it in **2.87 ms** per iteration.
+The first fallback lookup, including cache construction, took **3.41 ms**.
+Warm mixed-case lookup took **145 ns**, versus **406 µs** for the prior full-scan
+implementation on the same fixture; a missing-name lookup took **98 ns**, versus
+**111 µs** previously. These are synthetic microbenchmarks, exclude startup and
+disk I/O, and do not measure real-world Portfile evaluation or cache memory use.
 
 **No speed claim against the original `port` has been established**: MacPorts is
 not installed in the development environment. A real Darwin 24 ARM index has been downloaded and parsed successfully. Peak

@@ -179,7 +179,7 @@ pub async fn initialize(destination: &Path, url: &str, progress: &Progress) -> R
     bar.message("validating index");
     let index = Index::read(temporary.path()).context("downloaded index is invalid")?;
     ensure!(
-        !index.ports.is_empty(),
+        !index.ports().is_empty(),
         "downloaded index contains no ports"
     );
     match temporary.persist_noclobber(destination) {
@@ -192,7 +192,7 @@ pub async fn initialize(destination: &Path, url: &str, progress: &Progress) -> R
     bar.verified();
     progress.phase(&format!(
         "Indexed {} ports in {}",
-        index.ports.len(),
+        index.ports().len(),
         destination.display()
     ));
     Ok(index)

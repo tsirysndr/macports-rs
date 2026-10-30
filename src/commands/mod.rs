@@ -154,7 +154,7 @@ mod tests {
             session
                 .index(Some(&first), true)
                 .unwrap()
-                .ports
+                .ports()
                 .contains_key("first")
         );
         std::fs::remove_file(&first).unwrap();
@@ -162,14 +162,14 @@ mod tests {
             session
                 .index(Some(&first), true)
                 .unwrap()
-                .ports
+                .ports()
                 .contains_key("first")
         );
         assert!(
             session
                 .index(Some(&second), true)
                 .unwrap()
-                .ports
+                .ports()
                 .contains_key("second")
         );
         assert!(session.index(Some(&first), true).is_err());

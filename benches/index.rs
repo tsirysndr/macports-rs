@@ -24,7 +24,7 @@ fn main() {
     for _ in 0..100 {
         black_box(
             index
-                .ports
+                .ports()
                 .values()
                 .filter(|p| matcher.matches(&p.name))
                 .count(),
@@ -34,4 +34,20 @@ fn main() {
         "Search 50,000 loaded ports: {:.2?}/iteration",
         start.elapsed() / 100
     );
+    let start = Instant::now();
+    black_box(port_rs::query::lookup(&index, "PACKAGE49999").unwrap());
+    println!(
+        "First fallback lookup (including lazy cache): {:.2?}",
+        start.elapsed()
+    );
+    for label in ["PACKAGE49999", "not-a-port"] {
+        let start = Instant::now();
+        for _ in 0..1000 {
+            black_box(port_rs::query::lookup(black_box(&index), black_box(label)).ok());
+        }
+        println!(
+            "Warm lookup {label} in 50,000 ports: {:.2?}/lookup",
+            start.elapsed() / 1000
+        );
+    }
 }

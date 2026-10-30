@@ -38,7 +38,7 @@ pub(super) fn run(out: &mut impl Write, index: &Index, s: Search, quiet: bool) -
         };
         let matcher = Matcher::new(&pattern, s.exact, s.regex, s.case_sensitive)?;
         let mut matches: Vec<_> = index
-            .ports
+            .ports()
             .values()
             .filter(|port| {
                 fields.iter().any(|field| {

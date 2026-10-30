@@ -1,6 +1,10 @@
 use crate::tcl_list;
 use anyhow::{Context, Result, ensure};
-use std::{collections::BTreeMap, path::Path};
+use std::{
+    collections::{BTreeMap, HashMap},
+    path::Path,
+    sync::OnceLock,
+};
 
 #[derive(Debug)]
 pub struct Port {
@@ -22,9 +26,35 @@ impl Port {
 }
 #[derive(Debug)]
 pub struct Index {
-    pub ports: BTreeMap<String, Port>,
+    ports: BTreeMap<String, Port>,
+    folded_names: OnceLock<HashMap<String, String>>,
 }
 impl Index {
+    /// Catalogs are immutable after parsing, keeping lazy lookup data consistent.
+    pub fn ports(&self) -> &BTreeMap<String, Port> {
+        &self.ports
+    }
+
+    /// Exact spelling takes priority. Fallback retains the original ASCII case
+    /// comparison and deterministic first-name behavior for case collisions.
+    pub fn lookup(&self, name: &str) -> Option<&Port> {
+        if let Some(port) = self.ports.get(name) {
+            return Some(port);
+        }
+        let names = self.folded_names.get_or_init(|| {
+            let mut names = HashMap::with_capacity(self.ports.len());
+            for name in self.ports.keys() {
+                names
+                    .entry(name.to_ascii_lowercase())
+                    .or_insert_with(|| name.clone());
+            }
+            names
+        });
+        names
+            .get(&name.to_ascii_lowercase())
+            .and_then(|canonical| self.ports.get(canonical))
+    }
+
     pub fn read(path: &Path) -> Result<Self> {
         Self::parse(&std::fs::read_to_string(path).with_context(|| {
             format!(
@@ -80,7 +110,10 @@ impl Index {
             ports.insert(name.clone(), Port { name, fields });
             rest = &body[end..];
         }
-        Ok(Self { ports })
+        Ok(Self {
+            ports,
+            folded_names: OnceLock::new(),
+        })
     }
 }
 
@@ -113,5 +146,56 @@ mod tests {
         ] {
             assert!(Index::parse(&s).is_err());
         }
+    }
+}
+
+#[cfg(test)]
+mod lookup_tests {
+    use super::*;
+    fn catalog(names: &[&str]) -> Index {
+        let mut data = String::new();
+        for name in names {
+            let body = format!("name {name} version 1");
+            data.push_str(&format!(
+                "{name} {}\n{body}\n",
+                body.encode_utf16().count() + 1
+            ));
+        }
+        Index::parse(&data).unwrap()
+    }
+    #[test]
+    fn exact_names_win_and_folded_collisions_are_deterministic() {
+        let index = catalog(&["foo", "Foo", "FOO", "Bar"]);
+        for name in ["foo", "Foo", "FOO", "Bar"] {
+            assert_eq!(index.lookup(name).unwrap().name, name);
+        }
+        assert_eq!(index.lookup("fOo").unwrap().name, "FOO");
+        assert_eq!(index.lookup("bar").unwrap().name, "Bar");
+        assert!(index.lookup("missing").is_none());
+        assert_eq!(index.lookup("foo").unwrap().name, "foo");
+    }
+    #[test]
+    fn lookup_preserves_non_ascii_case_and_empty_catalog_behavior() {
+        let index = catalog(&["Éclair"]);
+        assert_eq!(index.lookup("ÉCLAIR").unwrap().name, "Éclair");
+        assert!(index.lookup("éclair").is_none());
+        assert!(catalog(&[]).lookup("anything").is_none());
+    }
+    #[test]
+    fn shared_catalog_supports_concurrent_first_lookups() {
+        let index = catalog(&["curl", "zlib"]);
+        std::thread::scope(|scope| {
+            let threads: Vec<_> = (0..8)
+                .map(|_| {
+                    scope.spawn(|| {
+                        assert_eq!(index.lookup("CURL").unwrap().name, "curl");
+                        assert!(index.lookup("missing").is_none());
+                    })
+                })
+                .collect();
+            for thread in threads {
+                thread.join().unwrap();
+            }
+        });
     }
 }
