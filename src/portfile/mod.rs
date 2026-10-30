@@ -12,6 +12,8 @@ mod session;
 pub use session::Session;
 mod source;
 pub use source::{evaluate_from_tree, open_from_tree};
+mod system;
+pub use system::SystemRequest;
 mod targets;
 mod utilities;
 pub use groups::{LoadedGroup, PortGroups};
@@ -50,6 +52,7 @@ pub struct Evaluation {
 #[derive(Default)]
 struct State {
     groups: PortGroups,
+    system_executor: Option<system::Executor>,
     loaded_groups: Vec<LoadedGroup>,
     group_failures: BTreeSet<String>,
     options: BTreeSet<String>,
@@ -125,7 +128,7 @@ fn open(
     });
     for command in [
         "source", "exit", "puts", "parse", "pdump", "pclear", "exec", "open", "socket", "load",
-        "default", "platform",
+        "default", "platform", "system",
     ] {
         interp.add_context_command(command, commands::unsupported, id);
     }

@@ -3,7 +3,8 @@ use super::*;
 
 /// Owns the evaluated Portfile's procedures, globals, arrays, and native state.
 /// Opening a session only evaluates metadata. It does not initialize PortSystem
-/// or run targets. External command and filesystem APIs remain unsupported.
+/// or run targets. Shell execution requires explicit `enable_system`; other
+/// external command and filesystem APIs remain unsupported.
 pub struct Session {
     pub(super) interp: Interp,
     pub(super) id: ContextID,

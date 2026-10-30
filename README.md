@@ -412,8 +412,21 @@ alongside the initial metadata snapshot. Later literal-argument procedure calls
 share the original globals, arrays, procedures, selected variants, and lazy
 defaults. User target wrappers can therefore access their Portfile context.
 This API is a building block for the phase scheduler; it does not run native
-initialization or prerequisites, and external commands remain unsupported.
+initialization or prerequisites. External commands remain disabled unless the
+caller explicitly attaches a `system` executor.
 Metadata queries continue to discard the interpreter after extracting metadata.
+
+`Session::enable_system` supplies an explicit environment and a host executor.
+It supports `system command`, `system -W directory command`, and `--`, using
+`/bin/sh -c` as MacPorts does. Each call reads the live `env` array, including
+removed variables, without changing the Rust process environment or directory.
+The build runner streams both output streams with phase/port prefixes and returns
+PID/exit status for Tcl `CHILDSTATUS` and `CHILDKILLED` errors. Scripts can catch
+ordinary command failures. Callback, terminal, direct-I/O, and priority flags
+remain explicit errors. The synchronous interpreter must run on a worker when
+using the async build runner; this does not yet wire ordinary CLI installation,
+PortSystem target scheduling, or cancellation of the interpreter itself.
+
 
 The `portfile` library now evaluates an initial set of Portfile metadata commands
 in Rust using [Molt](https://docs.rs/molt/latest/molt/), without `tclsh` or libtcl.
