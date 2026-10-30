@@ -10,6 +10,7 @@ use std::{
 pub struct VerifiedArchive {
     file: File,
     verification: Verification,
+    signature: String,
 }
 impl VerifiedArchive {
     /// Copy and authenticate into an anonymous temporary file. A failure drops the
@@ -31,7 +32,11 @@ impl VerifiedArchive {
         let verification = signature::verify(&mut tee, signature, keys)?;
         file.flush()?;
         file.seek(SeekFrom::Start(0))?;
-        Ok(Self { file, verification })
+        Ok(Self {
+            file,
+            verification,
+            signature: signature.to_owned(),
+        })
     }
     /// Take exclusive ownership of a private download file without copying it.
     pub(crate) fn authenticate(
@@ -42,10 +47,18 @@ impl VerifiedArchive {
         file.seek(SeekFrom::Start(0))?;
         let verification = signature::verify(&mut file, signature, keys)?;
         file.seek(SeekFrom::Start(0))?;
-        Ok(Self { file, verification })
+        Ok(Self {
+            file,
+            verification,
+            signature: signature.to_owned(),
+        })
     }
     pub fn verification(&self) -> &Verification {
         &self.verification
+    }
+    /// Retain the authenticated signature envelope for later cache verification.
+    pub fn signature(&self) -> &str {
+        &self.signature
     }
     /// Rewind and borrow the staged bytes without exposing a writable handle or
     /// reopening an attacker-replaceable source path.

@@ -19,3 +19,4 @@ pub mod target;
 pub mod activation;
 
 pub mod publication;
+pub mod store;

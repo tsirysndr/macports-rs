@@ -1234,3 +1234,21 @@ COMMIT, verify inactive registry state with no active file mappings or new paylo
 and then retry successfully. This coordinator still requires exclusive destination
 access; it is not crash-atomic and does not yet connect CLI install to fetching,
 image registration, or privilege elevation.
+
+`install::store::Store` opens an existing physical software directory and stages
+verified archives under `<port>/<archive filename>`, using the resolved target's
+MacPorts filename and a `.sig` sidecar. `VerifiedArchive` retains its authenticated
+signature envelope so stored bytes can later be reverified with explicitly trusted
+keys. Identity, variants, archive structure, and architecture are validated before
+creating store entries. Publication copies the exact private authenticated bytes,
+syncs them, and never overwrites an existing archive or signature.
+
+`StoredImage` exposes the archive location, signature location, and inspected
+metadata for registration. Its receipt is retained only after registry registration
+commits; explicit rollback reports failures and Drop performs best-effort cleanup.
+A sidecar collision removes the newly published archive while preserving existing
+entries and shared port directories. Tests cover retained bytes and signatures,
+rollback, collisions including dangling symlinks, mismatched identities and
+architectures, traversal rejection, and physical-directory enforcement. This
+requires exclusive management of the store; automatic registry registration,
+cache reuse/reverification, and crash recovery are still pending.
