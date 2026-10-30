@@ -609,9 +609,16 @@ fresh (including recovery from an interrupted first open). Stale-work cleanup
 retains the work directory and locked state inode, unlike upstream's
 pre-lock directory deletion; its records are reset only after cleanup succeeds.
 This serializes cooperating Rust builders, but cannot protect against external
-tools unlinking the state file. Runtime `.home`/`.tmp` recreation, writable-tree
-ownership preparation, dry-run opening, the PortSystem `open_statefile` command,
-and CLI phase scheduling are not yet connected.
+tools unlinking the state file. The native PortSystem `open_statefile` command now connects work-directory
+creation/migration, optional work symlinks, state opening, and session handles.
+It reads configuration in global scope even when invoked inside a procedure.
+Dry runs skip directory and link mutations and invalidation, open existing state
+without locking, and use `/dev/null` when state is absent, matching upstream.
+Root execution is explicitly unsupported until the privilege worker exists;
+the command must not change process-wide credentials in the concurrent CLI.
+State warnings currently go to stderr; lock-wait progress and full UI routing,
+writable-tree ownership preparation, runtime `.home`/`.tmp` recreation after
+invalidation, and CLI phase scheduling remain unfinished.
 Native `file join`, `dirname`, `tail`, `extension`, `rootname`, `split`,
 `pathtype`, and `separator` construct and inspect Unix paths without filesystem
 access. These follow the current MacPorts-bundled Tcl 9 lexical rules, including

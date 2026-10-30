@@ -79,3 +79,50 @@ pub fn prepare(
         initialized: fresh || changed,
     })
 }
+
+/// Inspect build state for a dry run without directory creation, invalidation,
+/// or advisory locking. As upstream, absent state uses /dev/null; existing
+/// state is opened a+ so the returned handle has the same channel semantics.
+pub fn prepare_dry_run(
+    work: &Path,
+    subport: &str,
+    portfile: &Path,
+    ignore_different: bool,
+) -> Result<PreparedState> {
+    ensure!(
+        !subport.is_empty() && !subport.contains('/') && !subport.contains('\0'),
+        "invalid subport name for build state"
+    );
+    let source = fs::read(portfile)?;
+    let checksum = format!("{:x}", Sha256::digest(&source));
+    let modified = fs::metadata(portfile)?.mtime();
+    let path = work.join(format!(".macports.{subport}.state"));
+    let exists = path.exists();
+    if exists {
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)?
+            .as_secs();
+        ensure!(
+            i128::from(modified) <= i128::from(now),
+            "Portfile for {subport} is from the future - check date and time of your system"
+        );
+    }
+    let mut state = StateFile::open_unlocked(if exists {
+        &path
+    } else {
+        Path::new("/dev/null")
+    })?;
+    let compatibility = if !exists || ignore_different {
+        Compatibility::Current
+    } else {
+        state.compatibility(&checksum, modified)?
+    };
+    if !exists {
+        state.initialize(&checksum)?;
+    }
+    Ok(PreparedState {
+        state,
+        compatibility,
+        initialized: !exists,
+    })
+}

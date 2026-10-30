@@ -30,6 +30,7 @@ mod groups;
 mod paths;
 mod platform;
 mod session;
+mod state_open;
 pub use session::Session;
 mod source;
 pub use source::{evaluate_from_tree, open_from_tree};

@@ -15,6 +15,8 @@ use std::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LockStatus {
+    /// Upstream dry-run state handles do not acquire a lock.
+    NotRequested,
     Exclusive,
     Unsupported,
 }
@@ -30,6 +32,14 @@ pub struct StateFile {
     pub lock_status: LockStatus,
 }
 impl StateFile {
+    /// Open an existing state file (or /dev/null) without locking, as required
+    /// by PortSystem dry-run opening. Never creates a file.
+    pub(crate) fn open_unlocked(path: &Path) -> Result<Self> {
+        Ok(Self {
+            file: OpenOptions::new().read(true).append(true).open(path)?,
+            lock_status: LockStatus::NotRequested,
+        })
+    }
     /// Open/create and wait for the exclusive lock. The parent must exist.
     pub fn open(path: &Path, creation_mask: Option<u32>) -> Result<Self> {
         Self::acquire(path, creation_mask, false)?.context("state lock unexpectedly unavailable")

@@ -108,3 +108,24 @@ fn future_portfile_and_invalid_names_fail_before_mutation() {
     assert!(error.to_string().contains("from the future"));
     assert_eq!(fs::read(state).unwrap(), before);
 }
+
+#[test]
+fn dry_run_reads_locked_state_without_locking_or_invalidating() {
+    use port_rs::build::{state::LockStatus, work_state::prepare_dry_run};
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("Portfile");
+    fs::write(&source, "version 1").unwrap();
+    let work = root.path().join("work");
+    fs::create_dir(&work).unwrap();
+    let mut active = prepare(&work, "app", &source, None, false).unwrap();
+    active.state.record("target", "org.macports.fetch").unwrap();
+    fs::write(&source, "version 2").unwrap();
+    let path = work.join(".macports.app.state");
+    let before = fs::read(&path).unwrap();
+    let mut dry = prepare_dry_run(&work, "app", &source, false).unwrap();
+    assert_eq!(dry.compatibility, Compatibility::PortfileChanged);
+    assert_eq!(dry.state.lock_status, LockStatus::NotRequested);
+    assert!(dry.state.contains("target", "org.macports.fetch").unwrap());
+    assert_eq!(fs::read(&path).unwrap(), before);
+    assert!(StateFile::try_open(&path, None).unwrap().is_none());
+}

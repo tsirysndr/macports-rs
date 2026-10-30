@@ -40,13 +40,7 @@ impl Session {
             state.system_executor.is_some(),
             "build state requires an execution-enabled session"
         );
-        state.next_build_state = state
-            .next_build_state
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("build state handle limit reached"))?;
-        let handle = format!("port_rs_state{}", state.next_build_state);
-        state.build_states.insert(handle.clone(), file);
-        Ok(handle)
+        attach(state, file)
     }
     /// Close a transferred handle and release its lock, without Tcl evaluation.
     pub fn close_build_state(&mut self, handle: &str) -> Result<()> {
@@ -58,7 +52,17 @@ impl Session {
             .ok_or_else(|| anyhow::anyhow!("unknown build-state handle \"{handle}\""))
     }
 }
+pub(super) fn attach(state: &mut State, file: StateFile) -> Result<String> {
+    state.next_build_state = state
+        .next_build_state
+        .checked_add(1)
+        .ok_or_else(|| anyhow::anyhow!("build state handle limit reached"))?;
+    let handle = format!("port_rs_state{}", state.next_build_state);
+    state.build_states.insert(handle.clone(), file);
+    Ok(handle)
+}
 pub(super) fn install(interp: &mut Interp, id: ContextID) {
+    interp.add_context_command("open_statefile", super::state_open::open, id);
     interp.add_context_command("check_statefile", check, id);
     interp.add_context_command("write_statefile", write, id);
     interp.add_context_command("get_statefile_value", get, id);
