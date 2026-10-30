@@ -1119,3 +1119,21 @@ prefix lookalikes do not conflict. A single activation mapping cannot place one
 payload file below another mapped file either. Tests cover both ownership
 directions, case differences, deactivated owners, prefix lookalikes, wildcard
 characters, and both ordering permutations of conflicting mappings.
+
+`install::publication::Root` now provides descriptor-relative regular-file
+publication. Parent directories must already exist and are opened component by
+component with O_DIRECTORY/O_NOFOLLOW. Payload bytes are copied to an exclusively
+created temporary file in the destination directory, assigned an explicit mode,
+and synced before an atomic non-overwriting link publishes the final name.
+Existing files, directories, and dangling symlinks cannot be overwritten.
+A `PublishedFile` receipt holds the inode and parent directory open, preventing
+inode-number reuse and supporting in-process rollback; explicit rollback reports
+cleanup errors, while Drop performs best-effort cleanup. Rollback checks inode
+identity before unlinking, and uses the held parent even if its original path
+has been renamed. Persisting a receipt retains the file after coordination.
+The caller must exclusively manage the destination directories throughout these
+operations. These primitives do not supply crash recovery, directory creation,
+symlink/hardlink payload publication, archive ownership/flags/timestamps, or a
+registry transaction coordinator, and are not wired to CLI install yet. Tests
+cover publication/retention, failed streams, collisions, path escapes, replacement
+inodes, and renamed-parent rollback without altering external symlink targets.

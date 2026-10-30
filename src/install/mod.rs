@@ -17,3 +17,5 @@ pub mod fetch;
 pub mod target;
 
 pub mod activation;
+
+pub mod publication;
