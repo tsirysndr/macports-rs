@@ -477,6 +477,13 @@ unless the Portfile selects `test.ignore_archs yes` or supplies its own
 `porttest::test_archs` implementation. Disabling `test.run` does not bypass this
 architecture check. Full CLI test scheduling remains unfinished.
 
+The native `macho` library now inspects CPU architectures in thin Mach-O files,
+32/64-bit universal containers, and Unix static archives, including BSD extended
+member names. It reads headers through bounded seeks rather than loading whole
+files, validates container ranges and load-command lengths, and limits nesting
+and inspection work. Tests include real arm64/x86_64 compiler output and a
+static library. Connecting this parser to staged-file validation is still pending.
+
 The `portfile` library now evaluates an initial set of Portfile metadata commands
 in Rust using [Molt](https://docs.rs/molt/latest/molt/), without `tclsh` or libtcl.
 It supports language substitutions, expressions, procedures and loops, option
