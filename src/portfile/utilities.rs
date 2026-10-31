@@ -11,6 +11,33 @@ pub(super) fn install(interp: &mut Interp, id: ContextID) {
     interp.add_context_command("realpath", realpath, id);
     interp.add_context_command("portutil::get_oldbuildpath", old_build_path, id);
     interp.add_context_command("vercmp", vercmp, id);
+    interp.add_context_command("tbool", tbool, id);
+    interp.add_context_command("macports_version", macports_version, id);
+}
+
+/// The MacPorts base release whose PortSystem semantics this engine follows.
+pub const MACPORTS_BASE_VERSION: &str = "2.12.7";
+
+fn macports_version(_: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(1, argv, 1, 1, "")?;
+    Ok(MACPORTS_BASE_VERSION.into())
+}
+
+/// `tbool key`: whether global `key` exists and is strictly true.
+fn tbool(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(1, argv, 2, 2, "key")?;
+    let name = argv[1].as_str();
+    interp.with_global_scope(|interp| {
+        if !interp.var_exists(&name.into()) {
+            return Ok(false.into());
+        }
+        let value = interp.scalar(name)?;
+        Ok(matches!(
+            value.as_str().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+        .into())
+    })
 }
 
 /// `vercmp a b` returns -1, 0 or 1; `vercmp a op b` returns a boolean.

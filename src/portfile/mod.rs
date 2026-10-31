@@ -312,6 +312,7 @@ fn open(
     build_settings::install(&mut interp, id).map_err(failure)?;
     compilers::install(&mut interp, id).map_err(failure)?;
     build_defaults::register_paths(&mut interp, id).map_err(failure)?;
+    build_defaults::register_execution(&mut interp, id).map_err(failure)?;
     option_procs::install(&mut interp, id).map_err(failure)?;
     build_phase::install(&mut interp, id);
     test_phase::install(&mut interp, id);

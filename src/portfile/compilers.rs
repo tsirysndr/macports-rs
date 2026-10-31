@@ -41,6 +41,8 @@ pub(super) fn install(interp: &mut Interp, id: ContextID) -> MoltResult {
         ("portconfigure::configure_get_sdkroot", sdkroot),
         ("portconfigure::configure_get_cxx_stdlib", cxx_stdlib),
         ("portconfigure::construct_cxxflags", cxxflags),
+        ("portconfigure::should_add_stdlib", add_stdlib),
+        ("portconfigure::should_add_cxx_abi", add_cxx_abi),
         ("portconfigure::configure_get_cppflags", cppflags),
         ("portconfigure::configure_get_ldflags", ldflags),
         ("portconfigure::find_developer_tool", developer_tool),
@@ -1433,18 +1435,38 @@ fn should_add_stdlib(interp: &mut Interp) -> Result<bool, Exception> {
     Ok(false)
 }
 
+fn should_add_cxx_abi(interp: &mut Interp) -> Result<bool, Exception> {
+    let darwin = optional(interp, "os.platform")?.unwrap_or_default() == "darwin";
+    Ok(os_major(interp)? < 13
+        && darwin
+        && get(interp, "configure.cxx_stdlib")? == "macports-libstdc++")
+}
+
+fn add_stdlib(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(1, argv, 1, 1, "")?;
+    global(interp, should_add_stdlib).map(Value::from)
+}
+
+fn add_cxx_abi(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(1, argv, 1, 1, "")?;
+    global(interp, should_add_cxx_abi).map(Value::from)
+}
+
+/// Call through the interpreter so PortGroups that wrap these helpers apply.
+fn ask(interp: &mut Interp, command: &str) -> Result<bool, Exception> {
+    interp
+        .eval_value(&Value::from(vec![Value::from(command)]))?
+        .as_bool()
+}
+
 fn cxxflags(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 2, 2, "flags")?;
     let mut flags = argv[1].as_list()?.to_vec();
     global(interp, |interp| {
-        if should_add_stdlib(interp)? {
+        if ask(interp, "portconfigure::should_add_stdlib")? {
             flags.push(format!("-stdlib={}", get(interp, "configure.cxx_stdlib")?).into());
         }
-        let darwin = optional(interp, "os.platform")?.unwrap_or_default() == "darwin";
-        if os_major(interp)? < 13
-            && darwin
-            && get(interp, "configure.cxx_stdlib")? == "macports-libstdc++"
-        {
+        if ask(interp, "portconfigure::should_add_cxx_abi")? {
             flags.push("-D_GLIBCXX_USE_CXX11_ABI=0".into());
         }
         Ok(Value::from(flags))

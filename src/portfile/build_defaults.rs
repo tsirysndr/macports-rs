@@ -48,8 +48,14 @@ pub(super) fn register_paths(interp: &mut Interp, id: ContextID) -> MoltResult {
 }
 
 pub(super) fn initialize(interp: &mut Interp, id: ContextID) -> MoltResult {
-    // Explicit Portfile values and command-line overrides survive default
-    // registration.
+    register_execution(interp, id)?;
+    startupitem::initialize(interp, id)?;
+    Ok(Value::empty())
+}
+
+/// Phase command defaults. Portfiles read many of them while evaluating, so
+/// they are registered at session open; explicit values always win.
+pub(super) fn register_execution(interp: &mut Interp, id: ContextID) -> MoltResult {
     for (name, value) in [
         ("compiler.cpath", "${prefix}/include"),
         ("compiler.library_path", "${prefix}/lib"),
@@ -134,9 +140,12 @@ pub(super) fn initialize(interp: &mut Interp, id: ContextID) -> MoltResult {
     ] {
         if !interp.var_exists(&name.into()) {
             defaults::register(interp, id, name, value)?;
+            interp
+                .context::<State>(id)
+                .execution_defaults
+                .insert(name.into());
         }
     }
-    startupitem::initialize(interp, id)?;
     Ok(Value::empty())
 }
 
