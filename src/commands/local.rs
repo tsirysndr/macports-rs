@@ -112,3 +112,23 @@ impl Host {
         Ok(self.open(root, port, spec)?.into_metadata())
     }
 }
+
+/// The registry selected by macports.conf (`portdbpath`, or `${prefix}/var/macports`).
+pub(super) fn configured_registry() -> Option<PathBuf> {
+    let environment: BTreeMap<String, String> = std::env::vars().collect();
+    // SAFETY: getuid has no arguments and does not mutate process state.
+    let uid = unsafe { libc::getuid() };
+    let paths = crate::config::Paths::discover(
+        "/opt/local/etc/macports".into(),
+        std::env::current_dir().ok()?,
+        &environment,
+        uid,
+    )
+    .ok()?;
+    let config = paths.load().ok()?;
+    let database = match config.get("portdbpath") {
+        Some(path) => PathBuf::from(path),
+        None => PathBuf::from(config.get("prefix")?).join("var/macports"),
+    };
+    Some(database.join("registry/registry.db"))
+}

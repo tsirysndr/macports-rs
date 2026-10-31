@@ -125,6 +125,12 @@ impl Session {
             );
         }
 
+        let configured = registry_file
+            .is_none()
+            .then(local::configured_registry)
+            .flatten()
+            .filter(|path| path.exists());
+        let registry_file = registry_file.or(configured.as_deref());
         let stdout = io::stdout();
         let mut out = io::BufWriter::new(stdout.lock());
         if let Command::Outdated(args) = command {
