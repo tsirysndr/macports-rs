@@ -44,7 +44,7 @@ const BUILD_FIELDS: [&str; 4] = [
 
 /// Ask on a terminal; non-interactive runs take the default answer, as upstream.
 fn confirm(question: &str, items: &[String]) -> bool {
-    if !std::io::stdin().is_terminal() {
+    if crate::options::get().noninteractive || !std::io::stdin().is_terminal() {
         return true;
     }
     for item in items {

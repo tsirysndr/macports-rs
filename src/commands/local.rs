@@ -43,7 +43,30 @@ pub(super) struct Host {
 
 impl Host {
     pub fn new(root: &Path, registry_file: Option<&Path>, quiet: bool) -> Result<Self> {
-        let variables = host_variables(Some(root))?;
+        let mut variables = host_variables(Some(root))?;
+        // Global options reach Portfiles as upstream's ports_* variables.
+        let options = crate::options::get();
+        for (name, set) in [
+            ("ports_ignore_different", options.ignore_different),
+            ("ports_dryrun", options.dry_run),
+            ("ports_force", options.force),
+            ("ports_nodeps", options.nodeps),
+            ("ports_trace", options.trace),
+            ("ports_debug", options.debug),
+            ("ports_verbose", options.verbose),
+            (
+                "ports_source_only",
+                super::archive_mode() == super::ArchiveMode::SourceOnly,
+            ),
+            (
+                "ports_binary_only",
+                super::archive_mode() == super::ArchiveMode::BinaryOnly,
+            ),
+        ] {
+            if set {
+                variables.insert(name.into(), "yes".into());
+            }
+        }
         let environment = std::env::vars_os()
             .map(|(name, value)| {
                 Ok((

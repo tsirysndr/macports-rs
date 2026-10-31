@@ -3,7 +3,7 @@ use crate::{
     index::{Index, Port},
     spec::{PortSpec, is_modifier},
 };
-use anyhow::{Result, bail, ensure};
+use anyhow::{Context, Result, bail, ensure};
 pub(crate) mod glob;
 use glob::Glob;
 use regex::{Regex, RegexBuilder};
@@ -44,6 +44,56 @@ impl Matcher {
 }
 
 /// Evaluate a port expression, preserving input order and version-qualified identities.
+/// Expands registry pseudo-portnames (`installed`, `outdated`, `leaves`, ...),
+/// `current`, and Portfile directory paths into specifications. With `exact`,
+/// installed versions are kept, for selecting installed images.
+pub type PseudoResolver = dyn Fn(&str, bool) -> Result<Option<Vec<PortSpec>>> + Send + Sync;
+
+static PSEUDO: std::sync::RwLock<Option<Box<PseudoResolver>>> = std::sync::RwLock::new(None);
+
+pub fn set_pseudo_resolver(resolver: Option<Box<PseudoResolver>>) {
+    *PSEUDO.write().expect("pseudo resolver lock") = resolver;
+}
+
+/// Names that never resolve against the catalog by themselves.
+pub fn is_pseudo(name: &str) -> bool {
+    matches!(
+        name,
+        "installed"
+            | "uninstalled"
+            | "active"
+            | "inactive"
+            | "actinact"
+            | "outdated"
+            | "requested"
+            | "unrequested"
+            | "leaves"
+            | "rleaves"
+            | "obsolete"
+            | "current"
+    ) || name.contains('/')
+        || name == "."
+        || name == ".."
+}
+
+thread_local! {
+    static RESOLVING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// The registry expression evaluator parses names through the same selectors,
+/// so a nested call leaves them to it instead of expanding again.
+pub fn resolve_pseudo(name: &str, exact: bool) -> Result<Option<Vec<PortSpec>>> {
+    if RESOLVING.with(|resolving| resolving.replace(true)) {
+        return Ok(None);
+    }
+    let result = match PSEUDO.read().expect("pseudo resolver lock").as_ref() {
+        Some(resolver) => resolver(name, exact),
+        None => Ok(None),
+    };
+    RESOLVING.with(|resolving| resolving.set(false));
+    result
+}
+
 pub fn specifications(index: &Index, tokens: &[String]) -> Result<Vec<PortSpec>> {
     if tokens.is_empty() {
         return Ok(Vec::new());
@@ -228,31 +278,19 @@ impl Expression<'_> {
                 .split_once('@')
                 .map_or((token.as_str(), None), |(n, v)| (n, Some(v)));
             ensure!(!name.is_empty(), "missing port name");
-            ensure!(
-                !matches!(
-                    name,
-                    "installed"
-                        | "uninstalled"
-                        | "active"
-                        | "inactive"
-                        | "actinact"
-                        | "outdated"
-                        | "requested"
-                        | "unrequested"
-                        | "leaves"
-                        | "rleaves"
-                        | "obsolete"
-                ),
-                "selector {name} requires an installed-port registry, which is not implemented"
-            );
-            ensure!(
-                name != "current" && !name.contains('/'),
-                "current-directory and Portfile path selectors are not implemented"
-            );
+            let pseudo = if is_pseudo(name) {
+                Some(resolve_pseudo(name, false)?.with_context(|| {
+                    format!("selector {name} needs an installed-port registry or ports tree")
+                })?)
+            } else {
+                None
+            };
             if let Some(version) = version {
                 modifiers.parse_version(&format!("@{version}"))?;
             }
-            selected = if name == "all" {
+            selected = if let Some(pseudo) = pseudo {
+                pseudo
+            } else if name == "all" {
                 self.all()
             } else if name.contains(['*', '?', '[', ']']) {
                 let matcher = Matcher::new(name, false, false, false)?;

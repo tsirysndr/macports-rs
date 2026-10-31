@@ -129,7 +129,14 @@ pub(super) fn deactivate(path: &Path, args: Lifecycle, progress: &Progress) -> R
             }
             bail!("Image error: port {} is not active", spec.name);
         };
-        check_dependents(&snapshot, active, true, args.force, "deactivate", progress)?;
+        check_dependents(
+            &snapshot,
+            active,
+            true,
+            args.force || crate::options::get().force,
+            "deactivate",
+            progress,
+        )?;
         progress.phase(&format!("Deactivating {}", label(active)));
         let mut writer = open_writer(path)?;
         deactivation::deactivate(&mut writer, active.id, &snapshot.files[&active.id])?;
@@ -170,7 +177,14 @@ pub(super) fn uninstall(path: &Path, args: Lifecycle, progress: &Progress) -> Re
             );
         }
         for entry in matches {
-            check_dependents(&snapshot, entry, false, args.force, "uninstall", progress)?;
+            check_dependents(
+                &snapshot,
+                entry,
+                false,
+                args.force || crate::options::get().force,
+                "uninstall",
+                progress,
+            )?;
             remove_image(path, &snapshot, entry, progress)?;
         }
     }

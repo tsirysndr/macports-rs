@@ -4,6 +4,7 @@ pub mod download;
 pub mod fields;
 pub mod index;
 pub mod info;
+pub mod options;
 mod output;
 pub mod progress;
 pub mod query;

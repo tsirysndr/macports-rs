@@ -26,6 +26,7 @@ mod package;
 mod phase;
 mod portcmds;
 mod provides;
+mod pseudo;
 mod reclaim;
 mod restore;
 mod rev_upgrade;
@@ -202,6 +203,69 @@ pub enum Command {
     Unsupported(Vec<String>),
 }
 
+/// Actions that modify the system and have no dry-run of their own.
+fn changes_state(command: &Command) -> Option<&'static str> {
+    Some(match command {
+        Command::Upgrade(_) => "upgrade",
+        Command::Activate(_) => "activate",
+        Command::Deactivate(_) => "deactivate",
+        Command::Uninstall(_) => "uninstall",
+        Command::Setrequested(_) => "setrequested",
+        Command::Unsetrequested(_) | Command::Setunrequested(_) => "setunrequested",
+        Command::Fetch(_) => "fetch",
+        Command::Checksum(_) => "checksum",
+        Command::Extract(_) => "extract",
+        Command::Patch(_) => "patch",
+        Command::Configure(_) => "configure",
+        Command::Build(_) => "build",
+        Command::Destroot(_) => "destroot",
+        Command::Test(_) => "test",
+        Command::Clean(_) => "clean",
+        Command::Sync => "sync",
+        Command::Selfupdate { .. } => "selfupdate",
+        Command::Select(_) => "select",
+        Command::Snapshot(_) => "snapshot",
+        Command::Restore(_) => "restore",
+        Command::Migrate(_) => "migrate",
+        Command::Load(_) => "load",
+        Command::Unload(_) => "unload",
+        Command::Reload(_) => "reload",
+        Command::Archive(_) => "archive",
+        Command::Archivefetch(_) => "archivefetch",
+        Command::Unarchive(_) => "unarchive",
+        Command::Pkg(_) => "pkg",
+        Command::Mpkg(_) => "mpkg",
+        Command::Dmg(_) => "dmg",
+        Command::Mdmg(_) => "mdmg",
+        Command::Mirror(_) => "mirror",
+        Command::Bump(_) => "bump",
+        _ => return None,
+    })
+}
+
+/// The directory for `-D` and the shell's `cd`: a path as given, or a port's
+/// directory in the selected ports tree.
+pub fn port_directory(target: &str, index_file: Option<&Path>) -> Result<PathBuf> {
+    if target.is_empty() {
+        bail!("cd requires a port name or directory");
+    }
+    if target.contains('/') || target == "." || target == ".." {
+        return Ok(PathBuf::from(target));
+    }
+    let default_index = (index_file.is_none() && !Path::new("PortIndex").exists())
+        .then(sync::default_index)
+        .flatten();
+    let index_file = index_file.or(default_index.as_deref());
+    let index = crate::source::load(index_file, true)?;
+    let port = crate::query::lookup(&index, target)
+        .map_err(|_| anyhow::anyhow!("port -D failed to look up {target}: no such port"))?;
+    let root = index_file
+        .and_then(Path::parent)
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    Ok(root.join(port.get("portdir")))
+}
+
 /// Where installs may take ports from (upstream `-s` and `-b`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ArchiveMode {
@@ -261,6 +325,12 @@ impl Session {
                 args[0]
             );
         }
+        if crate::options::get().dry_run
+            && let Some(action) = changes_state(&command)
+        {
+            eprintln!("--->  Skipping {action} (dry run)");
+            return Ok(());
+        }
 
         match command {
             Command::Select(args) => {
@@ -301,6 +371,10 @@ impl Session {
             .or(configured_path)
             .unwrap_or_else(|| PathBuf::from(crate::registry::DEFAULT_PATH));
         let registry_file = registry_file.or(configured.as_deref());
+        crate::query::set_pseudo_resolver(Some(pseudo::resolver(
+            writable_registry.clone(),
+            index_file.map(Path::to_path_buf),
+        )));
         let stdout = io::stdout();
         let mut out = io::BufWriter::new(stdout.lock());
         if let Command::Outdated(args) = command {

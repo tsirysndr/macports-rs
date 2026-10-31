@@ -9,6 +9,10 @@ pub fn specifications(tokens: &[String]) -> Result<Vec<PortSpec>> {
                 .last_mut()
                 .context("port modifier must follow an installed port selector")?
                 .parse_modifier(token)?;
+        } else if crate::query::is_pseudo(token)
+            && let Some(expanded) = crate::query::resolve_pseudo(token, true)?
+        {
+            specs.extend(expanded);
         } else {
             ensure!(
                 !matches!(token.as_str(), "and" | "or" | "not" | "!" | "(" | ")")

@@ -69,6 +69,13 @@ impl Progress {
                 let _ = writeln!(log.file, ":{priority}:{} {line}", log.phase);
             }
         }
+        // With -v and -d, informational and debug messages are shown too.
+        let options = crate::options::get();
+        match priority {
+            "debug" if options.debug => self.print(&format!("DEBUG: {text}")),
+            "info" if options.verbose && !self.quiet => self.print(text),
+            _ => {}
+        }
     }
     pub fn log_path(&self) -> Option<std::path::PathBuf> {
         self.log

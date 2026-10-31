@@ -88,7 +88,7 @@ pub(super) fn run(index: &Index, args: Clean, quiet: bool, root: &Path) -> Resul
             if subdir != name {
                 let shared = distpath.is_dir()
                     && fs::read_dir(&distpath).is_ok_and(|mut entries| entries.next().is_some());
-                if shared && !args.force {
+                if shared && !(args.force || crate::options::get().force) {
                     progress.warning(&format!(
                         "Distfiles directory '{}' may contain distfiles needed for other ports, use the -f flag to force removal",
                         distpath.display()

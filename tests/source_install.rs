@@ -927,3 +927,130 @@ fn packages_build_installer_pkgs_meta_packages_and_disk_images() {
     assert_eq!(read(&staged), "lib-1\n");
     assert!(!lib.join("+CONTENTS").exists());
 }
+
+#[test]
+fn global_options_pseudo_portnames_paths_and_command_files() {
+    let tree = Tree::new();
+    let work = |port: &str| {
+        tree.root
+            .join("db/build")
+            .read_dir()
+            .ok()
+            .and_then(|mut entries| {
+                entries
+                    .find(|entry| {
+                        entry.as_ref().is_ok_and(|e| {
+                            e.path()
+                                .to_string_lossy()
+                                .ends_with(&format!("_devel_{port}"))
+                        })
+                    })
+                    .map(|entry| entry.unwrap().path().join(port).join("work"))
+            })
+    };
+
+    // -n installs only the requested port; -k keeps its work directory.
+    tree.ok(&["-n", "-k", "install", "app"]);
+    assert!(tree.ok(&["installed"]).contains("app @1_0 (active)"));
+    assert!(!tree.ok(&["installed"]).contains("lib @"));
+    assert!(work("app").is_some_and(|work| work.exists()));
+    tree.ok(&["uninstall", "app"]);
+
+    // Autoclean is the default after a successful install.
+    tree.ok(&["install", "app"]);
+    assert!(!work("app").is_some_and(|work| work.exists()));
+
+    let echo = |selector: &str| {
+        tree.ok(&["echo", selector])
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    assert_eq!(echo("installed"), "app lib");
+    assert_eq!(echo("requested"), "app");
+    assert_eq!(echo("unrequested"), "lib");
+    assert_eq!(echo("leaves"), "");
+
+    // -y skips state changes.
+    let dry = tree.run(&["-y", "uninstall", "app"]);
+    assert!(String::from_utf8_lossy(&dry.stderr).contains("Skipping uninstall (dry run)"));
+    assert!(tree.ok(&["installed"]).contains("app @1_0 (active)"));
+
+    // `current`, `.` and directory paths name the port in that directory.
+    let directory = tree.root.join("ports/devel/lib");
+    let in_directory = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_port"))
+            .arg("--index-file")
+            .arg(tree.root.join("ports/PortIndex"))
+            .args(args)
+            .current_dir(&directory)
+            .env("PORTSRC", tree.root.join("macports.conf"))
+            .env("HOME", &tree.root)
+            .output()
+            .unwrap()
+    };
+    for selector in ["current", ".", "../lib"] {
+        let output = in_directory(&["info", "--name", selector]);
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "name: lib\n",
+            "{selector}"
+        );
+    }
+    assert_eq!(
+        tree.ok(&["-D", "lib", "info", "--name", "current"]),
+        "name: lib\n"
+    );
+
+    // -F runs a command file; `cd` changes to a port; `quit` stops.
+    let commands = tree.root.join("commands.txt");
+    fs::write(
+        &commands,
+        "# comment\necho requested\ncd lib\ninfo --name current ; info --version app\nquit\necho installed\n",
+    )
+    .unwrap();
+    assert_eq!(
+        tree.ok(&["-F", commands.to_str().unwrap()])
+            .lines()
+            .map(str::trim)
+            .collect::<Vec<_>>(),
+        ["app", "name: lib", "version: 1"]
+    );
+
+    // With no action, commands come from standard input.
+    let mut shell = Command::new(env!("CARGO_BIN_EXE_port"))
+        .arg("--index-file")
+        .arg(tree.root.join("ports/PortIndex"))
+        .env("PORTSRC", tree.root.join("macports.conf"))
+        .env("HOME", &tree.root)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    use std::io::Write;
+    shell
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"echo unrequested\nexit\n")
+        .unwrap();
+    let output = shell.wait_with_output().unwrap();
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "lib");
+
+    // -p keeps going after a failing action and still reports failure.
+    let output = tree.run(&["-p", "info", "nope", ";", "info", "--name", "lib"]);
+    assert!(!output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "name: lib\n");
+    let output = tree.run(&["info", "nope", ";", "info", "--name", "lib"]);
+    assert!(output.stdout.is_empty());
+
+    // -d shows debug messages; inactive images are selectable by name.
+    let debug = tree.run(&["-d", "destroot", "lib"]);
+    assert!(String::from_utf8_lossy(&debug.stderr).contains("DEBUG: staging lib"));
+    tree.port("app", "2", "depends_lib port:lib");
+    assert_eq!(echo("outdated"), "app");
+    tree.ok(&["upgrade", "outdated"]);
+    assert_eq!(echo("inactive"), "app");
+    tree.ok(&["uninstall", "inactive"]);
+    assert_eq!(echo("inactive"), "");
+}

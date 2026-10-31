@@ -105,7 +105,29 @@ pub(super) fn run_specs(
         crate::install::mirror_worker::MirrorWorker::new(host.context.mirror_timings.clone(), 8)?;
 
     let mut notes = Vec::new();
+    let options = crate::options::get();
+    let autoclean = options.autoclean.unwrap_or_else(|| {
+        host.context
+            .variables
+            .get("portautoclean")
+            .is_none_or(|value| matches!(value.as_str(), "yes" | "1" | "true" | "on"))
+    });
+    let source_preference = host
+        .context
+        .variables
+        .get("buildfromsource")
+        .cloned()
+        .unwrap_or_default();
+    let archive_mode = match (super::archive_mode(), source_preference.as_str()) {
+        (super::ArchiveMode::Any, "always") => super::ArchiveMode::SourceOnly,
+        (super::ArchiveMode::Any, "never") => super::ArchiveMode::BinaryOnly,
+        (mode, _) => mode,
+    };
     for item in &items {
+        // -n: act on the requested ports only, not their dependencies.
+        if options.nodeps && !item.requested {
+            continue;
+        }
         match item.action {
             Action::AlreadyActive => continue,
             Action::Resolve => bail!(
@@ -156,11 +178,11 @@ pub(super) fn run_specs(
         let label = super::phase::prepare(session, &host, &worker, &item.port.name)?;
         // As upstream, a compatible signed archive replaces building from source.
         let mut binary = None;
-        if super::archive_mode() != super::ArchiveMode::SourceOnly {
+        if archive_mode != super::ArchiveMode::SourceOnly {
             match super::archivefetch::fetch_archive(&host, session, item, &machine, staging.path())
             {
                 Ok(archive) => binary = Some(archive),
-                Err(err) if super::archive_mode() == super::ArchiveMode::BinaryOnly => {
+                Err(err) if archive_mode == super::ArchiveMode::BinaryOnly => {
                     bail!(
                         "{}: binary-only mode, but no archive is available: {err:#}",
                         item.port.name
@@ -240,6 +262,11 @@ pub(super) fn run_specs(
                 .join(session.scalar("portpath")?.replace('/', "_"));
             let _ = fs::remove_dir_all(logs.join(session.scalar("subport")?));
             let _ = fs::remove_dir(&logs);
+        }
+        if autoclean {
+            host.progress
+                .phase(&format!("Cleaning {}", session.scalar("subport")?));
+            let _ = fs::remove_dir_all(session.scalar("subbuildpath")?);
         }
     }
     if !notes.is_empty() && !quiet {

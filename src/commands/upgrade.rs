@@ -22,7 +22,11 @@ pub(super) fn run(
     quiet: bool,
     root: &Path,
 ) -> Result<()> {
-    let outdated = super::outdated::outdated_entries(Some(registry_path), &args.ports, index)?;
+    let options = crate::options::get();
+    let mut outdated = super::outdated::outdated_entries(Some(registry_path), &args.ports, index)?;
+    if options.dependents {
+        outdated.extend(outdated_dependents(registry_path, index, &outdated)?);
+    }
     if outdated.is_empty() {
         if !quiet {
             writeln!(out, "Nothing to upgrade.")?;
@@ -55,7 +59,7 @@ pub(super) fn run(
     }
     transaction.commit()?;
     drop(writer);
-    if args.uninstall_inactive {
+    if args.uninstall_inactive || options.uninstall_old {
         let progress = crate::progress::Progress::new(quiet);
         for old in &outdated {
             let current = entries
@@ -67,4 +71,43 @@ pub(super) fn run(
         }
     }
     Ok(())
+}
+
+/// `-R`: outdated ports that depend, directly or not, on the selected ones.
+fn outdated_dependents(
+    registry_path: &Path,
+    index: &Index,
+    selected: &[registry::Entry],
+) -> Result<Vec<registry::Entry>> {
+    let Some(reader) = registry::Registry::open(Some(registry_path))? else {
+        return Ok(Vec::new());
+    };
+    let entries = reader.entries()?;
+    let edges = reader.dependent_edges()?;
+    let mut names: std::collections::HashSet<String> = selected
+        .iter()
+        .map(|entry| entry.name.to_ascii_lowercase())
+        .collect();
+    loop {
+        let before = names.len();
+        for (dependency, id) in &edges {
+            if names.contains(&dependency.to_ascii_lowercase())
+                && let Some(entry) = entries.iter().find(|entry| entry.id == *id)
+            {
+                names.insert(entry.name.to_ascii_lowercase());
+            }
+        }
+        if names.len() == before {
+            break;
+        }
+    }
+    let chosen: std::collections::HashSet<i64> = selected.iter().map(|entry| entry.id).collect();
+    Ok(
+        super::outdated::outdated_entries(Some(registry_path), &[], index)?
+            .into_iter()
+            .filter(|entry| {
+                !chosen.contains(&entry.id) && names.contains(&entry.name.to_ascii_lowercase())
+            })
+            .collect(),
+    )
 }

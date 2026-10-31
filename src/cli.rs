@@ -10,7 +10,7 @@ use std::{ffi::OsString, path::PathBuf};
     version,
     args_override_self = true,
     styles = port_rs::theme::help_styles(),
-    about = "Standalone Rust port CLI (early implementation; no Tcl required)"
+    about = "Standalone Rust implementation of the MacPorts port CLI"
 )]
 pub(crate) struct Cli {
     #[arg(long = "index-file", global = true, env = "PORT_RS_INDEX")]
@@ -55,18 +55,115 @@ pub(crate) fn invocations(args: impl IntoIterator<Item = OsString>) -> Vec<Vec<O
         .collect()
 }
 
+pub(crate) fn leading_count(args: &[OsString]) -> usize {
+    leading_options(args)
+}
+
 fn leading_options(args: &[OsString]) -> usize {
     let mut end = 0;
     while end < args.len() {
-        if args[end] == "--index-file" || args[end] == "--registry-file" {
+        let arg = args[end].to_string_lossy();
+        if arg == "--index-file" || arg == "--registry-file" {
             end = (end + 2).min(args.len());
-        } else if args[end].to_string_lossy().starts_with('-') && args[end] != "--" {
+        } else if arg.starts_with('-')
+            && !arg.starts_with("--")
+            && arg.len() > 1
+            && (arg.ends_with('D') || arg.ends_with('F'))
+        {
+            // -D portdir and -F cmdfile take the next argument.
+            end = (end + 2).min(args.len());
+        } else if arg.starts_with('-') && arg != "--" {
             end += 1;
         } else {
             break;
         }
     }
     end
+}
+
+/// Upstream's global options that clap does not parse, from the options
+/// before the action. They are removed from `args`; the rest stay for clap.
+#[derive(Default)]
+pub(crate) struct Leading {
+    pub(crate) options: port_rs::options::Global,
+    pub(crate) directory: Option<String>,
+    pub(crate) command_files: Vec<String>,
+}
+
+pub(crate) fn take_leading(args: &mut Vec<OsString>) -> anyhow::Result<Leading> {
+    let mut leading = Leading::default();
+    let end = 1 + leading_options(&args[1..]);
+    let mut kept = vec![args[0].clone()];
+    let mut index = 1;
+    while index < end {
+        let arg = args[index].to_string_lossy().into_owned();
+        index += 1;
+        if arg.starts_with("--") || !arg.starts_with('-') {
+            kept.push(arg.into());
+            if matches!(
+                args[index - 1].to_str(),
+                Some("--index-file" | "--registry-file")
+            ) && index < end
+            {
+                kept.push(args[index].clone());
+                index += 1;
+            }
+            continue;
+        }
+        let mut clap_letters = String::new();
+        for letter in arg[1..].chars() {
+            let options = &mut leading.options;
+            match letter {
+                'q' => {
+                    options.noninteractive = true;
+                    clap_letters.push(letter);
+                }
+                'v' => {
+                    options.verbose = true;
+                    clap_letters.push(letter);
+                }
+                'y' => {
+                    options.dry_run = true;
+                    clap_letters.push(letter);
+                }
+                's' | 'b' => clap_letters.push(letter),
+                'd' => {
+                    options.debug = true;
+                    options.verbose = true;
+                }
+                'N' => options.noninteractive = true,
+                'p' => options.process_all = true,
+                'f' => options.force = true,
+                'o' => options.ignore_different = true,
+                'n' => options.nodeps = true,
+                'u' => options.uninstall_old = true,
+                'R' => options.dependents = true,
+                'c' => options.autoclean = Some(true),
+                'k' => options.autoclean = Some(false),
+                't' => options.trace = true,
+                'D' | 'F' => {
+                    let value = args
+                        .get(index)
+                        .filter(|_| index < end)
+                        .map(|value| value.to_string_lossy().into_owned())
+                        .ok_or_else(|| anyhow::anyhow!("-{letter} requires an argument"))?;
+                    index += 1;
+                    if letter == 'D' {
+                        leading.directory = Some(value);
+                    } else {
+                        leading.command_files.push(value);
+                    }
+                }
+                other => anyhow::bail!("unknown option -{other}"),
+            }
+        }
+        if !clap_letters.is_empty() {
+            kept.push(format!("-{clap_letters}").into());
+        }
+    }
+    kept.extend(args.drain(end..));
+    *args = kept;
+    Ok(leading)
 }
 
 impl Cli {
@@ -87,11 +184,6 @@ impl Cli {
             reclaim.dry_run = cli.dry_run;
         } else if let Command::RevUpgrade(revupgrade) = &mut cli.command {
             revupgrade.dry_run = cli.dry_run;
-        } else {
-            anyhow::ensure!(
-                !cli.dry_run,
-                "-y/--dry-run is currently supported only for install, reclaim and rev-upgrade"
-            );
         }
         Ok(cli)
     }
