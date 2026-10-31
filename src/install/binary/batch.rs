@@ -101,6 +101,67 @@ async fn fetch_batch_inner<'a>(
     Ok(Batch { steps, archives })
 }
 impl Batch<'_> {
+    /// Install authenticated downloads through retained Portfile sessions in
+    /// dependency order. Sessions must match the entire batch before any hooks
+    /// execute. Resolve registration/providers freshly after each pre-install;
+    /// downloaded target coordinates cannot change underneath the batch.
+    #[cfg(target_os = "macos")]
+    pub fn install_prepared(
+        self,
+        installer: &mut Installer<'_>,
+        sessions: &mut [crate::portfile::Session],
+        mut registration: impl FnMut(
+            &mut crate::portfile::Session,
+            &Item<'_>,
+        ) -> Result<(Target, NewImage)>,
+    ) -> Result<Vec<super::LifecycleResult>> {
+        ensure!(
+            sessions.len() == self.steps.len(),
+            "binary batch session count does not match the plan"
+        );
+        for (session, (item, _, _)) in sessions.iter_mut().zip(&self.steps) {
+            ensure!(
+                session
+                    .scalar("subport")?
+                    .eq_ignore_ascii_case(&item.port.name),
+                "binary batch session order does not match the plan for {}",
+                item.port.name
+            );
+        }
+        let positions: HashMap<_, _> = self
+            .steps
+            .iter()
+            .enumerate()
+            .map(|(i, (item, _, _))| (item.port.name.to_ascii_lowercase(), i))
+            .collect();
+        self.steps
+            .into_iter()
+            .zip(self.archives)
+            .zip(sessions.iter_mut())
+            .enumerate()
+            .map(|(index, (((item, target, _), mut archive), session))| {
+                installer.install_prepared(&mut archive, &item, session, false, |session| {
+                    let (live_target, record) = registration(session, &item)?;
+                    ensure!(
+                        live_target == target,
+                        "archive target changed after download for {}; replan",
+                        item.port.name
+                    );
+                    for dependency in &record.dependencies {
+                        ensure!(
+                            positions
+                                .get(&dependency.to_ascii_lowercase())
+                                .is_none_or(|position| *position < index),
+                            "live binary batch is not dependency-first: {} requires {dependency}",
+                            item.port.name
+                        );
+                    }
+                    Ok((live_target, record))
+                })
+            })
+            .collect()
+    }
+
     /// Run blocking filesystem/registry work in plan order after asynchronous
     /// fetching. Stop on the first failure; earlier installed dependencies remain
     /// installed, and unprocessed anonymous archives are discarded.

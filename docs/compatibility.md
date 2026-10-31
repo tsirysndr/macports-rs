@@ -1774,3 +1774,12 @@ only after activation hooks finish successfully; failed post-activate hooks reta
 the installed image and do not publish completion notes.
 Dependency preparation, archivefetch, execution context, and the ordinary CLI
 install driver remain separate unfinished integration work.
+
+Authenticated binary batches can now call `Batch::install_prepared` with retained
+sessions. Session count and port order are checked before any hooks execute;
+each port derives registration after pre-install, validates that its downloaded
+archive target is unchanged, and checks live in-batch dependency order. Hooks
+run in dependency-first order after all downloads authenticate, using the shared
+progress manager. Integration coverage downloads separately signed dependency
+and application archives concurrently and verifies dependency visibility inside
+the application's pre-install hook and notes from both post-activate hooks.

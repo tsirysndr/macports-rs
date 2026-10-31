@@ -453,17 +453,107 @@ async fn batch_downloads_concurrently_then_installs_dependencies_in_order() {
         if corrupt || wrong_key {
             assert!(batch.is_err());
         } else {
-            let installed = batch
-                .unwrap()
-                .install(&mut Installer {
-                    store: &store,
-                    registry: &mut registry,
-                    staging: work.path(),
-                    root: root.path(),
-                    limits: Limits::default(),
-                    progress: &progress,
-                })
-                .unwrap();
+            let mut installer = Installer {
+                store: &store,
+                registry: &mut registry,
+                staging: work.path(),
+                root: root.path(),
+                limits: Limits::default(),
+                progress: &progress,
+            };
+            let runtime = tempfile::tempdir().unwrap();
+            let installed = if isolated {
+                use port_rs::{
+                    portfile::{PortGroups, Session},
+                    spec::PortSpec,
+                };
+                let mut sessions = Vec::new();
+                for port in [&base, &app] {
+                    let portpath = runtime.path().join(&port.name);
+                    fs::create_dir(&portpath).unwrap();
+                    let source = format!(
+                        "{}; pre-install {{if {{$subport eq \"app\" && ![file exists $base_payload]}} {{error missing-dependency}}}}; post-activate {{notes \"$subport ready\"}}",
+                        download_job(port, &url, vec![]).registration.portfile
+                    );
+                    fs::write(portpath.join("Portfile"), &source).unwrap();
+                    let mut requested = PortSpec::named(&port.name);
+                    requested.parse_modifier("+ssl").unwrap();
+                    let vars = BTreeMap::from([
+                        ("portpath".into(), portpath.to_str().unwrap().into()),
+                        (
+                            "portdbpath".into(),
+                            database.path().to_str().unwrap().into(),
+                        ),
+                        (
+                            "portbuildpath".into(),
+                            portpath.join("build").to_str().unwrap().into(),
+                        ),
+                        (
+                            "subbuildpath".into(),
+                            portpath.join("build/port").to_str().unwrap().into(),
+                        ),
+                        (
+                            "workpath".into(),
+                            portpath.join("build/port/work").to_str().unwrap().into(),
+                        ),
+                        ("prefix_frozen".into(), root.path().to_str().unwrap().into()),
+                        (
+                            "configure.developer_dir".into(),
+                            "/selected/Developer".into(),
+                        ),
+                        (
+                            "base_payload".into(),
+                            root.path().join("opt/local/base").to_str().unwrap().into(),
+                        ),
+                    ]);
+                    let mut session =
+                        Session::open(&source, &vars, &requested, PortGroups::default()).unwrap();
+                    session
+                        .enable_system(&BTreeMap::new(), |_| panic!("no subprocess expected"))
+                        .unwrap();
+                    sessions.push(session);
+                }
+                let results = batch
+                    .unwrap()
+                    .install_prepared(&mut installer, &mut sessions, |session, item| {
+                        let mut requested = PortSpec::named(&item.port.name);
+                        requested.parse_modifier("+ssl")?;
+                        port_rs::install::registration::from_session(
+                            session,
+                            item,
+                            &Platform {
+                                darwin_major: 24,
+                                architecture: "arm",
+                            },
+                            port_rs::install::registration::Inputs {
+                                requested: &requested,
+                                dependencies: if item.port.name == "app" {
+                                    vec!["base".into()]
+                                } else {
+                                    vec![]
+                                },
+                                portfile: download_job(item.port, &url, vec![])
+                                    .registration
+                                    .portfile,
+                            },
+                        )
+                    })
+                    .unwrap();
+                assert_eq!(
+                    sessions[0].take_notifications(),
+                    vec![("base".into(), "base ready".into())]
+                );
+                assert_eq!(
+                    sessions[1].take_notifications(),
+                    vec![("app".into(), "app ready".into())]
+                );
+                results
+                    .into_iter()
+                    .map(|r| r.image.unwrap())
+                    .collect::<Vec<_>>()
+            } else {
+                batch.unwrap().install(&mut installer).unwrap()
+            };
             assert_eq!(installed.len(), 2);
             assert!(installed[0].id < installed[1].id);
             assert_eq!(
