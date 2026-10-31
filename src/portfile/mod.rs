@@ -42,6 +42,7 @@ mod checksum_runtime;
 mod diagnostics;
 mod ditems;
 mod dlist;
+mod extract_phase;
 mod fetch_dns;
 mod fetch_files;
 mod fetch_pings;
@@ -63,6 +64,7 @@ mod filesystem_mutations;
 mod groups;
 mod install_start;
 mod mirror_times;
+mod patch_phase;
 mod paths;
 mod phase_start;
 mod platform;
@@ -128,6 +130,7 @@ struct State {
     mirror_resources: BTreeMap<String, crate::install::sites::resource::Resource>,
     progress: Option<crate::progress::Progress>,
     proxies: Option<std::sync::Arc<crate::install::proxy::Resolved>>,
+    dmg_mount: Option<String>,
     warned: BTreeSet<String>,
     notifications: Vec<(String, String)>,
     build_states: BTreeMap<String, crate::build::state::StateFile>,
@@ -271,6 +274,8 @@ fn open(
     fetch_requests::install(&mut interp, id);
     diagnostics::install(&mut interp, id);
     checksum_runtime::install(&mut interp, id);
+    extract_phase::install(&mut interp, id);
+    patch_phase::install(&mut interp, id);
     fetch_pings::install(&mut interp, id);
     fetch_dns::install(&mut interp, id);
     fetch_selection::install(&mut interp, id);
