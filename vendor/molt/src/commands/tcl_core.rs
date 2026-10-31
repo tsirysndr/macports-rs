@@ -143,7 +143,7 @@ pub fn cmd_switch(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResu
     } else {
         argv[index..].to_vec()
     };
-    if pairs.len() % 2 != 0 {
+    if !pairs.len().is_multiple_of(2) {
         return molt_err!("extra switch pattern with no body");
     }
     let last = pairs.len() / 2 - 1;
