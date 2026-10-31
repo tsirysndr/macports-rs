@@ -1847,4 +1847,13 @@ collations and the upstream optional revision/variants defaults. The aliases
 return false for registry lookup errors as upstream does, and never create a
 missing database. Unbound sessions fail explicitly instead of guessing a host
 registry. Archive-path integration tests now use the real SQLite aliases;
-startup still needs to supply the binding before executing these runtime calls.
+startup supplies the binding before executing these runtime calls.
+
+
+Local install previews now pass the selected configured/explicit registry path
+into the tree loader before evaluating Portfiles and PortGroups. The new
+`Session::open_with_registry` constructor also exposes this startup binding to
+hosts. Missing configured databases are not created; retaining their path lets
+later lookups observe a newly created registry. Explicit missing overrides still
+fail during startup validation. CLI tests verify evaluation-time queries and
+unchanged registry bytes; session tests cover a database created after opening.

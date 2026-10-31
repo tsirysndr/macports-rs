@@ -28,7 +28,7 @@ pub fn open_from_tree(
     variables: &BTreeMap<String, String>,
     requested: &PortSpec,
 ) -> Result<Session> {
-    open_tree(root, indexed, variables, requested, None, None)
+    open_tree(root, indexed, variables, requested, None, None, None)
 }
 
 /// Load a persistent Portfile with explicit environment values available during
@@ -40,7 +40,15 @@ pub fn open_from_tree_with_environment(
     requested: &PortSpec,
     environment: &BTreeMap<String, String>,
 ) -> Result<Session> {
-    open_tree(root, indexed, variables, requested, Some(environment), None)
+    open_tree(
+        root,
+        indexed,
+        variables,
+        requested,
+        Some(environment),
+        None,
+        None,
+    )
 }
 
 /// Open a local-tree session with lazy archive metadata available to PortGroups.
@@ -59,6 +67,28 @@ pub fn open_from_tree_with_archive_sites(
         requested,
         Some(environment),
         Some(archives),
+        None,
+    )
+}
+
+/// Load a local session with registry lookup bound before evaluating source.
+pub fn open_from_tree_with_registry(
+    root: &Path,
+    indexed: &Port,
+    variables: &BTreeMap<String, String>,
+    requested: &PortSpec,
+    environment: &BTreeMap<String, String>,
+    archives: super::ArchiveSites,
+    registry: Option<&Path>,
+) -> Result<Session> {
+    open_tree(
+        root,
+        indexed,
+        variables,
+        requested,
+        Some(environment),
+        Some(archives),
+        Some(super::registry_lookup::Source::from_path(registry)),
     )
 }
 
@@ -69,6 +99,7 @@ fn open_tree(
     requested: &PortSpec,
     environment: Option<&BTreeMap<String, String>>,
     archives: Option<super::ArchiveSites>,
+    registry: Option<super::registry_lookup::Source>,
 ) -> Result<Session> {
     let relative = Path::new(indexed.get("portdir"));
     ensure!(
@@ -119,6 +150,7 @@ fn open_tree(
         PortGroups::from_directories(vec![root.join("_resources/port1.0/group")]),
         environment,
         archives,
+        registry,
     )
     .with_context(|| format!("{}: {}", requested.name, path.display()))
 }

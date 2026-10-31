@@ -54,3 +54,42 @@ fn registry_aliases_use_fresh_readonly_snapshots_and_native_defaults() {
 fn unbound_registry_is_explicitly_unsupported() {
     assert!(session().invoke("registry_exists", &["app", "1"]).is_err());
 }
+
+#[test]
+fn startup_binding_is_available_to_groups_and_sees_a_later_created_registry() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("later.db");
+    let mut groups = PortGroups::default();
+    groups
+        .insert(
+            "probe",
+            "1.0",
+            "set group_found [registry_exists_for_name app]".into(),
+        )
+        .unwrap();
+    let mut s = Session::open_with_registry(
+        "name app; version 1; PortGroup probe 1.0; set found [registry_exists app 1]",
+        &BTreeMap::new(),
+        &PortSpec::named("app"),
+        groups,
+        &BTreeMap::new(),
+        None,
+        Some(&path),
+    )
+    .unwrap();
+    assert_eq!(s.scalar("group_found").unwrap(), "0");
+    assert_eq!(s.scalar("found").unwrap(), "0");
+    assert!(!path.exists());
+    let mut writer = Writer::create(&path).unwrap();
+    let mut tx = writer.transaction().unwrap();
+    tx.register(&NewImage {
+        name: "app".into(),
+        version: "1".into(),
+        location: "/tmp/archive".into(),
+        archs: "arm64".into(),
+        ..Default::default()
+    })
+    .unwrap();
+    tx.commit().unwrap();
+    assert_eq!(s.invoke("registry_exists", &["app", "1"]).unwrap(), "1");
+}

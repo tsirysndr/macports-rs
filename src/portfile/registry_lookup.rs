@@ -6,6 +6,14 @@ pub(super) enum Source {
     Missing,
     Database(PathBuf),
 }
+impl Source {
+    pub(super) fn from_path(path: Option<&Path>) -> Self {
+        match path {
+            Some(path) => Self::Database(path.to_owned()),
+            None => Self::Missing,
+        }
+    }
+}
 impl Session {
     /// Bind the startup driver's selected registry. None explicitly denotes an
     /// absent registry; an unbound session cannot guess or use the host default.

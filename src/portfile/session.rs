@@ -30,7 +30,7 @@ impl Session {
         requested: &PortSpec,
         groups: PortGroups,
     ) -> Result<Self> {
-        super::open(source, variables, requested, groups, None, None)
+        super::open(source, variables, requested, groups, None, None, None)
     }
 
     /// Evaluate with an explicit initial environment available to the Portfile
@@ -49,6 +49,7 @@ impl Session {
             requested,
             groups,
             Some(environment),
+            None,
             None,
         )
     }
@@ -70,6 +71,29 @@ impl Session {
             groups,
             Some(environment),
             Some(archives),
+            None,
+        )
+    }
+
+    /// Bind read-only registry lookup before evaluating the Portfile and groups.
+    /// None denotes an explicitly absent registry; shell execution stays disabled.
+    pub fn open_with_registry(
+        source: &str,
+        variables: &BTreeMap<String, String>,
+        requested: &PortSpec,
+        groups: PortGroups,
+        environment: &BTreeMap<String, String>,
+        archives: Option<ArchiveSites>,
+        registry: Option<&std::path::Path>,
+    ) -> Result<Self> {
+        super::open(
+            source,
+            variables,
+            requested,
+            groups,
+            Some(environment),
+            archives,
+            Some(registry_lookup::Source::from_path(registry)),
         )
     }
 

@@ -80,15 +80,17 @@ pub(super) fn run(
                 context.variants.apply(spec);
             }
             let registry = context.open_registry(registry_file)?;
+            let registry_path = context.registry_path(registry_file)?;
             let archives = paths.archive_resolver(&config, &context, root, progress.clone())?;
             install::plan_sessions(index, &specs, registry.as_ref(), |port, spec| {
-                crate::portfile::open_from_tree_with_archive_sites(
+                crate::portfile::open_from_tree_with_registry(
                     root,
                     port,
                     &context.variables,
                     spec,
                     &context.environment,
                     archives.clone(),
+                    Some(&registry_path),
                 )
             })
         })

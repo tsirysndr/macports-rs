@@ -762,3 +762,29 @@ fn local_install_resolves_configured_archive_defaults_before_portfile_mutations(
         before
     );
 }
+
+#[test]
+fn local_preview_binds_selected_registry_before_portfile_evaluation() {
+    let f = Fixture::new(&[("app", "version 1 portdir net/app")]);
+    let database = f.dir.path().join("registry.db");
+    Connection::open(&database)
+        .unwrap()
+        .execute_batch("INSERT INTO ports VALUES(1,'base','3',2,'+ssl','imaged');")
+        .unwrap();
+    portfile(
+        &f,
+        "app",
+        r#"
+        if {![registry_exists base 3 2 +ssl]} {error missing-registry-binding}
+        if {![registry_exists_for_name base]} {error missing-name-binding}
+        if {[registry_exists base 3]} {error wrong-defaults}
+        revision 6
+    "#,
+    );
+    let before = std::fs::read(&database).unwrap();
+    assert_eq!(
+        stdout(f.run(&["-qy", "install", "app"])),
+        "install  app @2_6 (requested)\n"
+    );
+    assert_eq!(std::fs::read(&database).unwrap(), before);
+}

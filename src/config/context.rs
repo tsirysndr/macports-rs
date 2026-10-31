@@ -23,19 +23,24 @@ impl Context {
         &self,
         explicit: Option<&std::path::Path>,
     ) -> Result<Option<crate::registry::Registry>> {
-        if let Some(path) = explicit {
-            return crate::registry::Registry::open(Some(path));
+        let path = self.registry_path(explicit)?;
+        if explicit.is_none() && !path.try_exists()? {
+            return Ok(None);
         }
-        let path = std::path::Path::new(
+        crate::registry::Registry::open(Some(&path))
+    }
+
+    /// Selected path even when not created yet, allowing later fresh lookups.
+    pub fn registry_path(&self, explicit: Option<&std::path::Path>) -> Result<std::path::PathBuf> {
+        if let Some(path) = explicit {
+            return Ok(path.to_owned());
+        }
+        Ok(std::path::Path::new(
             self.variables
                 .get("portdbpath")
                 .context("startup portdbpath is missing")?,
         )
-        .join("registry/registry.db");
-        if !path.try_exists()? {
-            return Ok(None);
-        }
-        crate::registry::Registry::open(Some(&path))
+        .join("registry/registry.db"))
     }
 
     /// Host variables supply standalone defaults; explicit configuration wins.

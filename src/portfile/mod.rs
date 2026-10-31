@@ -60,7 +60,7 @@ pub use session::Session;
 mod source;
 pub use source::{
     evaluate_from_tree, open_from_tree, open_from_tree_with_archive_sites,
-    open_from_tree_with_environment,
+    open_from_tree_with_environment, open_from_tree_with_registry,
 };
 mod system;
 pub use system::SystemRequest;
@@ -182,6 +182,7 @@ fn open(
     groups: PortGroups,
     environment: Option<&BTreeMap<String, String>>,
     archive_sites: Option<ArchiveSites>,
+    registry_lookup: Option<registry_lookup::Source>,
 ) -> Result<Session> {
     let mut interp = Interp::new();
     interp.set_recursion_limit(128);
@@ -195,6 +196,7 @@ fn open(
     }
     let id = interp.save_context(State {
         archive_sites,
+        registry_lookup,
         creation_mask: crate::source::startup_creation_mask(),
         groups,
         selected: requested.variants.clone(),
