@@ -1783,3 +1783,12 @@ run in dependency-first order after all downloads authenticate, using the shared
 progress manager. Integration coverage downloads separately signed dependency
 and application archives concurrently and verifies dependency visibility inside
 the application's pre-install hook and notes from both post-activate hooks.
+
+`Installer::activate_prepared` supports an existing inactive registry image
+without registering it again. The caller supplies a freshly authenticated
+archive, such as one returned by `Store::load`, and its registry ID; native
+activation checks identity and ownership before publishing. Target resolution
+runs after pre-activate hooks and is skipped for dry runs/custom bodies.
+Recovery coverage re-verifies a retained archive after post-install failure,
+activates the same registry entry, runs activation hooks, and checks cleanup.
+The CLI still needs to select and dispatch these activate plan steps.

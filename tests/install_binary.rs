@@ -724,6 +724,69 @@ fn registration_and_activation_run_in_separate_hook_boundaries() {
                 session.scalar("events").unwrap(),
                 "pre-install post-install"
             );
+            let image_id = db
+                .query_row("SELECT id FROM ports", [], |r| r.get::<_, i64>(0))
+                .unwrap();
+            let mut activate_item = item(&port);
+            activate_item.action = Action::Activate;
+            let mut cached = store
+                .load(
+                    &activate_item,
+                    &target(),
+                    &[trusted_key()],
+                    work.path(),
+                    port_rs::install::store::LoadLimits {
+                        archive_bytes: 1024 * 1024,
+                        inspection: Limits::default(),
+                    },
+                )
+                .unwrap();
+            // A dry run must neither extract nor invoke hooks/target resolution.
+            assert_eq!(
+                installer
+                    .activate_prepared(
+                        &mut cached,
+                        &activate_item,
+                        image_id,
+                        &mut session,
+                        true,
+                        |_| panic!("dry-run target resolution")
+                    )
+                    .unwrap(),
+                port_rs::portfile::TargetOutcome::DryRun
+            );
+            assert!(!root.path().join("opt/local/app").exists());
+            installer
+                .activate_prepared(
+                    &mut cached,
+                    &activate_item,
+                    image_id,
+                    &mut session,
+                    false,
+                    |_| Ok(target()),
+                )
+                .unwrap();
+            assert!(root.path().join("opt/local/app").is_file());
+            assert_eq!(
+                db.query_row("SELECT COUNT(*) FROM ports", [], |r| r.get::<_, i64>(0))
+                    .unwrap(),
+                1
+            );
+            assert_eq!(
+                db.query_row("SELECT state FROM ports", [], |r| r.get::<_, String>(0))
+                    .unwrap(),
+                "installed"
+            );
+            assert_eq!(
+                session.scalar("events").unwrap(),
+                "pre-install post-install pre-activate post-activate"
+            );
+            assert_eq!(
+                session.take_notifications(),
+                vec![("app".into(), "app is ready".into())]
+            );
+            drop(cached);
+            assert_eq!(fs::read_dir(work.path()).unwrap().count(), 0);
         } else if failure_phase == "activate" {
             assert!(
                 result

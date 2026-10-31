@@ -11,6 +11,58 @@ pub struct LifecycleResult {
     pub image: Option<InstalledImage>,
 }
 impl Installer<'_> {
+    /// Activate an existing inactive registry image from a freshly verified
+    /// archive (for example Store::load). No registration or store writes occur.
+    /// Registry identity and file ownership are checked against the prepared
+    /// archive before publishing. The host resolves live target/provider state
+    /// in `target` after pre-activate hooks; dry runs/custom bodies skip it.
+    #[cfg(target_os = "macos")]
+    pub fn activate_prepared(
+        &mut self,
+        archive: &mut VerifiedArchive,
+        item: &Item<'_>,
+        image_id: i64,
+        session: &mut Session,
+        dry_run: bool,
+        target: impl FnOnce(&mut Session) -> Result<Target>,
+    ) -> Result<TargetOutcome> {
+        ensure!(
+            item.action == super::Action::Activate,
+            "existing image activation requires an activate plan step"
+        );
+        ensure!(
+            item.variants_resolved && item.provider_fallbacks.is_empty(),
+            "existing image activation requires resolved variants and dependency providers"
+        );
+        session.set_progress(self.progress.clone());
+        let activate_target = session.scalar("org.macports.activate")?;
+        let mut activated = false;
+        let outcome = session.run_prepared_target_with_native_body(
+            &activate_target,
+            dry_run,
+            "portactivate::activate_main",
+            |session| {
+                let target = target(session)?;
+                let prepared =
+                    extract::prepare_for_target(archive, item, &target, self.staging, self.limits)?;
+                self.progress
+                    .phase(&format!("Activating {}", item.port.name));
+                Plan::inspect(&prepared, self.root)?.activate(self.registry, image_id)?;
+                activated = true;
+                Ok(())
+            },
+        )?;
+        if activated {
+            self.progress.phase(&format!(
+                "Activated {} @{}{}",
+                item.port.name,
+                item.port.version(),
+                item.variants
+            ));
+        }
+        Ok(outcome)
+    }
+
     /// Run install and activate with live Portfile hooks and runtime cleanup.
     /// Dependencies, archivefetch and host execution context must already be
     /// prepared. Derive registration from the live session in `registration`
