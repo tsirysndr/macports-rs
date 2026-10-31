@@ -1760,3 +1760,15 @@ autostart, and queues live `PortInfo(notes)` for the host through
 notes, and failed loads do not queue them. Autostart's temporary flag is removed
 even on errors. Native load-target execution and privilege elevation are still
 required for those paths; test load callbacks exercise the dispatch contract.
+
+`Installer::install_prepared` now runs authenticated binary registration and
+activation through the retained session's prepared targets, including native
+startup/finish callbacks and Portfile hooks. Its registration factory runs after
+pre-install, so callers can derive metadata and providers from the live session.
+Dry runs and custom install bodies skip that factory. The result distinguishes
+phase outcomes from an image actually activated by the native backend. A custom
+install followed by native activation still requires registry-image recovery and
+fails explicitly when no pending image exists. Failures after registration retain
+the inactive archive; failures after activation do not undo installed payloads.
+Dependency preparation, archivefetch, execution context, and the ordinary CLI
+install driver remain separate unfinished integration work.

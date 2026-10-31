@@ -1,0 +1,63 @@
+//! Prepared install/activate orchestration for an authenticated binary image.
+use super::*;
+use crate::portfile::{Session, TargetOutcome};
+
+#[derive(Debug)]
+pub struct LifecycleResult {
+    pub install: TargetOutcome,
+    pub activate: TargetOutcome,
+    /// Present only when the native activation body ran. Custom target bodies
+    /// remain responsible for their own registry and filesystem effects.
+    pub image: Option<InstalledImage>,
+}
+impl Installer<'_> {
+    /// Run install and activate with live Portfile hooks and runtime cleanup.
+    /// Dependencies, archivefetch and host execution context must already be
+    /// prepared. Derive registration from the live session in `registration`
+    /// (normally using registration::with_providers); it runs after pre-install.
+    /// Dry runs and custom install bodies do not call the registration factory.
+    /// An error after registration retains the inactive image; an error after
+    /// activation retains the installed image. Neither claims hook completion.
+    #[cfg(target_os = "macos")]
+    pub fn install_prepared(
+        &mut self,
+        archive: &mut VerifiedArchive,
+        item: &Item<'_>,
+        session: &mut Session,
+        dry_run: bool,
+        registration: impl FnOnce(&mut Session) -> Result<(Target, NewImage)>,
+    ) -> Result<LifecycleResult> {
+        validate(item)?;
+        session.set_progress(self.progress.clone());
+        let install_target = session.scalar("org.macports.install")?;
+        let mut pending = None;
+        let install = session.run_prepared_target_with_native_body(
+            &install_target,
+            dry_run,
+            "portinstall::install_main",
+            |session| {
+                let (target, record) = registration(session)?;
+                pending = Some(self.register(archive, item, &target, record)?);
+                Ok(())
+            },
+        )?;
+        // Resolve activation only after install hooks: hooks may change its
+        // metadata or replace the procedure, as in the interpreter driver.
+        let activate_target = session.scalar("org.macports.activate")?;
+        let mut image = None;
+        let activate = session.run_prepared_target_with_native_body(
+            &activate_target, dry_run, "portactivate::activate_main", |_| {
+                let registered = pending.take().context(
+                    "native activation needs a registered binary image; custom or skipped install requires registry image recovery"
+                )?;
+                image = Some(registered.activate()?);
+                Ok(())
+            },
+        )?;
+        Ok(LifecycleResult {
+            install,
+            activate,
+            image,
+        })
+    }
+}

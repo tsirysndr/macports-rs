@@ -1,6 +1,8 @@
 //! Binary image installation after the caller has resolved metadata and run the
-//! required Portfile lifecycle. This backend does not execute hooks or source builds.
+//! required Portfile lifecycle, or with a prepared session via install_prepared.
+//! This backend does not build source archives.
 mod batch;
+mod lifecycle;
 use super::{
     Action, Item, activation::Plan, archive::VerifiedArchive, extract, inspect::Limits,
     store::Store, target::Target,
@@ -13,6 +15,7 @@ use anyhow::{Context, Result, ensure};
 pub use batch::{
     Batch, Job, TrustedJob, fetch_batch, fetch_batch_with_proxies, fetch_trusted_batch,
 };
+pub use lifecycle::LifecycleResult;
 use std::path::{Path, PathBuf};
 
 pub struct Installer<'a> {
@@ -23,6 +26,7 @@ pub struct Installer<'a> {
     pub limits: Limits,
     pub progress: &'a Progress,
 }
+#[derive(Debug)]
 pub struct InstalledImage {
     pub id: i64,
     pub location: PathBuf,

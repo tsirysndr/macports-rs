@@ -523,7 +523,6 @@ fn registration_and_activation_run_in_separate_hook_boundaries() {
                 lappend events pre-install
             }
             post-install {
-                if {![info exists image_id]} {error "not registered"}
                 if {[file exists $payload]} {error "activated too early"}
                 lappend events post-install
                 if {$fail_after_install} {error "post-install failure"}
@@ -580,19 +579,14 @@ fn registration_and_activation_run_in_separate_hook_boundaries() {
         session
             .enable_system(&BTreeMap::new(), |_| panic!("no subprocess expected"))
             .unwrap();
-        let install = session.scalar("org.macports.install").unwrap();
-        let activate = session.scalar("org.macports.activate").unwrap();
-        let mut pending = None;
-        let result = session.run_prepared_target_with_native_body(
-            &install,
+        let result = installer.install_prepared(
+            &mut archive(),
+            &item(&port),
+            &mut session,
             false,
-            "portinstall::install_main",
             |session| {
-                let image =
-                    installer.register(&mut archive(), &item(&port), &target(), record())?;
-                session.invoke("set", &["image_id", &image.id().to_string()])?;
-                pending = Some(image);
-                Ok(())
+                assert_eq!(session.scalar("events")?, "pre-install");
+                Ok((target(), record()))
             },
         );
         // The prepared runner owns the state lock across hooks and releases it
@@ -607,13 +601,6 @@ fn registration_and_activation_run_in_separate_hook_boundaries() {
             assert_eq!(session.invoke("info", &["exists", key]).unwrap(), "0");
         }
         let db = rusqlite::Connection::open(&registry_path).unwrap();
-        assert_eq!(
-            db.query_row("SELECT state FROM ports", [], |r| r.get::<_, String>(0))
-                .unwrap(),
-            "imaged"
-        );
-        assert!(!root.path().join("opt/local/app").exists());
-        let location = pending.as_ref().unwrap().location().to_owned();
         if fail_after_install {
             assert!(
                 result
@@ -621,26 +608,29 @@ fn registration_and_activation_run_in_separate_hook_boundaries() {
                     .to_string()
                     .contains("post-install failure")
             );
-            drop(pending);
-            assert!(location.is_file());
+            assert_eq!(
+                db.query_row("SELECT state FROM ports", [], |r| r.get::<_, String>(0))
+                    .unwrap(),
+                "imaged"
+            );
+            let location: String = db
+                .query_row("SELECT location FROM ports", [], |r| r.get(0))
+                .unwrap();
+            assert!(std::path::Path::new(&location).is_file());
+            assert!(!root.path().join("opt/local/app").exists());
             assert_eq!(fs::read_dir(work.path()).unwrap().count(), 0);
             assert_eq!(
                 session.scalar("events").unwrap(),
                 "pre-install post-install"
             );
         } else {
-            result.unwrap();
-            session
-                .run_prepared_target_with_native_body(
-                    &activate,
-                    false,
-                    "portactivate::activate_main",
-                    |_| {
-                        pending.take().unwrap().activate()?;
-                        Ok(())
-                    },
-                )
-                .unwrap();
+            let outcome = result.unwrap();
+            assert_eq!(outcome.install, port_rs::portfile::TargetOutcome::Completed);
+            assert_eq!(
+                outcome.activate,
+                port_rs::portfile::TargetOutcome::Completed
+            );
+            let location = outcome.image.unwrap().location;
             assert_eq!(
                 db.query_row("SELECT state FROM ports", [], |r| r.get::<_, String>(0))
                     .unwrap(),
@@ -655,6 +645,92 @@ fn registration_and_activation_run_in_separate_hook_boundaries() {
                 session.take_notifications(),
                 vec![("app".into(), "app is ready".into())]
             );
+        }
+    }
+}
+
+#[test]
+fn prepared_install_dry_run_and_custom_targets_skip_native_registration() {
+    use port_rs::{
+        portfile::{PortGroups, Session, TargetOutcome},
+        spec::PortSpec,
+    };
+    for dry_run in [true, false] {
+        let temp = tempfile::tempdir().unwrap();
+        let source = "name app; version 1; set events {}; install {lappend events custom-install}; activate {lappend events custom-activate}";
+        fs::write(temp.path().join("Portfile"), source).unwrap();
+        let path = |suffix: &str| temp.path().join(suffix).to_str().unwrap().to_owned();
+        let mut session = Session::open(
+            source,
+            &BTreeMap::from([
+                ("portpath".into(), path("")),
+                ("portdbpath".into(), path("db")),
+                ("portbuildpath".into(), path("build")),
+                ("subbuildpath".into(), path("build/app")),
+                ("workpath".into(), path("build/app/work")),
+                ("prefix_frozen".into(), path("")),
+                (
+                    "configure.developer_dir".into(),
+                    "/selected/Developer".into(),
+                ),
+            ]),
+            &PortSpec::named("app"),
+            PortGroups::default(),
+        )
+        .unwrap();
+        session
+            .enable_system(&BTreeMap::new(), |_| panic!("no process expected"))
+            .unwrap();
+        let software = tempfile::tempdir().unwrap();
+        let store = Store::open(software.path()).unwrap();
+        let staging = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("registry.db");
+        let mut registry = Writer::create(&db_path).unwrap();
+        let progress = Progress::new(true);
+        let mut installer = Installer {
+            store: &store,
+            registry: &mut registry,
+            staging: staging.path(),
+            root: root.path(),
+            limits: Limits::default(),
+            progress: &progress,
+        };
+        let outcome = installer
+            .install_prepared(
+                &mut archive(),
+                &item(&port()),
+                &mut session,
+                dry_run,
+                |_| panic!("native registration must not run"),
+            )
+            .unwrap();
+        let expected = if dry_run {
+            TargetOutcome::DryRun
+        } else {
+            TargetOutcome::Completed
+        };
+        assert_eq!(outcome.install, expected);
+        assert_eq!(outcome.activate, expected);
+        assert!(outcome.image.is_none());
+        assert_eq!(
+            session.scalar("events").unwrap(),
+            if dry_run {
+                ""
+            } else {
+                "custom-install custom-activate"
+            }
+        );
+        assert_eq!(fs::read_dir(staging.path()).unwrap().count(), 0);
+        assert_eq!(fs::read_dir(root.path()).unwrap().count(), 0);
+        let db = rusqlite::Connection::open(db_path).unwrap();
+        assert_eq!(
+            db.query_row("SELECT COUNT(*) FROM ports", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        if dry_run {
+            assert!(!temp.path().join("build").exists());
         }
     }
 }
