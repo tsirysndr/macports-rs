@@ -35,6 +35,9 @@ pub(super) fn install(interp: &mut Interp, id: ContextID) -> MoltResult {
             format_changed(interp, id, name, ScalarChange::Write)?;
         }
     }
+    if let Ok(notes) = interp.scalar("notes") {
+        interp.set_element("PortInfo", "notes", notes)?;
+    }
     Ok(Value::empty())
 }
 fn command(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
@@ -81,6 +84,17 @@ fn changed(
     change: ScalarChange,
 ) -> Result<(), Exception> {
     interp.context::<State>(id).lazy_defaults.remove(name);
+    if name == "notes" {
+        interp.with_global_scope(|interp| {
+            if change == ScalarChange::Write {
+                let notes = interp.scalar("notes")?;
+                interp.set_element("PortInfo", "notes", notes)?;
+            } else {
+                interp.unset_element("PortInfo", "notes");
+            }
+            Ok(())
+        })?;
+    }
     if FORMATS.iter().any(|(option, _)| *option == name)
         && !interp.context::<State>(id).changing_format
     {

@@ -1749,6 +1749,14 @@ hooks. The `add_users` option supports append/prepend and its empty default;
 group declarations dispatch `addgroup`/`existsgroup`, and user arguments remain
 literal words. Account creation primitives and privilege elevation still need
 native host implementations; they are not silently skipped. Binary installation
-integration tests now use this startup callback rather than a stub. Activation
-startup/finish callbacks remain stubbed in that test, so it does not establish
-complete production installation support.
+integration tests now use this startup callback rather than a stub. Activation startup/finish callbacks are also native in this test; the complete
+production installation driver remains unfinished.
+
+
+Native activation startup checks prefix access before hooks. Activation finish
+runs after post-activate hooks, dispatches the load target when configured for
+autostart, and queues live `PortInfo(notes)` for the host through
+`Session::take_notifications`. Global notes writes/unsets update the exported
+notes, and failed loads do not queue them. Autostart's temporary flag is removed
+even on errors. Native load-target execution and privilege elevation are still
+required for those paths; test load callbacks exercise the dispatch contract.

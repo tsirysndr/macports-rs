@@ -515,8 +515,6 @@ fn registration_and_activation_run_in_separate_hook_boundaries() {
         };
         let source = r#"
             name app; version 1; set events {}
-            proc portactivate::activate_start args {}
-            proc portactivate::activate_finish args {}
             pre-install {
                 if {![info exists target_state_fd]} {error "missing owned state"}
                 if {$env(HOME) ne "$workpath/.home"} {error "wrong HOME"}
@@ -537,6 +535,7 @@ fn registration_and_activation_run_in_separate_hook_boundaries() {
             post-activate {
                 if {![file exists $payload]} {error "payload not activated"}
                 lappend events post-activate
+                notes "app is ready"
             }
         "#;
         fs::write(runtime.path().join("Portfile"), source).unwrap();
@@ -652,6 +651,10 @@ fn registration_and_activation_run_in_separate_hook_boundaries() {
                 "pre-install post-install pre-activate post-activate"
             );
             assert!(location.is_file());
+            assert_eq!(
+                session.take_notifications(),
+                vec![("app".into(), "app is ready".into())]
+            );
         }
     }
 }

@@ -2,6 +2,7 @@
 //! This is an incremental MacPorts command implementation, not yet a complete
 //! PortSystem. Unsupported commands fail; deferred build hooks are retained.
 use crate::accounts;
+mod activate_runtime;
 mod architecture;
 mod archive_defaults;
 mod archive_files;
@@ -107,6 +108,7 @@ struct State {
     groups: PortGroups,
     progress: Option<crate::progress::Progress>,
     warned: BTreeSet<String>,
+    notifications: Vec<(String, String)>,
     build_states: BTreeMap<String, crate::build::state::StateFile>,
     next_build_state: u64,
     creation_mask: Option<u32>,
@@ -236,6 +238,7 @@ fn open(
     build_state::install(&mut interp, id);
     phase_start::install(&mut interp, id);
     install_start::install(&mut interp, id);
+    activate_runtime::install(&mut interp, id);
     destroot_finish::install(&mut interp, id);
     destroot_start::install(&mut interp, id);
     startupitem::install(&mut interp, id);
