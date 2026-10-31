@@ -1710,3 +1710,13 @@ runtime strings fail before registry work. Registration also checks that the
 live `portvariants` archive identity still agrees with the planned active set;
 a change requires replanning. Tests cover undeclared requests, live requested
 metadata, malformed values, and mismatched archive identity.
+
+`Session::execute_target_with_native_body` lets a host scheduler run Rust work in
+the target-body position while retaining init, prerun, pre/post hooks, postrun,
+and build-state completion rules. It dispatches to the host only when the target
+still selects the expected built-in procedure; a custom Portfile procedure runs
+normally instead. Dry runs and completed targets skip host work. Native failures
+skip later callbacks and leave the target incomplete. The caller still owns
+runtime/environment preparation, and custom overrides calling `do-*` require the
+corresponding native interpreter command to be registered separately. This is a
+lifecycle bridge for the install backend, not a complete CLI target driver.

@@ -194,3 +194,84 @@ fn registered_portfile_override_and_hooks_execute_through_target_metadata() {
     );
     assert_eq!(s.scalar("events").unwrap(), "before build after");
 }
+
+#[test]
+fn native_body_runs_between_hooks_and_only_after_success_marks_state() {
+    let root = tempfile::tempdir().unwrap();
+    let mut s = session(true);
+    let item = s.scalar("item").unwrap();
+    let fd = s
+        .attach_build_state(StateFile::open(&root.path().join("state"), None).unwrap())
+        .unwrap();
+    let mut calls = 0;
+    let failed = s.execute_target_with_native_body(&item, Some(&fd), false, "body", |session| {
+        calls += 1;
+        assert_eq!(session.scalar("events")?, "init start pre");
+        session.invoke("lappend", &["events", "native"])?;
+        anyhow::bail!("native failure")
+    });
+    assert!(failed.unwrap_err().to_string().contains("native failure"));
+    assert_eq!(calls, 1);
+    assert_eq!(s.scalar("events").unwrap(), "init start pre native");
+    assert_eq!(
+        s.invoke("check_statefile", &["target", "org.macports.custom", &fd])
+            .unwrap(),
+        "0"
+    );
+    s.invoke("set", &["events", ""]).unwrap();
+    let outcome = s
+        .execute_target_with_native_body(&item, Some(&fd), false, "body", |session| {
+            calls += 1;
+            session.invoke("lappend", &["events", "native"])?;
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(outcome, TargetOutcome::Completed);
+    assert_eq!(
+        s.scalar("events").unwrap(),
+        "init start pre native post finish"
+    );
+    assert_eq!(calls, 2);
+    assert_eq!(
+        s.execute_target_with_native_body(&item, Some(&fd), false, "body", |_| panic!(
+            "completed target must skip native work"
+        ))
+        .unwrap(),
+        TargetOutcome::AlreadyCompleted
+    );
+}
+
+#[test]
+fn native_body_dispatch_preserves_overrides_and_dry_runs() {
+    let root = tempfile::tempdir().unwrap();
+    let mut s = session(true);
+    let item = s.scalar("item").unwrap();
+    let fd = s
+        .attach_build_state(StateFile::open(&root.path().join("state"), None).unwrap())
+        .unwrap();
+    assert_eq!(
+        s.execute_target_with_native_body(&item, Some(&fd), true, "body", |_| panic!(
+            "dry run must skip native work"
+        ))
+        .unwrap(),
+        TargetOutcome::DryRun
+    );
+    assert_eq!(s.scalar("events").unwrap(), "init");
+    s.invoke("set", &["events", ""]).unwrap();
+    // A different procedure is a Portfile override, not permission to replace it.
+    assert_eq!(
+        s.execute_target_with_native_body(
+            &item,
+            Some(&fd),
+            false,
+            "original_native_procedure",
+            |_| panic!("override must execute instead")
+        )
+        .unwrap(),
+        TargetOutcome::Completed
+    );
+    assert_eq!(
+        s.scalar("events").unwrap(),
+        "init start pre body post finish"
+    );
+}

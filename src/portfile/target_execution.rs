@@ -32,6 +32,49 @@ impl Session {
         dry_run: bool,
         manage_developer: bool,
     ) -> Result<TargetOutcome> {
+        self.execute_target_using(
+            item,
+            state_handle,
+            dry_run,
+            manage_developer,
+            |session, procedure, name| session.invoke(procedure, &[name]).map(|_| ()),
+        )
+    }
+
+    /// Execute a host-native body only when the target still selects its expected
+    /// built-in procedure. Portfile overrides execute normally instead. The host
+    /// must prepare the same runtime context required by `execute_target`.
+    pub fn execute_target_with_native_body(
+        &mut self,
+        item: &str,
+        state_handle: Option<&str>,
+        dry_run: bool,
+        native_procedure: &str,
+        body: impl FnOnce(&mut Session) -> Result<()>,
+    ) -> Result<TargetOutcome> {
+        self.execute_target_using(
+            item,
+            state_handle,
+            dry_run,
+            false,
+            |session, procedure, name| {
+                if procedure == native_procedure {
+                    body(session)
+                } else {
+                    session.invoke(procedure, &[name]).map(|_| ())
+                }
+            },
+        )
+    }
+
+    fn execute_target_using(
+        &mut self,
+        item: &str,
+        state_handle: Option<&str>,
+        dry_run: bool,
+        manage_developer: bool,
+        body: impl FnOnce(&mut Session, &str, &str) -> Result<()>,
+    ) -> Result<TargetOutcome> {
         check_supported(&mut self.interp, self.id)?;
         ensure!(
             self.interp
@@ -98,7 +141,8 @@ impl Session {
                     .map_err(failure)?;
             }
             self.target_callbacks(&item, "pre", &name)?;
-            self.invoke(&procedure, &[&name])?;
+            body(self, &procedure, &name)?;
+            check_supported(&mut self.interp, self.id)?;
             self.target_callbacks(&item, "post", &name)?;
             Ok(())
         })();
