@@ -24,7 +24,16 @@ pub(super) fn root(index: Option<&Path>, indexed: bool, action: &str) -> Result<
     Ok(Some(PathBuf::from(".")))
 }
 
+/// Host facts merged with macports.conf values and defaults, as every
+/// upstream Portfile interpreter receives them.
 pub(super) fn variables(root: Option<&Path>) -> Result<BTreeMap<String, String>> {
+    let Some(root) = root else {
+        return Ok(BTreeMap::new());
+    };
+    Ok(Host::new(root, None, true)?.context.variables)
+}
+
+fn host_variables(root: Option<&Path>) -> Result<BTreeMap<String, String>> {
     if root.is_none() {
         return Ok(BTreeMap::new());
     }
@@ -41,7 +50,7 @@ pub(super) struct Host {
 
 impl Host {
     pub fn new(root: &Path, registry_file: Option<&Path>, quiet: bool) -> Result<Self> {
-        let variables = variables(Some(root))?;
+        let variables = host_variables(Some(root))?;
         let environment = std::env::vars_os()
             .map(|(name, value)| {
                 Ok((
