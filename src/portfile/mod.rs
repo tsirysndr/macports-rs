@@ -40,6 +40,7 @@ pub use destroot_libtool::LibtoolCleanup;
 use stage_context::StageContext;
 mod ditems;
 mod dlist;
+mod fetch_dns;
 mod fetch_files;
 mod fetch_pings;
 mod fetch_resources;
@@ -264,6 +265,7 @@ fn open(
     fetch_resources::install(&mut interp, id);
     fetch_runtime::install(&mut interp, id);
     fetch_pings::install(&mut interp, id);
+    fetch_dns::install(&mut interp, id);
     fetch_selection::install(&mut interp, id);
     fetch_start::install(&mut interp, id);
     mirror_times::install(&mut interp, id);

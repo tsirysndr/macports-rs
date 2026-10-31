@@ -1997,5 +1997,12 @@ maps to the bound mirror worker. Source fetch preserves `nomirror` and the exact
 the official class when present and otherwise selects the first configured
 class. Tests verify submission order, missing-map skipping, policy, errors, and
 source initialization through a real temporary mirror resource and native worker.
-CLI execution-driver binding, DNS diagnostics, and full fetch transport remain
-unfinished.
+CLI execution-driver binding and full fetch transport remain unfinished.
+
+Native `check_broken_dns` and `portfetch::check_dns` now perform the upstream
+once-per-process invalid-host lookup and issue the checksum-mismatch warning
+only when that hostname resolves. The atomic guard prevents concurrent sessions
+from repeating the lookup or warning, and metadata-only sessions cannot trigger
+it. Tests use controlled resolver outcomes and warning callbacks, so they do not
+depend on external DNS. Source/archive startup no longer needs a DNS callback
+stub; transport and CLI execution-driver orchestration remain unfinished.
