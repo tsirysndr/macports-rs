@@ -1582,4 +1582,11 @@ nine upstream metadata arrays, URL order and tags, and signature/public-key
 configuration. Missing files contribute no sites; source size is limited to 4 MiB
 and evaluation depth to 128. CPU time and interpreter allocation are not bounded.
 Tests cover the pinned real resource on modern and older Darwin versions.
-Conversion into selected compatible sites and installation wiring remain pending.
+Resource arrays now convert into site records without configuration-file defaults.
+Incomplete records produce field-specific warnings; missing URL arrays are errors.
+Selection filters tree and configured sites independently by normalized paths,
+runtime policy, and supported archive type, then applies compatible configured
+metadata overrides. Default references retain tree-then-configuration order and
+duplicates, matching MacPorts base. Configured URLs receive `:nosubdir`; tree URL
+tags and optional signature/key metadata remain intact. Download request creation
+and installation wiring remain pending.

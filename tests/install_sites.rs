@@ -6,7 +6,10 @@ fn site_defaults_duplicates_and_literal_values_follow_configuration_rules() {
     assert_eq!(sites.entries.len(), 2);
     let site = &sites.entries[0];
     assert_eq!(site.name, "custom");
-    assert_eq!(site.urls, ["https://one/a path/", "https://two/"]);
+    assert_eq!(
+        site.urls,
+        ["https://one/a path/:nosubdir", "https://two/:nosubdir"]
+    );
     assert_eq!(site.archive_type, "txz");
     assert_eq!(site.signature_type, "rmd160");
     assert_eq!(site.layout.frameworks_dir, "/custom/Library/Frameworks");

@@ -1,6 +1,8 @@
 //! archive_sites.conf data and installation-compatibility filtering.
 pub mod resource;
+mod selection;
 use anyhow::{Context, Result};
+pub use selection::Selection;
 use std::{
     collections::{BTreeMap, HashMap},
     path::Path,
@@ -10,10 +12,11 @@ use std::{
 #[derive(Debug)]
 pub struct Site {
     pub name: String,
-    /// Configured URLs have upstream's nosubdir behavior (no port-name suffix).
+    /// Upstream mirror URL syntax, including tags such as `:nosubdir`.
     pub urls: Vec<String>,
     pub archive_type: String,
     pub signature_type: String,
+    pub public_key: Option<String>,
     pub layout: Layout,
 }
 #[derive(Debug)]
@@ -101,6 +104,9 @@ impl Sites {
             let urls = if let Some(urls) = fields.get("urls") {
                 crate::tcl_list::parse(urls)
                     .with_context(|| format!("archive site {name}: invalid URL list"))?
+                    .into_iter()
+                    .map(|url| format!("{url}:nosubdir"))
+                    .collect()
             } else {
                 warnings.push(format!("archive_sites.conf: no urls set for {name}"));
                 Vec::new()
@@ -110,6 +116,7 @@ impl Sites {
                 urls,
                 archive_type: value("type", "tbz2"),
                 signature_type: "rmd160".into(),
+                public_key: None,
                 layout: Layout {
                     applications_dir: value("applications_dir", "/Applications/MacPorts"),
                     frameworks_dir: value(

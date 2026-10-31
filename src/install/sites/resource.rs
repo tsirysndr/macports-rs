@@ -24,6 +24,54 @@ pub struct Resource {
 }
 
 impl Resource {
+    /// Convert tree arrays without applying archive_sites.conf defaults.
+    pub fn sites(&self) -> Result<super::Sites> {
+        let mut result = super::Sites::default();
+        for name in self.names() {
+            let mut missing = false;
+            for field in [
+                "archive_frameworks_dir",
+                "archive_applications_dir",
+                "archive_type",
+                "archive_cxx_stdlib",
+                "archive_delete_la_files",
+            ] {
+                if self.value(field, name).is_none() {
+                    result
+                        .warnings
+                        .push(format!("no {field} configured for site '{name}'"));
+                    missing = true;
+                }
+            }
+            if missing {
+                continue;
+            }
+            ensure!(
+                self.value("sites", name).is_some(),
+                "no URLs configured for archive site '{name}'"
+            );
+            let required = |field| {
+                self.value(field, name)
+                    .expect("validated archive field")
+                    .to_owned()
+            };
+            result.entries.push(super::Site {
+                name: name.to_owned(),
+                urls: self.urls(name)?,
+                archive_type: required("archive_type"),
+                signature_type: self.value("archive_sigtype", name).unwrap_or("").to_owned(),
+                public_key: self.value("archive_pubkey", name).map(str::to_owned),
+                layout: super::Layout {
+                    prefix: required("archive_prefix"),
+                    frameworks_dir: required("archive_frameworks_dir"),
+                    applications_dir: required("archive_applications_dir"),
+                    cxx_stdlib: required("archive_cxx_stdlib"),
+                    delete_la_files: required("archive_delete_la_files"),
+                },
+            });
+        }
+        Ok(result)
+    }
     /// A missing resource contributes no sites, as in MacPorts base.
     pub fn read(path: &Path, platform: &str, major: u32) -> Result<Self> {
         use std::os::unix::fs::OpenOptionsExt;
