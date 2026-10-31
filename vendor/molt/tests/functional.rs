@@ -39,3 +39,26 @@ fn apply_runs_lambdas_with_defaults_args_and_local_scope() {
         assert!(interp.eval(script).is_err(), "{script}");
     }
 }
+
+#[test]
+fn return_in_a_sourced_script_ends_only_that_script() {
+    let directory = std::env::temp_dir().join(format!("molt-source-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let file = directory.join("early.tcl");
+    std::fs::write(&file, "set x early\nreturn sourced\nset x late\n").unwrap();
+    let mut interp = Interp::new();
+    let path = file.to_str().unwrap();
+    assert_eq!(
+        interp
+            .eval(&format!("proc p {{}} {{source {path}; return after}}; p"))
+            .unwrap()
+            .as_str(),
+        "after"
+    );
+    assert_eq!(
+        interp.eval(&format!("source {path}")).unwrap().as_str(),
+        "sourced"
+    );
+    assert_eq!(interp.eval("set x").unwrap().as_str(), "early");
+    std::fs::remove_dir_all(directory).unwrap();
+}

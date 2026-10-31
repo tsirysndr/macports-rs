@@ -48,3 +48,5 @@ The upstream source and tests remain available to verify interpreter behavior.
 
 - `lmap` (single variable-list form, with `continue`/`break`) and `apply` for
   anonymous procedures, as used by ports-tree compiler selection resources.
+- `source` treats a top-level `return` as the end of the sourced script, so
+  sourcing from within a procedure no longer returns from that procedure.

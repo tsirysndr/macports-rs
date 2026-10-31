@@ -1095,9 +1095,21 @@ pub fn cmd_source(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResu
 
     let filename = argv[1].as_str();
 
-    match fs::read_to_string(filename) {
-        Ok(script) => interp.eval(&script),
-        Err(e) => molt_err!("couldn't read file \"{}\": {}", filename, e),
+    let script = match fs::read_to_string(filename) {
+        Ok(script) => script,
+        Err(e) => return molt_err!("couldn't read file \"{}\": {}", filename, e),
+    };
+    // As in Tcl, `return` in a sourced script ends only that script.
+    match interp.eval(&script) {
+        Err(mut exception) if exception.code() == ResultCode::Return => {
+            exception.decrement_level();
+            if exception.code() == ResultCode::Okay {
+                Ok(exception.value())
+            } else {
+                Err(exception)
+            }
+        }
+        result => result,
     }
 }
 
