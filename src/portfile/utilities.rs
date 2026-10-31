@@ -10,6 +10,28 @@ pub(super) fn install(interp: &mut Interp, id: ContextID) {
     interp.add_context_command("macports::shellescape", shellescape, id);
     interp.add_context_command("realpath", realpath, id);
     interp.add_context_command("portutil::get_oldbuildpath", old_build_path, id);
+    interp.add_context_command("vercmp", vercmp, id);
+}
+
+/// `vercmp a b` returns -1, 0 or 1; `vercmp a op b` returns a boolean.
+fn vercmp(_: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(1, argv, 3, 4, "versionA ?operator? versionB")?;
+    let (a, b) = (argv[1].as_str(), argv[argv.len() - 1].as_str());
+    let order = crate::registry::compare_versions(a, b);
+    if argv.len() == 3 {
+        return Ok((order as i64).into());
+    }
+    use std::cmp::Ordering::*;
+    let result = match argv[2].as_str() {
+        "==" => order == Equal,
+        "!=" => order != Equal,
+        "<" => order == Less,
+        "<=" => order != Greater,
+        ">" => order == Greater,
+        ">=" => order != Less,
+        other => return Err(error(format!("unknown vercmp operator \"{other}\""))),
+    };
+    Ok(result.into())
 }
 
 fn quotemeta(_: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {

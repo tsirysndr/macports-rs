@@ -61,3 +61,24 @@ fn quote_requires_exactly_one_argument() {
         );
     }
 }
+
+#[test]
+fn vercmp_matches_macports_ordering_and_operator_form() {
+    let mut s = port_rs::portfile::Session::open(
+        "name app; version 1",
+        &std::collections::BTreeMap::new(),
+        &port_rs::spec::PortSpec::named("app"),
+        port_rs::portfile::PortGroups::default(),
+    )
+    .unwrap();
+    for (a, b, expected) in [
+        ("8.9", "8.10", "-1"),
+        ("1.01", "1.1", "0"),
+        ("15.0", "4.3", "1"),
+    ] {
+        assert_eq!(s.invoke("vercmp", &[a, b]).unwrap(), expected);
+    }
+    assert_eq!(s.invoke("vercmp", &["16.0", ">=", "16"]).unwrap(), "1");
+    assert_eq!(s.invoke("vercmp", &["1500", "<", "500"]).unwrap(), "0");
+    assert!(s.invoke("vercmp", &["1", "~", "2"]).is_err());
+}
