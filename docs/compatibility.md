@@ -1857,3 +1857,12 @@ hosts. Missing configured databases are not created; retaining their path lets
 later lookups observe a newly created registry. Explicit missing overrides still
 fail during startup validation. CLI tests verify evaluation-time queries and
 unchanged registry bytes; session tests cover a database created after opening.
+
+Native archive-fetch startup/main callbacks now apply source-only, binary-only,
+completed-destroot, and cache policy in upstream order. Startup dispatches URL
+preparation, optional mirror pings, and DNS checks; main fetches only when archive
+candidates exist. Binary-only startup with no candidates fails explicitly.
+Tests inject URL/network callbacks to verify branching and failure propagation;
+the existing native cache/state helpers are tested separately. Native checkfiles,
+mirror/DNS handling, and transport still need binding into this runtime, so this
+is not yet a complete archivefetch execution path.
