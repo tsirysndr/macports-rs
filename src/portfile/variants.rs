@@ -65,13 +65,32 @@ pub(super) fn query(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltR
         "variant_isset" => Value::from(state.selected.get(name) == Some(&true)),
         "variant_set" => {
             state.selected.insert(name.into(), true);
+            mark(interp, name, true, false)?;
             Value::empty()
         }
         "variant_unset" => {
             state.selected.insert(name.into(), false);
+            mark(interp, name, false, false)?;
             Value::empty()
         }
         _ => unreachable!(),
+    })
+}
+
+/// Mirror a variant choice into the global `variations` array that upstream
+/// PortGroups consult; defaults never override an existing choice.
+pub(super) fn mark(
+    interp: &mut Interp,
+    name: &str,
+    enabled: bool,
+    only_if_missing: bool,
+) -> Result<(), Exception> {
+    interp.with_global_scope(|interp| {
+        if only_if_missing && interp.element("variations", name).is_ok() {
+            return Ok(());
+        }
+        interp.set_element("variations", name, if enabled { "+" } else { "-" }.into())?;
+        Ok(())
     })
 }
 pub(super) fn apply(interp: &mut Interp, id: ContextID) -> MoltResult {
@@ -167,10 +186,11 @@ pub(super) fn defaults(interp: &mut Interp, id: ContextID, values: &[Value]) -> 
         if spec.version.is_some() || !spec.options.is_empty() {
             return Err(error("invalid default variant"));
         }
-        let state = interp.context::<State>(id);
         for (variant, enabled) in spec.variants {
+            let state = interp.context::<State>(id);
             state.defaults.insert(variant.clone(), enabled);
-            state.selected.entry(variant).or_insert(enabled);
+            state.selected.entry(variant.clone()).or_insert(enabled);
+            mark(interp, &variant, enabled, true)?;
         }
     }
     Ok(Value::empty())

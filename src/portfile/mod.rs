@@ -237,6 +237,10 @@ fn open(
         requested: requested.variants.clone(),
         ..State::default()
     });
+    interp.array_set("variations", &[]).map_err(failure)?;
+    for (name, enabled) in &requested.variants {
+        variants::mark(&mut interp, name, *enabled, false).map_err(failure)?;
+    }
     for command in [
         "source", "exit", "puts", "parse", "pdump", "pclear", "open", "socket", "load", "default",
         "platform", "system",
