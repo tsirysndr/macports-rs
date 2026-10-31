@@ -1606,3 +1606,15 @@ keys warn without hiding valid alternatives, and missing `pubkeys.conf` preserve
 site keys. Signify site keys need not have a `.pub` filename, while configuration
 entries retain upstream extension filtering. Tests authenticate with a selected
 site key and reject that key when the archive tag does not match.
+
+Archive request preparation can now read a retained Portfile session's live
+`archive_sites`, `archive_sites.mirror_subdir`, `archive.subdir`, `dist_subdir`,
+and parent `name`. Native lazy defaults distinguish the parent name from the
+selected subport's archive directory. If archive_sites is unset, preparation
+uses the compatible selection's default references; an explicitly empty list
+means no archive candidates. Prepared requests retain their exact site references
+for trust-key selection. Named tbz2/Signify classes are supported; literal archive
+URLs and other archive/signature formats still require additional resolution.
+Installing the dynamic archive_sites default before Portfile evaluation (including
+append/prepend against that default), local archive environment mirrors, automatic
+site discovery, and the complete install target lifecycle remain unfinished.

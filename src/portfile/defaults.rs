@@ -16,6 +16,8 @@ pub(super) fn install(interp: &mut Interp, id: ContextID) -> MoltResult {
     interp.add_context_command("default", command, id);
     for (name, template) in [
         ("distname", "${name}-${version}"),
+        ("dist_subdir", "${name}"),
+        ("archive.subdir", "${subport}"),
         ("extract.suffix", ".tar.gz"),
         (
             "distfiles",

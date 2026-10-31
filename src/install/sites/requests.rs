@@ -1,5 +1,5 @@
 //! Mirror expansion and requests for the native Signify/tbz2 transport.
-use super::Site;
+use super::{Selection, Site};
 use crate::install::{Item, fetch::Request, target::Target};
 use anyhow::{Result, ensure};
 use std::sync::OnceLock;
@@ -11,6 +11,79 @@ pub struct Subdirectories<'a> {
     pub mirror: &'a str,
     pub archive: &'a str,
     pub dist: &'a str,
+}
+
+/// The references used to assemble the request also select its site trust keys.
+pub struct PreparedRequest {
+    pub request: Request,
+    pub references: Vec<String>,
+}
+
+impl Selection {
+    /// Resolve named archive classes against live Portfile state. The caller
+    /// supplies initialized architecture coordinates and compatible site metadata.
+    pub fn request_from_session(
+        &self,
+        session: &mut crate::portfile::Session,
+        target: &Target,
+        item: &Item<'_>,
+        max_bytes: u64,
+    ) -> Result<PreparedRequest> {
+        let references = if session.invoke("exists", &["archive_sites"])? == "1" {
+            crate::tcl_list::parse(&session.scalar("archive_sites")?)?
+        } else {
+            self.defaults.clone()
+        };
+        ensure!(
+            !references.is_empty(),
+            "{} has no archive sites",
+            item.port.name
+        );
+        let name = session.scalar("name")?;
+        let archive = session.scalar("archive.subdir")?;
+        let dist = session.scalar("dist_subdir")?;
+        let mirror = if session.invoke("exists", &["archive_sites.mirror_subdir"])? == "1" {
+            session.scalar("archive_sites.mirror_subdir")?
+        } else {
+            String::new()
+        };
+        let mut urls = Vec::new();
+        for reference in &references {
+            ensure!(
+                !reference.contains("://"),
+                "literal archive-site URLs require signature-type resolution"
+            );
+            let parts: Vec<_> = reference.split(':').collect();
+            ensure!(
+                parts.len() == 3 && parts[2] == "tbz2",
+                "unsupported native archive-site reference {reference}"
+            );
+            let site = self
+                .get(parts[0])
+                .ok_or_else(|| anyhow::anyhow!("unknown archive mirror class {}", parts[0]))?;
+            let subdir = format!("{}{mirror}", parts[1]);
+            let request = site.signify_request(
+                target,
+                item,
+                &Subdirectories {
+                    port_name: &name,
+                    mirror: &subdir,
+                    archive: &archive,
+                    dist: &dist,
+                },
+                max_bytes,
+            )?;
+            urls.extend(request.urls);
+        }
+        Ok(PreparedRequest {
+            request: Request {
+                name: item.port.name.clone(),
+                urls,
+                max_bytes,
+            },
+            references,
+        })
+    }
 }
 
 impl Site {
