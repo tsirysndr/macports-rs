@@ -99,6 +99,8 @@ pub enum Command {
     Log(portcmds::Log),
     /// List a port's distfiles with their checksums and download URLs
     Distfiles(portcmds::Ports),
+    /// Show the command syntax, or the usage of the given actions
+    Usage { topics: Vec<String> },
     /// Record, list, compare, export or import registry snapshots
     Snapshot(snapshot::SnapshotArgs),
     /// Reinstall the ports recorded in a snapshot
@@ -214,6 +216,7 @@ impl Session {
                 out.flush()?;
                 return Ok(());
             }
+            Command::Usage { topics } => return usage(&topics),
             Command::Sync => {
                 self.catalog = None;
                 return sync::run(quiet, false);
@@ -569,6 +572,7 @@ impl Session {
                 | Command::Clean(_)
                 | Command::Upgrade(_)
                 | Command::Sync
+                | Command::Usage { .. }
                 | Command::Select(_)
                 | Command::Log(_)
                 | Command::Distfiles(_)
@@ -592,6 +596,27 @@ impl Session {
         out.flush()?;
         Ok(())
     }
+}
+
+/// `port usage`: the general syntax, or each named action's usage, on stderr.
+fn usage(topics: &[String]) -> Result<()> {
+    use clap::Subcommand;
+    let mut command = Command::augment_subcommands(clap::Command::new("port"));
+    if topics.is_empty() {
+        eprintln!(
+            "Usage: port\n        [-qvy] [--index-file PATH] [--registry-file PATH] action [actionflags]\n        [[portname|pseudo-portname] [@version] [+-variant]...]...\n    \n\"port help\" for more information."
+        );
+        return Ok(());
+    }
+    for topic in topics {
+        let Some(subcommand) = command.find_subcommand_mut(topic) else {
+            bail!("No usage for topic {topic}");
+        };
+        let name = subcommand.get_name().to_string();
+        let mut subcommand = subcommand.clone().bin_name(format!("port {name}"));
+        eprintln!("{}", subcommand.render_usage());
+    }
+    Ok(())
 }
 
 #[cfg(test)]

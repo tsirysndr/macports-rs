@@ -910,3 +910,24 @@ fn wildcard_actions_resolve_using_string_patterns() {
     assert!(error.contains("port variants"));
     assert!(error.contains("port version"));
 }
+
+#[test]
+fn usage_prints_the_syntax_or_action_usage_on_stderr() {
+    let run = |args: &[&str]| {
+        std::process::Command::new(env!("CARGO_BIN_EXE_port"))
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let general = run(&["usage"]);
+    assert!(general.status.success() && general.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&general.stderr).starts_with("Usage: port\n"));
+    let select = run(&["usage", "select"]);
+    assert_eq!(
+        String::from_utf8_lossy(&select.stderr),
+        "Usage: port select [OPTIONS] [ARGUMENTS]...\n"
+    );
+    let missing = run(&["usage", "nope"]);
+    assert!(!missing.status.success());
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("No usage for topic nope"));
+}
