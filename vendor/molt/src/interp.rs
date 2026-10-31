@@ -531,7 +531,9 @@ pub struct Interp {
 /// A command defined in the interpreter.
 enum Command {
     /// A binary command implemented as a Rust CommandFunc.
-    Native(CommandFunc, ContextID),
+    /// The registered name is presented as `argv[0]`, so a native command
+    /// renamed or invoked through a qualified name still knows which it is.
+    Native(CommandFunc, ContextID, Rc<str>),
 
     /// A Molt procedure
     Proc(Procedure),
@@ -541,7 +543,17 @@ impl Command {
     /// Execute the command according to its kind.
     fn execute(&self, interp: &mut Interp, argv: &[Value]) -> MoltResult {
         match self {
-            Command::Native(func, context_id) => func(interp, *context_id, argv),
+            Command::Native(func, context_id, name) => {
+                if argv.first().is_some_and(|word| word.as_str() == &**name) {
+                    func(interp, *context_id, argv)
+                } else {
+                    let mut words = argv.to_vec();
+                    if let Some(first) = words.first_mut() {
+                        *first = Value::from(&**name);
+                    }
+                    func(interp, *context_id, &words)
+                }
+            }
             Command::Proc(proc) => proc.execute(interp, argv),
         }
     }
@@ -549,7 +561,7 @@ impl Command {
     /// Returns a value naming the command type.
     fn cmdtype(&self) -> Value {
         match self {
-            Command::Native(_, _) => Value::from("native"),
+            Command::Native(..) => Value::from("native"),
             Command::Proc(_) => Value::from("proc"),
         }
     }
@@ -557,7 +569,7 @@ impl Command {
     /// Gets the command's context, or NULL_CONTEXT if none.
     fn context_id(&self) -> ContextID {
         match self {
-            Command::Native(_, context_id) => *context_id,
+            Command::Native(_, context_id, _) => *context_id,
             _ => NULL_CONTEXT,
         }
     }
@@ -1900,7 +1912,7 @@ impl Interp {
         }
 
         self.commands
-            .insert(name.into(), Rc::new(Command::Native(func, context_id)));
+            .insert(name.into(), Rc::new(Command::Native(func, context_id, Rc::from(name))));
     }
 
     /// Adds a procedure to the interpreter.

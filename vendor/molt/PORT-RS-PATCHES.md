@@ -62,3 +62,5 @@ The upstream source and tests remain available to verify interpreter behavior.
   `Interp::eval_file`, and unique class-name abbreviations for `string is`.
 - `rename` accepts fully qualified (`::name`) command names; `expr` boolean
   literals are case-insensitive.
+- Native commands receive their registered name as `argv[0]`, so commands
+  renamed by PortGroups (or invoked as `::name`) keep dispatching correctly.
