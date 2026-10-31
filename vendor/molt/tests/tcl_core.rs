@@ -303,6 +303,9 @@ fn boolean_literals_are_case_insensitive() {
 fn renamed_native_commands_keep_their_registered_identity() {
     check(&[
         ("rename lindex real_lindex; real_lindex {a b c} 1", "b"),
-        ("rename lrange ::real_lrange; ::real_lrange {a b c} 1 end", "b c"),
+        (
+            "rename lrange ::real_lrange; ::real_lrange {a b c} 1 end",
+            "b c",
+        ),
     ]);
 }

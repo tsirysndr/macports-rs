@@ -803,7 +803,7 @@ fn action_ambiguity_includes_unimplemented_upstream_commands() {
 #[test]
 fn exact_actions_win_and_unique_unsupported_prefixes_remain_errors() {
     let fixture = Fixture::new();
-    for (action, canonical) in [("selfupd", "selfupdate"), ("reclai", "reclaim")] {
+    for (action, canonical) in [("mirro", "mirror"), ("reclai", "reclaim")] {
         let output = fixture.run(&[action, "curl"]);
         assert!(!output.status.success());
         let error = String::from_utf8_lossy(&output.stderr);

@@ -19,6 +19,7 @@ mod provides;
 mod search;
 mod size;
 mod space;
+mod sync;
 mod system;
 mod upgrade;
 mod variants;
@@ -123,6 +124,14 @@ pub enum Command {
     Test(phase::Phase),
     /// Remove work directories, distfiles, archives or logs
     Clean(clean::Clean),
+    /// Update the ports trees listed in sources.conf
+    Sync,
+    /// Update the ports trees; port-rs itself is not replaced
+    Selfupdate {
+        /// Skip updating the ports trees
+        #[arg(long)]
+        nosync: bool,
+    },
     #[command(external_subcommand)]
     Unsupported(Vec<String>),
 }
@@ -165,6 +174,25 @@ impl Session {
             );
         }
 
+        match command {
+            Command::Sync => {
+                self.catalog = None;
+                return sync::run(quiet, false);
+            }
+            Command::Selfupdate { nosync } => {
+                self.catalog = None;
+                return if nosync {
+                    Ok(())
+                } else {
+                    sync::run(quiet, true)
+                };
+            }
+            _ => {}
+        }
+        let default_index = (index_file.is_none() && !Path::new("PortIndex").exists())
+            .then(sync::default_index)
+            .flatten();
+        let index_file = index_file.or(default_index.as_deref());
         let configured = registry_file
             .is_none()
             .then(local::configured_registry)
@@ -418,6 +446,8 @@ impl Session {
                 | Command::Test(_)
                 | Command::Clean(_)
                 | Command::Upgrade(_)
+                | Command::Sync
+                | Command::Selfupdate { .. }
                 | Command::Location(_)
                 | Command::Space(_)
                 | Command::Deps(_)

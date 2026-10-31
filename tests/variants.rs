@@ -16,10 +16,13 @@ impl Fixture {
         Self(directory)
     }
     fn run(&self, args: &[&str]) -> Output {
+        let config = self.0.path().join("isolated.conf");
+        std::fs::write(&config, "sources_conf /nonexistent/sources.conf\n").unwrap();
         Command::new(env!("CARGO_BIN_EXE_port"))
             .args(args)
             .current_dir(self.0.path())
             .env_remove("PORT_RS_INDEX")
+            .env("PORTSRC", &config)
             .env("HOME", self.0.path().join("home"))
             .env("PATH", "")
             .env("NO_COLOR", "1")

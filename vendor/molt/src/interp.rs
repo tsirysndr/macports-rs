@@ -1911,8 +1911,10 @@ impl Interp {
                 .increment();
         }
 
-        self.commands
-            .insert(name.into(), Rc::new(Command::Native(func, context_id, Rc::from(name))));
+        self.commands.insert(
+            name.into(),
+            Rc::new(Command::Native(func, context_id, Rc::from(name))),
+        );
     }
 
     /// Adds a procedure to the interpreter.

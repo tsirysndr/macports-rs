@@ -9,6 +9,7 @@ use std::io::{ErrorKind, Read};
 const MAX_ENVELOPE: usize = 4096;
 const MAX_KEYS: usize = 64;
 const ARCHIVE_KEY: &str = include_str!("keys/macports-archives-2025.pub");
+const PORTS_KEY: &str = include_str!("keys/macports-ports-2025.pub");
 
 #[derive(Clone)]
 pub struct TrustedKey {
@@ -28,6 +29,10 @@ impl TrustedKey {
     }
     pub fn macports_archive_key() -> Result<Self> {
         Self::parse(ARCHIVE_KEY)
+    }
+    /// The key that signs the official ports tree tarball and PortIndex files.
+    pub fn macports_ports_key() -> Result<Self> {
+        Self::parse(PORTS_KEY)
     }
     pub fn id(&self) -> [u8; 8] {
         self.id
