@@ -88,8 +88,13 @@ pub(super) fn run(
     quiet: bool,
     root: &Path,
 ) -> Result<()> {
-    let Some(end) = ORDER.iter().position(|phase| *phase == target) else {
-        bail!("unsupported phase {target}");
+    let targets: Vec<&str> = if target == "test" {
+        ORDER.iter().copied().chain(["test"]).collect()
+    } else {
+        let Some(end) = ORDER.iter().position(|phase| *phase == target) else {
+            bail!("unsupported phase {target}");
+        };
+        ORDER[..=end].to_vec()
     };
     let mut specs = query::specifications(index, &args.ports)?;
     let host = super::local::Host::new(root, registry_file, quiet)?;
@@ -100,7 +105,7 @@ pub(super) fn run(
         let port = query::lookup(index, &spec.name)?;
         let mut session = host.open(root, port, spec)?;
         let label = prepare(&mut session, &host, &worker, &spec.name)?;
-        run_targets(&mut session, &label, &ORDER[..=end])?;
+        run_targets(&mut session, &label, &targets)?;
     }
     Ok(())
 }

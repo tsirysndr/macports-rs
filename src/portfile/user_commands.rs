@@ -43,6 +43,7 @@ pub(super) fn install(interp: &mut Interp, id: ContextID) {
         ("dirSize", dir_size),
         ("backup", backup),
         ("mkdtemp", mkdtemp),
+        ("msgcat::mc", message_catalog),
     ] {
         interp.add_context_command(name, command, id);
     }
@@ -832,4 +833,13 @@ fn mkdtemp(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
         .map_err(|err| io_error("mkdtemp", err))?
         .keep();
     Ok(created.to_string_lossy().into_owned().into())
+}
+
+/// `msgcat::mc src ?arg ...?` with no translations: format the source string.
+fn message_catalog(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(1, argv, 2, 0, "src ?arg ...?")?;
+    if argv.len() == 2 {
+        return Ok(argv[1].clone());
+    }
+    call(interp, words(&["format"], &argv[1..]))
 }

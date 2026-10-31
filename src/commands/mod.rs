@@ -1,4 +1,5 @@
 //! CLI dispatch. Each action owns its options and presentation in a separate module.
+mod clean;
 mod contents;
 mod dependencies;
 mod dependents;
@@ -115,6 +116,10 @@ pub enum Command {
     Build(phase::Phase),
     /// Stage ports into their destroot in a local ports tree
     Destroot(phase::Phase),
+    /// Build and run a port's test suite in a local ports tree
+    Test(phase::Phase),
+    /// Remove work directories, distfiles, archives or logs
+    Clean(clean::Clean),
     #[command(external_subcommand)]
     Unsupported(Vec<String>),
 }
@@ -206,7 +211,8 @@ impl Session {
         | Command::Patch(_)
         | Command::Configure(_)
         | Command::Build(_)
-        | Command::Destroot(_) = command
+        | Command::Destroot(_)
+        | Command::Test(_) = command
         {
             let (target, args) = match command {
                 Command::Fetch(args) => ("fetch", args),
@@ -216,6 +222,7 @@ impl Session {
                 Command::Configure(args) => ("configure", args),
                 Command::Build(args) => ("build", args),
                 Command::Destroot(args) => ("destroot", args),
+                Command::Test(args) => ("test", args),
                 _ => unreachable!(),
             };
             let root = local::root(index_file, false, target)?.unwrap();
@@ -269,6 +276,9 @@ impl Session {
                 args,
                 &root,
             )?;
+        } else if let Command::Clean(args) = command {
+            let root = local::root(index_file, false, "clean")?.unwrap();
+            clean::run(self.index(index_file, quiet)?, args, quiet, &root)?;
         } else if let Command::Notes(args) = command {
             let root = local::root(index_file, false, "notes").ok().flatten();
             portcmds::notes(
@@ -389,6 +399,8 @@ impl Session {
                 | Command::Configure(_)
                 | Command::Build(_)
                 | Command::Destroot(_)
+                | Command::Test(_)
+                | Command::Clean(_)
                 | Command::Location(_)
                 | Command::Space(_)
                 | Command::Deps(_)
