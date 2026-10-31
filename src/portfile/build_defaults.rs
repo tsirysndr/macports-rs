@@ -11,10 +11,9 @@ pub(super) fn install(interp: &mut Interp, id: ContextID) {
     interp.add_context_command("portmain::use_xcode", use_xcode, id);
 }
 
-pub(super) fn initialize(interp: &mut Interp, id: ContextID) -> MoltResult {
-    // Do not resolve these while taking a metadata snapshot: workpath and
-    // developer_dir belong to the execution configuration. Explicit Portfile
-    // values and command-line overrides survive default registration.
+/// Build-path defaults Portfiles may reference during evaluation. They stay
+/// lazy, and metadata snapshots skip them unless a Portfile assigns a value.
+pub(super) fn register_paths(interp: &mut Interp, id: ContextID) -> MoltResult {
     for (name, value) in [
         (
             "portbuildpath",
@@ -36,6 +35,22 @@ pub(super) fn initialize(interp: &mut Interp, id: ContextID) -> MoltResult {
         ("destdir", "destroot"),
         ("destpath", "${workpath}/${destdir}"),
         ("destroot", "$destpath"),
+    ] {
+        if !interp.var_exists(&name.into()) {
+            defaults::register(interp, id, name, value)?;
+            interp
+                .context::<State>(id)
+                .execution_defaults
+                .insert(name.into());
+        }
+    }
+    Ok(Value::empty())
+}
+
+pub(super) fn initialize(interp: &mut Interp, id: ContextID) -> MoltResult {
+    // Explicit Portfile values and command-line overrides survive default
+    // registration.
+    for (name, value) in [
         ("compiler.cpath", "${prefix}/include"),
         ("compiler.library_path", "${prefix}/lib"),
         ("compiler.log_verbose_output", "yes"),

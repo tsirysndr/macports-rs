@@ -96,16 +96,13 @@ fn explicit_and_lazy_portfile_overrides_survive_execution_initialization() {
     );
 }
 #[test]
-fn xcode_selection_requires_the_configured_developer_directory() {
+fn xcode_selection_uses_the_selected_developer_directory() {
     let mut session = open("build.type xcode");
     enable(&mut session);
     assert_eq!(session.scalar("use_xcode").unwrap(), "1");
-    assert!(
-        session
-            .scalar("configure.developer_dir")
-            .unwrap_err()
-            .to_string()
-            .contains("developer_dir")
+    assert_eq!(
+        session.scalar("configure.developer_dir").unwrap(),
+        port_rs::source::toolchain::developer_dir(24)
     );
     session
         .invoke(

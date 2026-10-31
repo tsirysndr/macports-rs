@@ -39,6 +39,7 @@ mod startupitem;
 pub use destroot_libtool::LibtoolCleanup;
 use stage_context::StageContext;
 mod checksum_runtime;
+mod compilers;
 mod diagnostics;
 mod ditems;
 mod dlist;
@@ -131,6 +132,9 @@ struct State {
     progress: Option<crate::progress::Progress>,
     proxies: Option<std::sync::Arc<crate::install::proxy::Resolved>>,
     dmg_mount: Option<String>,
+    /// Lazy defaults that need execution inputs; metadata snapshots skip them
+    /// until a Portfile assigns a value.
+    execution_defaults: BTreeSet<String>,
     warned: BTreeSet<String>,
     notifications: Vec<(String, String)>,
     build_states: BTreeMap<String, crate::build::state::StateFile>,
@@ -301,6 +305,8 @@ fn open(
     defaults::install(&mut interp, id).map_err(failure)?;
     archive_defaults::install(&mut interp, id).map_err(failure)?;
     build_settings::install(&mut interp, id).map_err(failure)?;
+    compilers::install(&mut interp, id).map_err(failure)?;
+    build_defaults::register_paths(&mut interp, id).map_err(failure)?;
     build_phase::install(&mut interp, id);
     test_phase::install(&mut interp, id);
     configure_phase::install(&mut interp, id);
@@ -320,6 +326,10 @@ fn open(
     let options = interp.context::<State>(id).options.clone();
     let mut fields = BTreeMap::new();
     for name in options {
+        let state = interp.context::<State>(id);
+        if state.execution_defaults.contains(&name) && state.lazy_defaults.contains_key(&name) {
+            continue;
+        }
         if interp.var_exists(&Value::from(name.clone())) {
             let value = interp.scalar(&name).map_err(failure)?;
             fields.insert(name, value.as_str().to_owned());

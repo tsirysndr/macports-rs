@@ -179,7 +179,7 @@ fn universal_flags_replace_single_arch_flags_and_append_configure_arguments() {
         .invoke("portconfigure::configure_main", &[])
         .unwrap();
     let requests = requests.lock().unwrap();
-    assert_eq!(requests[0].1["CFLAGS"], "-arch arm64 -arch x86_64");
+    assert_eq!(requests[0].1["CFLAGS"], "-pipe -arch arm64 -arch x86_64");
     assert!(
         requests[0]
             .0
