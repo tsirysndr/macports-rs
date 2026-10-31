@@ -11,7 +11,7 @@ use std::{
 #[derive(Args)]
 pub struct Ports {
     #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
-    ports: Vec<String>,
+    pub(super) ports: Vec<String>,
 }
 
 /// `$portdbpath/<kind>/<mangled port dir>/<port>`, as upstream names build and

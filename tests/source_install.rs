@@ -62,7 +62,13 @@ impl Tree {
         fs::create_dir_all(&directory).unwrap();
         fs::write(directory.join("Portfile"), portfile(name, version, depends)).unwrap();
         let mut index = String::new();
-        for port in ["lib", "app"] {
+        let mut ports: Vec<String> = fs::read_dir(self.root.join("ports/devel"))
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        ports.sort();
+        for port in &ports {
+            let port = port.as_str();
             let Ok(text) =
                 fs::read_to_string(self.root.join("ports/devel").join(port).join("Portfile"))
             else {
@@ -192,4 +198,28 @@ fn phase_logs_are_filtered_by_phase_and_level_and_dropped_after_install() {
     let missing = tree.run(&["log", "lib"]);
     assert!(!missing.status.success());
     assert!(String::from_utf8_lossy(&missing.stderr).contains("Log file for port lib not found"));
+}
+
+#[test]
+fn distfiles_lists_paths_checksums_and_urls_in_site_order() {
+    let tree = Tree::new();
+    let text = portfile("dist", "1", "")
+        .replace(
+            "distfiles\n",
+            "master_sites https://example.org/files/ https://mirror.example/dist/\ndistfiles dist-1.tar.gz\nchecksums sha256 abc size 3\n",
+        );
+    let directory = tree.root.join("ports/devel/dist");
+    fs::create_dir_all(&directory).unwrap();
+    fs::write(directory.join("Portfile"), text).unwrap();
+    tree.port("lib", "1", "");
+    let output = tree.ok(&["distfiles", "dist", "lib"]);
+    let path = tree.root.join("db/distfiles/dist/dist-1.tar.gz");
+    assert!(
+        output.starts_with(&format!(
+            "--->  Distfiles for dist\n[dist-1.tar.gz] {}\n sha256: abc\n size: 3\n  https://example.org/files/dist-1.tar.gz\n  https://mirror.example/dist/dist-1.tar.gz\n",
+            path.display()
+        )),
+        "{output}"
+    );
+    assert!(output.ends_with("--->  Distfiles for lib\n"), "{output}");
 }

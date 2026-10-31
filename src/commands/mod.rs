@@ -3,6 +3,7 @@ mod clean;
 mod contents;
 mod dependencies;
 mod dependents;
+mod distfiles;
 mod download;
 mod info;
 mod inspect;
@@ -91,6 +92,8 @@ pub enum Command {
     Logfile(portcmds::Ports),
     /// Show a port's build log, optionally filtered by phase and level
     Log(portcmds::Log),
+    /// List a port's distfiles with their checksums and download URLs
+    Distfiles(portcmds::Ports),
     /// Open a port's homepage in the default browser
     Gohome(portcmds::Ports),
     /// Show a port's notes
@@ -319,6 +322,15 @@ impl Session {
                 args,
                 &root,
             )?;
+        } else if let Command::Distfiles(args) = command {
+            let root = local::root(index_file, false, "distfiles")?.unwrap();
+            distfiles::run(
+                &mut out,
+                self.index(index_file, quiet)?,
+                &args.ports,
+                quiet,
+                &root,
+            )?;
         } else if let Command::Log(args) = command {
             let root = local::root(index_file, false, "log")?.unwrap();
             portcmds::log(&mut out, self.index(index_file, quiet)?, args, &root)?;
@@ -464,6 +476,7 @@ impl Session {
                 | Command::Sync
                 | Command::Select(_)
                 | Command::Log(_)
+                | Command::Distfiles(_)
                 | Command::Selfupdate { .. }
                 | Command::Location(_)
                 | Command::Space(_)
