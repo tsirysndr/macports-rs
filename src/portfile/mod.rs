@@ -45,6 +45,7 @@ mod fetch_resources;
 mod fetch_runtime;
 mod fetch_selection;
 mod fetch_sites;
+mod fetch_start;
 mod file_delete;
 mod file_link;
 mod file_normalize;
@@ -257,6 +258,7 @@ fn open(
     fetch_resources::install(&mut interp, id);
     fetch_runtime::install(&mut interp, id);
     fetch_selection::install(&mut interp, id);
+    fetch_start::install(&mut interp, id);
     registry_lookup::install(&mut interp, id);
     phase_start::install(&mut interp, id);
     install_start::install(&mut interp, id);

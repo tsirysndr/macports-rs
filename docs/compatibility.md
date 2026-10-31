@@ -1933,3 +1933,11 @@ error when the required default is absent. Sorting reads the caller's candidate
 variable and delegates multi-mirror ordering to `compare_pingtimes`, preserving
 callback errors. A native ping service and its comparator remain unfinished;
 tests supply a deterministic comparator and exercise fallback and failure paths.
+
+Native `portfetch::fetch_start` and `_fetch_start` now handle source fallback
+notices, cached-file short-circuiting, distribution directory creation, and
+ownership handling in upstream order. Mirror probes precede directory setup;
+DNS checks follow successful setup. Privilege elevation remains a host callback,
+and missing privilege/network primitives still fail rather than implying a
+completed fetch. Tests create real temporary distribution directories and verify
+cache skipping plus probe and elevation failure ordering.
