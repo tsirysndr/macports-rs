@@ -1663,3 +1663,13 @@ distinct signers, reject an archive signed only by another port's key, and confi
 that missing keys prevent all requests. The discovery/download integration test
 uses this preparation API. The older fetch API remains available for callers
 that explicitly supply a single shared trust set.
+
+The binary installation backend now accepts `TrustedJob` batches through
+`fetch_trusted_batch`, preserving each port's keys through parallel download and
+verification. Dependency ordering and duplicate-port validation run before any
+network requests. Only a fully authenticated batch can proceed to sequential
+registration and activation. Integration tests install a dependency/application
+pair signed by different keys, reject a cross-port key mismatch without registry,
+prefix, or image-store changes, and retain coverage of the explicit shared-key
+API. This backend still requires the caller to execute the full Portfile lifecycle;
+it does not by itself enable ordinary CLI installation.

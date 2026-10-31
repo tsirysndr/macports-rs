@@ -10,7 +10,9 @@ use crate::{
     registry::write::{NewImage, Writer},
 };
 use anyhow::{Context, Result, ensure};
-pub use batch::{Batch, Job, fetch_batch, fetch_batch_with_proxies};
+pub use batch::{
+    Batch, Job, TrustedJob, fetch_batch, fetch_batch_with_proxies, fetch_trusted_batch,
+};
 use std::path::{Path, PathBuf};
 
 pub struct Installer<'a> {

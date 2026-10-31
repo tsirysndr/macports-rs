@@ -256,6 +256,21 @@ fn download_job<'a>(
     }
 }
 
+fn signed_by(bytes: &[u8], seed: u8) -> (port_rs::install::signature::TrustedKey, Vec<u8>) {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    use ed25519_compact::{KeyPair, Seed};
+    let key = KeyPair::from_seed(Seed::new([seed; 32]));
+    let envelope = |data: &[u8]| {
+        let mut packet = b"Ed12345678".to_vec();
+        packet.extend(data);
+        format!("untrusted comment: fixture\n{}\n", STANDARD.encode(packet))
+    };
+    (
+        port_rs::install::signature::TrustedKey::parse(&envelope(key.pk.as_ref())).unwrap(),
+        envelope(key.sk.sign(bytes, None).as_ref()).into_bytes(),
+    )
+}
+
 #[tokio::test]
 async fn batch_downloads_concurrently_then_installs_dependencies_in_order() {
     use std::sync::{
@@ -266,7 +281,12 @@ async fn batch_downloads_concurrently_then_installs_dependencies_in_order() {
         io::{AsyncReadExt, AsyncWriteExt},
         net::TcpListener,
     };
-    for corrupt in [false, true] {
+    for (corrupt, isolated, wrong_key) in [
+        (false, false, false),
+        (true, false, false),
+        (false, true, false),
+        (false, true, true),
+    ] {
         let software = tempfile::tempdir().unwrap();
         let work = tempfile::tempdir().unwrap();
         let root = tempfile::tempdir().unwrap();
@@ -289,11 +309,12 @@ async fn batch_downloads_concurrently_then_installs_dependencies_in_order() {
                 unsafe { libc::geteuid() }.into(),
                 unsafe { libc::getegid() }.into(),
             ));
-            let signed = stage(&bytes);
-            routes.insert(
-                format!("/{name}.sig"),
-                signed.signature().as_bytes().to_vec(),
-            );
+            let signature = if isolated {
+                signed_by(&bytes, if name == "base" { 11 } else { 22 }).1
+            } else {
+                stage(&bytes).signature().as_bytes().to_vec()
+            };
+            routes.insert(format!("/{name}.sig"), signature);
             routes.insert(
                 format!("/{name}"),
                 if corrupt && name == "app" {
@@ -365,21 +386,58 @@ async fn batch_downloads_concurrently_then_installs_dependencies_in_order() {
             .is_err()
         );
         assert_eq!(calls.load(Ordering::SeqCst), 0);
-        let batch = port_rs::install::binary::fetch_batch_with_proxies(
-            vec![
-                download_job(&base, &url, vec![]),
-                download_job(&app, &url, vec!["base".into()]),
-            ],
-            work.path(),
-            &keys,
-            2,
-            &progress,
-            &port_rs::install::proxy::Resolved {
-                proxies: Default::default(),
-                no_proxy: None,
-            },
-        )
-        .await;
+        let proxies = port_rs::install::proxy::Resolved {
+            proxies: Default::default(),
+            no_proxy: None,
+        };
+        let batch = if isolated {
+            let trusted = |job, seed| port_rs::install::binary::TrustedJob {
+                job,
+                keys: vec![signed_by(b"", seed).0],
+            };
+            assert!(
+                port_rs::install::binary::fetch_trusted_batch(
+                    vec![
+                        trusted(download_job(&app, &url, vec!["base".into()]), 22),
+                        trusted(download_job(&base, &url, vec![]), 11),
+                    ],
+                    work.path(),
+                    2,
+                    &progress,
+                    &proxies
+                )
+                .await
+                .is_err()
+            );
+            assert_eq!(calls.load(Ordering::SeqCst), 0);
+            port_rs::install::binary::fetch_trusted_batch(
+                vec![
+                    trusted(download_job(&base, &url, vec![]), 11),
+                    trusted(
+                        download_job(&app, &url, vec!["base".into()]),
+                        if wrong_key { 11 } else { 22 },
+                    ),
+                ],
+                work.path(),
+                2,
+                &progress,
+                &proxies,
+            )
+            .await
+        } else {
+            port_rs::install::binary::fetch_batch_with_proxies(
+                vec![
+                    download_job(&base, &url, vec![]),
+                    download_job(&app, &url, vec!["base".into()]),
+                ],
+                work.path(),
+                &keys,
+                2,
+                &progress,
+                &proxies,
+            )
+            .await
+        };
         assert_eq!(fs::read_dir(software.path()).unwrap().count(), 0);
         assert_eq!(fs::read_dir(root.path()).unwrap().count(), 0);
         assert!(
@@ -392,7 +450,7 @@ async fn batch_downloads_concurrently_then_installs_dependencies_in_order() {
         );
         assert_eq!(peak.load(Ordering::SeqCst), 2);
         assert_eq!(calls.load(Ordering::SeqCst), 4);
-        if corrupt {
+        if corrupt || wrong_key {
             assert!(batch.is_err());
         } else {
             let installed = batch

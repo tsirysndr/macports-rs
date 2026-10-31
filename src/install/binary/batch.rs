@@ -13,6 +13,43 @@ pub struct Job<'a> {
     pub request: Request,
     pub registration: NewImage,
 }
+
+/// One installation step with the trust keys selected for that port.
+pub struct TrustedJob<'a> {
+    pub job: Job<'a>,
+    pub keys: Vec<TrustedKey>,
+}
+
+/// Authenticate every job with its own trust set before allowing any installation.
+pub async fn fetch_trusted_batch<'a>(
+    jobs: Vec<TrustedJob<'a>>,
+    staging: &Path,
+    concurrency: usize,
+    progress: &Progress,
+    proxies: &crate::install::proxy::Resolved,
+) -> Result<Batch<'a>> {
+    let (jobs, keys): (Vec<_>, Vec<_>) = jobs
+        .into_iter()
+        .map(|entry| (entry.job, entry.keys))
+        .unzip();
+    validate_jobs(&jobs)?;
+    let (requests, steps): (Vec<_>, Vec<_>) = jobs
+        .into_iter()
+        .zip(keys)
+        .map(|(job, keys)| {
+            (
+                fetch::TrustedRequest {
+                    request: job.request,
+                    keys,
+                },
+                (job.item, job.target, job.registration),
+            )
+        })
+        .unzip();
+    let archives = fetch::run_trusted(&requests, staging, concurrency, progress, proxies).await?;
+    Ok(Batch { steps, archives })
+}
+
 /// All downloads authenticated, with original plan order retained. No registry
 /// or prefix changes occur until `install` is called. Dropping discards staging.
 pub struct Batch<'a> {
@@ -49,28 +86,7 @@ async fn fetch_batch_inner<'a>(
     progress: &Progress,
     proxies: Option<&crate::install::proxy::Resolved>,
 ) -> Result<Batch<'a>> {
-    let mut positions = HashMap::new();
-    for (index, job) in jobs.iter().enumerate() {
-        super::validate(&job.item)?;
-        job.target.filename(&job.item)?;
-        ensure!(
-            positions
-                .insert(job.item.port.name.to_ascii_lowercase(), index)
-                .is_none(),
-            "duplicate port in binary installation batch"
-        );
-    }
-    for (index, job) in jobs.iter().enumerate() {
-        for dependency in &job.registration.dependencies {
-            ensure!(
-                positions
-                    .get(&dependency.to_ascii_lowercase())
-                    .is_none_or(|position| *position < index),
-                "binary installation batch is not dependency-first: {} requires {dependency}",
-                job.item.port.name
-            );
-        }
-    }
+    validate_jobs(&jobs)?;
     let (requests, steps): (Vec<_>, Vec<_>) = jobs
         .into_iter()
         .map(|job| (job.request, (job.item, job.target, job.registration)))
@@ -98,4 +114,30 @@ impl Batch<'_> {
             })
             .collect()
     }
+}
+
+fn validate_jobs(jobs: &[Job<'_>]) -> Result<()> {
+    let mut positions = HashMap::new();
+    for (index, job) in jobs.iter().enumerate() {
+        super::validate(&job.item)?;
+        job.target.filename(&job.item)?;
+        ensure!(
+            positions
+                .insert(job.item.port.name.to_ascii_lowercase(), index)
+                .is_none(),
+            "duplicate port in binary installation batch"
+        );
+    }
+    for (index, job) in jobs.iter().enumerate() {
+        for dependency in &job.registration.dependencies {
+            ensure!(
+                positions
+                    .get(&dependency.to_ascii_lowercase())
+                    .is_none_or(|position| *position < index),
+                "binary installation batch is not dependency-first: {} requires {dependency}",
+                job.item.port.name
+            );
+        }
+    }
+    Ok(())
 }
