@@ -485,3 +485,136 @@ async fn batch_downloads_concurrently_then_installs_dependencies_in_order() {
         server.abort();
     }
 }
+
+#[test]
+fn registration_and_activation_run_in_separate_hook_boundaries() {
+    use port_rs::{
+        build::state::StateFile,
+        portfile::{PortGroups, Session},
+        spec::PortSpec,
+    };
+    for fail_after_install in [false, true] {
+        let software = tempfile::tempdir().unwrap();
+        let work = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let database = tempfile::tempdir().unwrap();
+        let store = Store::open(software.path()).unwrap();
+        let registry_path = database.path().join("registry.db");
+        let mut registry = Writer::create(&registry_path).unwrap();
+        let progress = Progress::new(true);
+        let port = port();
+        let mut installer = Installer {
+            store: &store,
+            registry: &mut registry,
+            staging: work.path(),
+            root: root.path(),
+            limits: Limits::default(),
+            progress: &progress,
+        };
+        let mut session = Session::open(
+            r#"
+            name app; version 1; set events {}
+            proc portinstall::install_start args {}
+            proc portactivate::activate_start args {}
+            proc portactivate::activate_finish args {}
+            pre-install {lappend events pre-install}
+            post-install {
+                if {![info exists image_id]} {error "not registered"}
+                if {[file exists $payload]} {error "activated too early"}
+                lappend events post-install
+                if {$fail_after_install} {error "post-install failure"}
+            }
+            pre-activate {
+                if {[file exists $payload]} {error "activated before pre-hook"}
+                lappend events pre-activate
+            }
+            post-activate {
+                if {![file exists $payload]} {error "payload not activated"}
+                lappend events post-activate
+            }
+        "#,
+            &BTreeMap::from([
+                (
+                    "payload".into(),
+                    root.path().join("opt/local/app").to_str().unwrap().into(),
+                ),
+                (
+                    "fail_after_install".into(),
+                    if fail_after_install { "1" } else { "0" }.into(),
+                ),
+            ]),
+            &PortSpec::named("app"),
+            PortGroups::default(),
+        )
+        .unwrap();
+        session
+            .enable_system(&BTreeMap::new(), |_| panic!("no subprocess expected"))
+            .unwrap();
+        let fd = session
+            .attach_build_state(StateFile::open(&database.path().join("state"), None).unwrap())
+            .unwrap();
+        let install = session.scalar("org.macports.install").unwrap();
+        let activate = session.scalar("org.macports.activate").unwrap();
+        let mut pending = None;
+        let result = session.execute_target_with_native_body(
+            &install,
+            Some(&fd),
+            false,
+            "portinstall::install_main",
+            |session| {
+                let image =
+                    installer.register(&mut archive(), &item(&port), &target(), record())?;
+                session.invoke("set", &["image_id", &image.id().to_string()])?;
+                pending = Some(image);
+                Ok(())
+            },
+        );
+        let db = rusqlite::Connection::open(&registry_path).unwrap();
+        assert_eq!(
+            db.query_row("SELECT state FROM ports", [], |r| r.get::<_, String>(0))
+                .unwrap(),
+            "imaged"
+        );
+        assert!(!root.path().join("opt/local/app").exists());
+        let location = pending.as_ref().unwrap().location().to_owned();
+        if fail_after_install {
+            assert!(
+                result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("post-install failure")
+            );
+            drop(pending);
+            assert!(location.is_file());
+            assert_eq!(fs::read_dir(work.path()).unwrap().count(), 0);
+            assert_eq!(
+                session.scalar("events").unwrap(),
+                "pre-install post-install"
+            );
+        } else {
+            result.unwrap();
+            session
+                .execute_target_with_native_body(
+                    &activate,
+                    None,
+                    false,
+                    "portactivate::activate_main",
+                    |_| {
+                        pending.take().unwrap().activate()?;
+                        Ok(())
+                    },
+                )
+                .unwrap();
+            assert_eq!(
+                db.query_row("SELECT state FROM ports", [], |r| r.get::<_, String>(0))
+                    .unwrap(),
+                "installed"
+            );
+            assert_eq!(
+                session.scalar("events").unwrap(),
+                "pre-install post-install pre-activate post-activate"
+            );
+            assert!(location.is_file());
+        }
+    }
+}

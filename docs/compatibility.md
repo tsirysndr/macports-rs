@@ -1720,3 +1720,16 @@ skip later callbacks and leave the target incomplete. The caller still owns
 runtime/environment preparation, and custom overrides calling `do-*` require the
 corresponding native interpreter command to be registered separately. This is a
 lifecycle bridge for the install backend, not a complete CLI target driver.
+
+Binary registration and activation now have separate backend boundaries.
+`Installer::register` stores an authenticated archive and registers it inactive,
+returning an opaque `RegisteredImage` tied to the same installer/registry. Its
+`activate` method publishes the prepared payload later. Dropping the handle
+cleans temporary extraction while retaining the inactive registry entry and
+archive for retry. The existing combined install API delegates to these steps.
+An integration test runs registration and activation through native target-body
+callbacks with Portfile hooks: post-install observes registration without prefix
+publication; pre/post-activate bracket publication. A failing post-install hook
+leaves the image inactive and the prefix unchanged. The test supplies explicit
+runtime startup callbacks; production startup, privileges, cache recovery, and
+ordinary CLI install execution still need integration.

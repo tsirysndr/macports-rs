@@ -27,7 +27,7 @@ pub struct InstalledImage {
     pub id: i64,
     pub location: PathBuf,
 }
-impl Installer<'_> {
+impl<'resources> Installer<'resources> {
     /// Install one authenticated archive. The caller must resolve provider
     /// checks/dependencies and exclusively manage the prefix and image store.
     /// File inventory and requested status come from the prepared image/plan;
@@ -40,8 +40,23 @@ impl Installer<'_> {
         archive: &mut VerifiedArchive,
         item: &Item<'_>,
         target: &Target,
-        mut registration: NewImage,
+        registration: NewImage,
     ) -> Result<InstalledImage> {
+        let registered = self.register(archive, item, target, registration)?;
+        registered.activate()
+    }
+
+    /// Store and register an inactive image, keeping its private prepared payload
+    /// alive for activation after install hooks. Dropping the returned handle
+    /// retains the registered archive for retry and discards temporary extraction.
+    #[cfg(target_os = "macos")]
+    pub fn register<'installer>(
+        &'installer mut self,
+        archive: &mut VerifiedArchive,
+        item: &Item<'_>,
+        target: &Target,
+        mut registration: NewImage,
+    ) -> Result<RegisteredImage<'installer, 'resources>> {
         validate(item)?;
         self.progress.phase(&format!(
             "Preparing {} @{}{}",
@@ -61,25 +76,61 @@ impl Installer<'_> {
         self.progress
             .phase(&format!("Registering {}", item.port.name));
         let id = stored.register(self.registry, registration)?;
-        self.progress
-            .phase(&format!("Activating {}", item.port.name));
-        let activation = (|| {
-            let plan = Plan::inspect(&prepared, self.root)?;
-            plan.activate(self.registry, id)
-        })();
-        activation.with_context(|| {
-            format!(
-                "could not activate registered image {} (id {id}, archive {}); retained for retry",
+        Ok(RegisteredImage {
+            installer: self,
+            id,
+            location,
+            prepared,
+            name: item.port.name.clone(),
+            label: format!(
+                "{} @{}{}",
                 item.port.name,
-                location.display()
-            )
-        })?;
-        self.progress.phase(&format!(
-            "Installed {} @{}{}",
-            item.port.name,
-            item.port.version(),
-            item.variants
-        ));
+                item.port.version(),
+                item.variants
+            ),
+        })
+    }
+}
+
+/// Inactive registered image bound to the installer that owns its registry.
+/// This handle separates install and activate hook boundaries without publishing
+/// files early or allowing its registry ID to be replaced by the caller.
+pub struct RegisteredImage<'installer, 'resources> {
+    installer: &'installer mut Installer<'resources>,
+    id: i64,
+    location: PathBuf,
+    prepared: extract::PreparedImage,
+    name: String,
+    label: String,
+}
+impl RegisteredImage<'_, '_> {
+    pub fn id(&self) -> i64 {
+        self.id
+    }
+    pub fn location(&self) -> &Path {
+        &self.location
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn activate(self) -> Result<InstalledImage> {
+        let Self {
+            installer,
+            id,
+            location,
+            prepared,
+            name,
+            label,
+        } = self;
+        installer.progress.phase(&format!("Activating {name}"));
+        let activation = (|| {
+            let plan = Plan::inspect(&prepared, installer.root)?;
+            plan.activate(installer.registry, id)
+        })();
+        activation.with_context(|| format!(
+            "could not activate registered image {name} (id {id}, archive {}); retained for retry",
+            location.display()
+        ))?;
+        installer.progress.phase(&format!("Installed {label}"));
         Ok(InstalledImage { id, location })
     }
 }
