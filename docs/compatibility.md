@@ -1962,5 +1962,14 @@ and the system resolver. Like upstream `time_connect`, it resolves the named
 service, uses the first returned TCP address, excludes lookup time from the
 measurement, and applies a three-second connection timeout. Tests use a local
 listener to verify that probing sends no application payload and reports refused
-connections and invalid inputs. Scheduling probes into the shared timing cache
-and exposing the worker callbacks to fetch startup remain unfinished.
+connections and invalid inputs. Exposing the worker callbacks to fetch startup
+remains unfinished.
+
+`MirrorTimings::probe_urls` now schedules bounded concurrent TCP probes and stores
+results in the shared cache. It skips preferred, blacklisted and fresh hosts,
+refreshes stale entries, and deduplicates pending hosts across batches. Probe
+failures receive upstream's 10000ms timing penalty. Dropping a batch releases
+pending-host reservations, allowing later retries. Tests cover concurrency,
+shared-batch deduplication, failed probes, cache reuse and cancellation. The
+interpreter's asynchronous probe/wait callbacks and persistent cache loading
+remain unfinished.
