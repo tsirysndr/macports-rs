@@ -1165,7 +1165,7 @@ fn parse_and_eval_script(interp: &mut Interp, ctx: &mut EvalPtr) -> MoltResult {
 /// a double quote, returning a MoltResult.  If the no_eval flag is set, returns an empty
 /// value.  This is used to handle double-quoted strings in expressions.
 fn parse_and_eval_quoted_word(interp: &mut Interp, ctx: &mut EvalPtr) -> MoltResult {
-    let word = parser::parse_quoted_word(ctx)?;
+    let word = parser::parse_quoted_operand(ctx)?;
 
     if ctx.is_no_eval() {
         Ok(Value::empty())
@@ -1176,7 +1176,7 @@ fn parse_and_eval_quoted_word(interp: &mut Interp, ctx: &mut EvalPtr) -> MoltRes
 
 /// Parses a braced word, returning a Value.
 fn parse_and_eval_braced_word(ctx: &mut EvalPtr) -> MoltResult {
-    if let Word::Value(val) = parser::parse_braced_word(ctx)? {
+    if let Word::Value(val) = parser::parse_braced_operand(ctx)? {
         Ok(val)
     } else {
         unreachable!()

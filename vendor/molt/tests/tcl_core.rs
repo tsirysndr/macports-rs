@@ -233,3 +233,14 @@ fn foreach_and_lmap_iterate_several_lists_in_parallel() {
     ]);
     fails(&["foreach a {1} b {}", "foreach {} {1} {}"]);
 }
+
+#[test]
+fn expression_operands_may_touch_operators_and_parentheses() {
+    check(&[
+        ("set a arm64; expr {(\"arm64\" eq $a) || 0}", "1"),
+        ("expr {(\"x\" in {a x})}", "1"),
+        ("expr {({abc} eq \"abc\")}", "1"),
+        ("expr {\"a\"<\"b\"}", "1"),
+    ]);
+    fails(&["set \"a\"b 1"]);
+}

@@ -211,6 +211,15 @@ fn parse_next_word(ctx: &mut EvalPtr) -> Result<Word, Exception> {
 /// Parses a braced word from the input.  It's an error if the there are any non-whitespace
 /// characters following the close brace, or if the close brace is missing.
 pub(crate) fn parse_braced_word(ctx: &mut EvalPtr) -> Result<Word, Exception> {
+    parse_braced(ctx, true)
+}
+
+/// A braced expression operand may be followed directly by an operator or `)`.
+pub(crate) fn parse_braced_operand(ctx: &mut EvalPtr) -> Result<Word, Exception> {
+    parse_braced(ctx, false)
+}
+
+fn parse_braced(ctx: &mut EvalPtr, command_word: bool) -> Result<Word, Exception> {
     // FIRST, skip the opening brace, and count it; non-escaped braces need to
     // balance.
     ctx.skip_char('{');
@@ -238,7 +247,7 @@ pub(crate) fn parse_braced_word(ctx: &mut EvalPtr) -> Result<Word, Exception> {
                 let result = Ok(Word::Value(Value::from(text)));
                 ctx.skip(); // Skip the closing brace
 
-                if ctx.at_end_of_command() || ctx.next_is_line_white() {
+                if !command_word || ctx.at_end_of_command() || ctx.next_is_line_white() {
                     return result;
                 } else {
                     return molt_err!("extra characters after close-brace");
@@ -274,6 +283,15 @@ pub(crate) fn parse_braced_word(ctx: &mut EvalPtr) -> Result<Word, Exception> {
 /// an error if the there are any non-whitespace characters following the close quote, or
 /// if the close quote is missing.
 pub(crate) fn parse_quoted_word(ctx: &mut EvalPtr) -> Result<Word, Exception> {
+    parse_quoted(ctx, true)
+}
+
+/// A quoted expression operand may be followed directly by an operator or `)`.
+pub(crate) fn parse_quoted_operand(ctx: &mut EvalPtr) -> Result<Word, Exception> {
+    parse_quoted(ctx, false)
+}
+
+fn parse_quoted(ctx: &mut EvalPtr, command_word: bool) -> Result<Word, Exception> {
     // FIRST, consume the the opening quote.
     ctx.next();
 
@@ -306,7 +324,7 @@ pub(crate) fn parse_quoted_word(ctx: &mut EvalPtr) -> Result<Word, Exception> {
                 tokens.push_str(ctx.token(start));
             }
             ctx.skip_char('"');
-            if !ctx.at_end_of_command() && !ctx.next_is_line_white() {
+            if command_word && !ctx.at_end_of_command() && !ctx.next_is_line_white() {
                 return molt_err!("extra characters after close-quote");
             } else {
                 return Ok(tokens.take());

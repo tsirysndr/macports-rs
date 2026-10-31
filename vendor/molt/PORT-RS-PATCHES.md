@@ -56,3 +56,5 @@ The upstream source and tests remain available to verify interpreter behavior.
   (Tcl ARE patterns translated to the `regex` crate), plus the `string`
   subcommands `first`, `last`, `index`, `range`, `replace`, `repeat`, `reverse`,
   `tolower`, `toupper`, `totitle`, `trim*` and `is`.
+- Quoted and braced `expr` operands may be followed directly by operators or `)`;
+  the whitespace rule after a close quote/brace applies only to command words.
