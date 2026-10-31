@@ -1616,8 +1616,8 @@ means no archive candidates. Prepared requests retain their exact site reference
 for trust-key selection. Named tbz2/Signify classes are supported; literal archive
 URLs and other archive/signature formats still require additional resolution.
 Installing the dynamic archive_sites default before Portfile evaluation (including
-append/prepend against that default), local archive environment mirrors, and the
-complete install target lifecycle remain unfinished.
+append/prepend against that default) and the complete install target lifecycle
+remain unfinished.
 
 Archive-site discovery now resolves the live `archive_sites.listpath` and
 `archive_sites.listfile` within the caller-selected tree, with no fallback to
@@ -1627,3 +1627,12 @@ tree resources still permit configured sites. An integration test exercises
 discovery, live request preparation, site-key loading, HTTP transfer, and signature
 verification together against a local server. The install command still needs to
 invoke this pipeline as part of its complete initialized target lifecycle.
+
+Live archive request preparation now includes `ARCHIVE_SITE_LOCAL` mirrors from
+the session environment. Untagged environment mirrors precede tag-specific
+mirrors; two-tag entries select the archive type, while single-tag entries apply
+mirror-directory options. Literal `archive_sites` URLs tagged `tbz2` can accompany
+named Signify sites. URL entries never add trust keys. Without named signature
+metadata, upstream defaults to rmd160, which remains explicitly unsupported by
+the native Signify transport. Mixed signature formats and other archive formats
+still require the corresponding verification and extraction implementations.

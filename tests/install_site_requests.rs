@@ -180,6 +180,46 @@ fn live_session_selects_mirrors_and_keeps_subport_archive_directory_distinct() {
             target.filename(&item).unwrap()
         )
     );
+    session.invoke("set", &["env(ARCHIVE_SITE_LOCAL)", "https://tagged/:nosubdir:tbz2 https://wrong/:nosubdir:txz https://plain/ https://mirror/:mirror"]).unwrap();
+    session
+        .invoke(
+            "archive_sites",
+            &["https://literal/:tbz2", "macports_archives::tbz2"],
+        )
+        .unwrap();
+    let local = selection
+        .request_from_session(&mut session, &target, &item, 100)
+        .unwrap();
+    let filename = target.filename(&item).unwrap();
+    assert_eq!(
+        &local.request.urls[..5],
+        &[
+            format!("https://plain/child/{filename}"),
+            format!("https://mirror/parent/child/{filename}"),
+            format!("https://tagged/child/{filename}"),
+            format!("https://literal/child/{filename}"),
+            format!("https://packages.macports.org/child/{filename}"),
+        ]
+    );
+    assert!(local.request.urls.iter().all(|url| !url.contains("wrong")));
+    assert_eq!(
+        selection.key_paths(&local.references, "tbz2", "sig").len(),
+        1
+    );
+    session
+        .invoke("archive_sites", &["https://literal/:tbz2"])
+        .unwrap();
+    assert!(
+        selection
+            .request_from_session(&mut session, &target, &item, 100)
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("rmd160")
+    );
+    session
+        .invoke("unset", &["env(ARCHIVE_SITE_LOCAL)"])
+        .unwrap();
     session
         .invoke("archive_sites", &["macports_archives:custom/:tbz2"])
         .unwrap();
