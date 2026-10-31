@@ -6,7 +6,12 @@ pub(super) fn install(interp: &mut Interp, id: ContextID) {
     interp.add_context_command("portfetch::sortsites", sort, id);
     interp.add_context_command("portfetch::get_urls", urls, id);
 }
-fn sites(interp: &mut Interp, tag: &str, default: &str, empty_default: bool) -> MoltResult {
+pub(super) fn sites(
+    interp: &mut Interp,
+    tag: &str,
+    default: &str,
+    empty_default: bool,
+) -> MoltResult {
     let key = Value::from(format!("portfetch::urlmap({tag})"));
     if !interp.var_exists(&key) {
         let value = if empty_default && tag == default {

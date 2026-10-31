@@ -9,7 +9,7 @@ pub struct Settings {
     pub rsync: Option<String>,
     pub skip: Option<String>,
 }
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Resolved {
     /// HTTP, HTTPS, FTP, and ALL entries corresponding to macports::proxies.
     pub proxies: BTreeMap<String, String>,

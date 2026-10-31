@@ -2006,3 +2006,26 @@ from repeating the lookup or warning, and metadata-only sessions cannot trigger
 it. Tests use controlled resolver outcomes and warning callbacks, so they do not
 depend on external DNS. Source/archive startup no longer needs a DNS callback
 stub; transport and CLI execution-driver orchestration remain unfinished.
+
+Native `percent_encode` and `assemble_url` now preserve upstream URL construction,
+including its historical character-code encoding for non-ASCII distfile names.
+`Session::source_fetch_requests` turns initialized live candidates into transport
+requests: it skips cached regular files, requires a writable destination for
+missing files, sorts mirrors once, applies missing-tag fallback, and preserves
+candidate duplicates and live `assemble_url` overrides. Tests cover URL encoding,
+cached-only operation, destination errors, mirror ordering and overrides. This
+request builder does not yet execute source downloads or checksum verification.
+
+`install::source::download` executes those requests sequentially in candidate
+order, like upstream `fetchfiles`. It re-checks each destination so repeated
+candidates download once, tries mirrors in order, writes through a temporary file
+in `distpath` and renames it on success, and reports every failed mirror. HTTP(S)
+honours the resolved proxy snapshot; `file://` URLs are copied; other schemes,
+including FTP, fail explicitly. Tests use a local HTTP server.
+
+Native checksum verification implements `portchecksum` parsing (including the
+single-distfile shorthand), `md5`, `sha1`, `rmd160`, `sha256` and `size`, and
+`checksum.skip`. `Session::verify_source_checksums` reports every mismatch and
+missing entry with upstream messages and a suggested `checksums` line before
+failing with `Unable to verify file checksums`. Mismatched-file HTML detection
+and CLI fetch/checksum orchestration remain unfinished.

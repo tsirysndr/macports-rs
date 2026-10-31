@@ -38,11 +38,14 @@ mod stage_context;
 mod startupitem;
 pub use destroot_libtool::LibtoolCleanup;
 use stage_context::StageContext;
+mod checksum_runtime;
+mod diagnostics;
 mod ditems;
 mod dlist;
 mod fetch_dns;
 mod fetch_files;
 mod fetch_pings;
+mod fetch_requests;
 mod fetch_resources;
 mod fetch_runtime;
 mod fetch_selection;
@@ -124,6 +127,7 @@ struct State {
     mirror_worker: Option<crate::install::mirror_worker::MirrorWorker>,
     mirror_resources: BTreeMap<String, crate::install::sites::resource::Resource>,
     progress: Option<crate::progress::Progress>,
+    proxies: Option<std::sync::Arc<crate::install::proxy::Resolved>>,
     warned: BTreeSet<String>,
     notifications: Vec<(String, String)>,
     build_states: BTreeMap<String, crate::build::state::StateFile>,
@@ -264,6 +268,9 @@ fn open(
     fetch_files::install(&mut interp, id).map_err(failure)?;
     fetch_resources::install(&mut interp, id);
     fetch_runtime::install(&mut interp, id);
+    fetch_requests::install(&mut interp, id);
+    diagnostics::install(&mut interp, id);
+    checksum_runtime::install(&mut interp, id);
     fetch_pings::install(&mut interp, id);
     fetch_dns::install(&mut interp, id);
     fetch_selection::install(&mut interp, id);

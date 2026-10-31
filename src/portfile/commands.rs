@@ -27,6 +27,7 @@ pub(super) const OPTIONS: &[&str] = &[
     "depends_run",
     "depends_test",
     "checksums",
+    "checksum.skip",
     "fetch.type",
     "master_sites",
     "patch_sites",
