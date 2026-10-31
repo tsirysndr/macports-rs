@@ -109,6 +109,7 @@ impl Config {
 }
 
 mod archives;
+pub use archives::ArchiveDownload;
 mod paths;
 pub use paths::Paths;
 

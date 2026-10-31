@@ -14,6 +14,28 @@ pub struct Request {
     pub max_bytes: u64,
 }
 
+/// Trust belongs to an individual port's evaluated archive-site references.
+pub struct TrustedRequest {
+    pub request: Request,
+    pub keys: Vec<TrustedKey>,
+}
+
+/// Download ports concurrently without pooling their trust keys. Explicit proxy
+/// settings apply to the batch; validation precedes all network/filesystem work.
+pub async fn run_trusted(
+    requests: &[TrustedRequest],
+    directory: &Path,
+    jobs: usize,
+    progress: &Progress,
+    proxies: &super::proxy::Resolved,
+) -> Result<Vec<VerifiedArchive>> {
+    let requests = requests
+        .iter()
+        .map(|entry| (&entry.request, entry.keys.as_slice()))
+        .collect::<Vec<_>>();
+    run_inner(&requests, directory, jobs, progress, Some(proxies)).await
+}
+
 /// Fetch in input order with bounded concurrency. Any failure drops all staged
 /// results, after draining the remaining transfers. Nothing is published.
 pub async fn run(
@@ -23,7 +45,15 @@ pub async fn run(
     jobs: usize,
     progress: &Progress,
 ) -> Result<Vec<VerifiedArchive>> {
-    run_inner(requests, directory, keys, jobs, progress, None).await
+    ensure!(
+        !keys.is_empty() && keys.len() <= 64,
+        "invalid trusted key count"
+    );
+    let requests = requests
+        .iter()
+        .map(|request| (request, keys))
+        .collect::<Vec<_>>();
+    run_inner(&requests, directory, jobs, progress, None).await
 }
 
 /// Fetch using explicit startup proxy settings instead of process environment.
@@ -35,26 +65,34 @@ pub async fn run_with_proxies(
     progress: &Progress,
     proxies: &super::proxy::Resolved,
 ) -> Result<Vec<VerifiedArchive>> {
-    run_inner(requests, directory, keys, jobs, progress, Some(proxies)).await
+    ensure!(
+        !keys.is_empty() && keys.len() <= 64,
+        "invalid trusted key count"
+    );
+    let requests = requests
+        .iter()
+        .map(|request| (request, keys))
+        .collect::<Vec<_>>();
+    run_inner(&requests, directory, jobs, progress, Some(proxies)).await
 }
 
 async fn run_inner(
-    requests: &[Request],
+    requests: &[(&Request, &[TrustedKey])],
     directory: &Path,
-    keys: &[TrustedKey],
     jobs: usize,
     progress: &Progress,
     proxies: Option<&super::proxy::Resolved>,
 ) -> Result<Vec<VerifiedArchive>> {
     ensure!((1..=128).contains(&jobs), "jobs must be between 1 and 128");
-    ensure!(
-        !keys.is_empty() && keys.len() <= 64,
-        "invalid trusted key count"
-    );
     // Validate the entire batch before any network or filesystem work.
     let urls: Vec<Vec<Url>> = requests
         .iter()
-        .map(|request| {
+        .map(|(request, keys)| {
+            ensure!(
+                !keys.is_empty() && keys.len() <= 64,
+                "{}: invalid trusted key count",
+                request.name
+            );
             ensure!(request.max_bytes > 0, "archive size limit must be positive");
             ensure!(
                 !request.urls.is_empty(),
@@ -96,19 +134,16 @@ async fn run_inner(
         "Fetching {} signed archives ({jobs} concurrent transfers)",
         requests.len()
     ));
-    let mut results: Vec<(usize, Result<VerifiedArchive>)> = stream::iter(
-        requests
-            .iter()
-            .zip(&urls)
-            .enumerate()
-            .map(|(index, (request, urls))| {
+    let mut results: Vec<(usize, Result<VerifiedArchive>)> =
+        stream::iter(requests.iter().zip(&urls).enumerate().map(
+            |(index, ((request, keys), urls))| {
                 let future = fetch(&client, request, urls, directory, keys, progress);
                 async move { (index, future.await) }
-            }),
-    )
-    .buffer_unordered(jobs)
-    .collect()
-    .await;
+            },
+        ))
+        .buffer_unordered(jobs)
+        .collect()
+        .await;
     // Free each finished slot immediately, even if an earlier transfer is slow.
     // Restore plan order only after all transfers finish, including on failure.
     results.sort_unstable_by_key(|(index, _)| *index);

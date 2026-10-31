@@ -1653,3 +1653,13 @@ tbz2 support; other archive decoders remain unfinished. Resource errors propagat
 without registry writes; explicit archive_sites values avoid reading unused
 resources. CLI regression tests cover default mutation, configuration merging,
 explicit bypass, and unchanged registry contents on failure.
+
+Archive preparation now captures a request and its selected trust keys together
+through `Paths::prepare_archive_download`. `fetch::run_trusted` accepts these
+per-port key sets with explicit startup proxies, validates the entire batch before
+network activity, and uses the existing bounded parallel scheduler. Trust keys
+are not pooled across ports. Tests verify concurrent successful transfers with
+distinct signers, reject an archive signed only by another port's key, and confirm
+that missing keys prevent all requests. The discovery/download integration test
+uses this preparation API. The older fetch API remains available for callers
+that explicitly supply a single shared trust set.

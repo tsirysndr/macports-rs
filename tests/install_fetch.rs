@@ -22,7 +22,10 @@ use tokio::{
 };
 
 fn signed(bytes: &[u8]) -> (TrustedKey, Vec<u8>) {
-    let key = KeyPair::from_seed(Seed::new([12; 32]));
+    signed_by(bytes, 12)
+}
+fn signed_by(bytes: &[u8], seed: u8) -> (TrustedKey, Vec<u8>) {
+    let key = KeyPair::from_seed(Seed::new([seed; 32]));
     let envelope = |data: &[u8]| {
         let mut packet = b"Ed12345678".to_vec();
         packet.extend(data);
@@ -522,4 +525,61 @@ async fn explicit_bypass_and_empty_scheme_disable_all_proxy_fallback() {
     }
     assert_eq!(origin.calls.load(Ordering::SeqCst), 6);
     assert_eq!(proxy.calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn per_port_trust_stays_isolated_in_parallel_batches() {
+    use port_rs::install::{fetch::TrustedRequest, proxy::Resolved};
+    let (first, sig_a) = signed_by(b"first", 11);
+    let (second, sig_b) = signed_by(b"second", 22);
+    let server = server(vec![
+        ("/a", response(b"first")),
+        ("/a.sig", response(&sig_a)),
+        ("/b", response(b"second")),
+        ("/b.sig", response(&sig_b)),
+    ])
+    .await;
+    let temp = tempfile::tempdir().unwrap();
+    let proxies = Resolved {
+        proxies: Default::default(),
+        no_proxy: None,
+    };
+    let mut requests = [
+        TrustedRequest {
+            request: request(&server, &["/a"], 32),
+            keys: vec![first],
+        },
+        TrustedRequest {
+            request: request(&server, &["/b"], 32),
+            keys: vec![second],
+        },
+    ];
+    let mut archives =
+        fetch::run_trusted(&requests, temp.path(), 2, &Progress::new(true), &proxies)
+            .await
+            .unwrap();
+    for (archive, expected) in archives.iter_mut().zip([b"first".as_slice(), b"second"]) {
+        let mut bytes = Vec::new();
+        archive.reader().unwrap().read_to_end(&mut bytes).unwrap();
+        assert_eq!(bytes, expected);
+    }
+    assert_eq!(server.peak.load(Ordering::SeqCst), 2);
+    drop(archives);
+    // Both payloads now come from the second port's signer. Only the second
+    // request may trust that key; pooling would incorrectly accept the batch.
+    requests[0].request = request(&server, &["/b"], 32);
+    assert!(
+        fetch::run_trusted(&requests, temp.path(), 2, &Progress::new(true), &proxies)
+            .await
+            .is_err()
+    );
+    assert_eq!(std::fs::read_dir(temp.path()).unwrap().count(), 0);
+    let before = server.calls.load(Ordering::SeqCst);
+    requests[1].keys.clear();
+    assert!(
+        fetch::run_trusted(&requests, temp.path(), 2, &Progress::new(true), &proxies)
+            .await
+            .is_err()
+    );
+    assert_eq!(server.calls.load(Ordering::SeqCst), before);
 }

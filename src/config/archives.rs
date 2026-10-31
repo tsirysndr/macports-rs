@@ -8,7 +8,33 @@ use crate::{
 use anyhow::{Context as _, Result};
 use std::{cell::RefCell, collections::BTreeMap, path::Path};
 
+pub struct ArchiveDownload {
+    pub request: crate::install::fetch::TrustedRequest,
+    pub warnings: Vec<String>,
+}
+
 impl Paths {
+    /// Capture URL coordinates and their matching trust keys from one live
+    /// session before starting a parallel batch. No download or mutation occurs.
+    pub fn prepare_archive_download(
+        &self,
+        config: &Config,
+        selection: &Selection,
+        session: &mut crate::portfile::Session,
+        target: &crate::install::target::Target,
+        item: &crate::install::Item<'_>,
+        max_bytes: u64,
+    ) -> Result<ArchiveDownload> {
+        let prepared = selection.request_from_session(session, target, item, max_bytes)?;
+        let trust = self.archive_site_keys(config, selection, &prepared.references, "tbz2")?;
+        Ok(ArchiveDownload {
+            request: crate::install::fetch::TrustedRequest {
+                request: prepared.request,
+                keys: trust.keys,
+            },
+            warnings: trust.warnings,
+        })
+    }
     pub fn archive_resolver(
         &self,
         config: &Config,

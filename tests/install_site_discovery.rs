@@ -169,12 +169,17 @@ async fn discovered_site_request_and_keys_authenticate_a_download() {
         Architecture::Native,
     )
     .unwrap();
-    let prepared = selected
-        .request_from_session(&mut session, &target, &item, 1024)
+    let prepared = paths
+        .prepare_archive_download(
+            &Config::default(),
+            &selected,
+            &mut session,
+            &target,
+            &item,
+            1024,
+        )
         .unwrap();
-    let trust = paths
-        .archive_site_keys(&Config::default(), &selected, &prepared.references, "tbz2")
-        .unwrap();
+    assert!(prepared.warnings.is_empty());
     let server = tokio::spawn(async move {
         for _ in 0..2 {
             let (mut stream, _) = listener.accept().await.unwrap();
@@ -201,10 +206,9 @@ async fn discovered_site_request_and_keys_authenticate_a_download() {
     });
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(10),
-        port_rs::install::fetch::run_with_proxies(
+        port_rs::install::fetch::run_trusted(
             &[prepared.request],
             root.path(),
-            &trust.keys,
             2,
             &port_rs::progress::Progress::new(true),
             &port_rs::install::proxy::Resolved {
