@@ -7,6 +7,11 @@ fn run() -> anyhow::Result<()> {
     let mut session = commands::Session::default();
     for args in cli::invocations(std::env::args_os()) {
         let cli = cli::Cli::parse_invocation(args)?;
+        commands::set_archive_mode(match (cli.source_only, cli.binary_only) {
+            (true, _) => commands::ArchiveMode::SourceOnly,
+            (_, true) => commands::ArchiveMode::BinaryOnly,
+            _ => commands::ArchiveMode::Any,
+        });
         session.run(
             cli.command,
             cli.index_file.as_deref(),

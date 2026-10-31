@@ -37,6 +37,8 @@ pub(super) struct Host {
     pub archives: crate::portfile::ArchiveSites,
     pub registry_path: PathBuf,
     pub progress: crate::progress::Progress,
+    pub paths: crate::config::Paths,
+    pub config: crate::config::Config,
 }
 
 impl Host {
@@ -80,6 +82,8 @@ impl Host {
             archives,
             registry_path,
             progress,
+            paths,
+            config,
         })
     }
 

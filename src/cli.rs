@@ -26,6 +26,12 @@ pub(crate) struct Cli {
     /// Preview install operations without modifying the registry or installing files
     #[arg(short = 'y', long, global = true)]
     pub(crate) dry_run: bool,
+    /// Build from source only; never use binary archives
+    #[arg(short = 's', long = "source-only", global = true)]
+    pub(crate) source_only: bool,
+    /// Install from binary archives only; never build from source
+    #[arg(short = 'b', long = "binary-only", global = true)]
+    pub(crate) binary_only: bool,
     #[command(subcommand)]
     pub(crate) command: Command,
 }

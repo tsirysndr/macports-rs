@@ -107,3 +107,21 @@ fn resource(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
         }
     })
 }
+
+impl Session {
+    /// The archive-site selection for the live listpath/listfile values.
+    pub fn archive_selection(&mut self) -> Result<Option<Rc<crate::install::sites::Selection>>> {
+        let resolver = self
+            .interp
+            .context::<State>(self.id)
+            .archive_sites
+            .as_ref()
+            .and_then(|sites| sites.resources.clone());
+        let Some(resolver) = resolver else {
+            return Ok(None);
+        };
+        let path = self.scalar("archive_sites.listpath")?;
+        let file = self.scalar("archive_sites.listfile")?;
+        Ok(Some(resolver(&path, &file)?.1))
+    }
+}

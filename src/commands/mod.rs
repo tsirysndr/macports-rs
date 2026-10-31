@@ -1,4 +1,5 @@
 //! CLI dispatch. Each action owns its options and presentation in a separate module.
+mod archivefetch;
 mod bump;
 mod clean;
 mod contents;
@@ -130,6 +131,8 @@ pub enum Command {
     RevUpgrade(rev_upgrade::RevUpgrade),
     /// Uninstall unneeded and inactive ports and delete unused files
     Reclaim(reclaim::Reclaim),
+    /// Fetch and verify ports' signed binary archives
+    Archivefetch(portcmds::Ports),
     /// Build ports and store their images without activating them
     Archive(portcmds::Ports),
     /// Load a port's startup items with launchctl
@@ -186,6 +189,28 @@ pub enum Command {
     },
     #[command(external_subcommand)]
     Unsupported(Vec<String>),
+}
+
+/// Where installs may take ports from (upstream `-s` and `-b`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ArchiveMode {
+    Any,
+    SourceOnly,
+    BinaryOnly,
+}
+
+static ARCHIVE_MODE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+pub fn set_archive_mode(mode: ArchiveMode) {
+    ARCHIVE_MODE.store(mode as u8, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub(crate) fn archive_mode() -> ArchiveMode {
+    match ARCHIVE_MODE.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => ArchiveMode::SourceOnly,
+        2 => ArchiveMode::BinaryOnly,
+        _ => ArchiveMode::Any,
+    }
 }
 
 pub fn run(command: Command, index_file: Option<&Path>, quiet: bool, verbose: bool) -> Result<()> {
@@ -253,11 +278,17 @@ impl Session {
             .then(sync::default_index)
             .flatten();
         let index_file = index_file.or(default_index.as_deref());
-        let configured = registry_file
+        let configured_path = registry_file
             .is_none()
             .then(local::configured_registry)
-            .flatten()
-            .filter(|path| path.exists());
+            .flatten();
+        let configured = configured_path.clone().filter(|path| path.exists());
+        // Commands that create or update the registry use the configured
+        // location even before it exists.
+        let writable_registry = registry_file
+            .map(Path::to_path_buf)
+            .or(configured_path)
+            .unwrap_or_else(|| PathBuf::from(crate::registry::DEFAULT_PATH));
         let registry_file = registry_file.or(configured.as_deref());
         let stdout = io::stdout();
         let mut out = io::BufWriter::new(stdout.lock());
@@ -329,9 +360,7 @@ impl Session {
         | Command::Unsetrequested(_)
         | Command::Setunrequested(_) = command
         {
-            let path = registry_file
-                .map(Path::to_path_buf)
-                .unwrap_or_else(|| PathBuf::from(crate::registry::DEFAULT_PATH));
+            let path = writable_registry.clone();
             match command {
                 Command::Setrequested(args) => portcmds::set_requested(&path, args, true)?,
                 Command::Unsetrequested(args) | Command::Setunrequested(args) => {
@@ -367,6 +396,9 @@ impl Session {
                 args,
                 &root,
             )?;
+        } else if let Command::Archivefetch(args) = command {
+            let root = local::root(index_file, false, "archivefetch")?.unwrap();
+            archivefetch::run(self.index(index_file, quiet)?, &args.ports, quiet, &root)?;
         } else if let Command::Diagnose(args) = command {
             let root = local::root(index_file, false, "diagnose")?.unwrap();
             diagnose::run(args, quiet, &root)?;
@@ -398,9 +430,7 @@ impl Session {
             let root = local::root(index_file, false, "lint")?.unwrap();
             lint::run(self.index(index_file, quiet)?, args, quiet, &root)?;
         } else if let Command::Snapshot(args) = command {
-            let path = registry_file
-                .map(Path::to_path_buf)
-                .unwrap_or_else(|| PathBuf::from(crate::registry::DEFAULT_PATH));
+            let path = writable_registry.clone();
             snapshot::run(&mut out, &path, args, quiet)?;
         } else if let Command::Restore(_) | Command::Migrate(_) = command {
             let action = if matches!(command, Command::Restore(_)) {
@@ -409,9 +439,7 @@ impl Session {
                 "migrate"
             };
             let root = local::root(index_file, false, action)?.unwrap();
-            let path = registry_file
-                .map(Path::to_path_buf)
-                .unwrap_or_else(|| PathBuf::from(crate::registry::DEFAULT_PATH));
+            let path = writable_registry.clone();
             let index = self.index(index_file, quiet)?;
             match command {
                 Command::Restore(args) => restore::run(&mut out, index, &path, args, quiet, &root)?,
@@ -422,9 +450,7 @@ impl Session {
             }
         } else if let Command::RevUpgrade(args) = command {
             let root = local::root(index_file, false, "rev-upgrade")?.unwrap();
-            let path = registry_file
-                .map(Path::to_path_buf)
-                .unwrap_or_else(|| PathBuf::from(crate::registry::DEFAULT_PATH));
+            let path = writable_registry.clone();
             rev_upgrade::run(
                 &mut out,
                 self.index(index_file, quiet)?,
@@ -435,9 +461,7 @@ impl Session {
             )?;
         } else if let Command::Reclaim(args) = command {
             let root = local::root(index_file, false, "reclaim")?.unwrap();
-            let path = registry_file
-                .map(Path::to_path_buf)
-                .unwrap_or_else(|| PathBuf::from(crate::registry::DEFAULT_PATH));
+            let path = writable_registry.clone();
             reclaim::run(self.index(index_file, quiet)?, &path, args, quiet, &root)?;
         } else if let Command::Load(_) | Command::Unload(_) | Command::Reload(_) = command {
             let (action, args) = match command {
@@ -468,9 +492,7 @@ impl Session {
             portcmds::log(&mut out, self.index(index_file, quiet)?, args, &root)?;
         } else if let Command::Upgrade(args) = command {
             let root = local::root(index_file, false, "upgrade")?.unwrap();
-            let path = registry_file
-                .map(Path::to_path_buf)
-                .unwrap_or_else(|| PathBuf::from(crate::registry::DEFAULT_PATH));
+            let path = writable_registry.clone();
             upgrade::run(
                 &mut out,
                 self.index(index_file, quiet)?,
@@ -493,9 +515,7 @@ impl Session {
         } else if let Command::Activate(_) | Command::Deactivate(_) | Command::Uninstall(_) =
             command
         {
-            let path = registry_file
-                .map(Path::to_path_buf)
-                .unwrap_or_else(|| PathBuf::from(crate::registry::DEFAULT_PATH));
+            let path = writable_registry.clone();
             let progress = crate::progress::Progress::new(quiet);
             match command {
                 Command::Activate(args) => {
@@ -633,6 +653,7 @@ impl Session {
                 | Command::Mirror(_)
                 | Command::Bump(_)
                 | Command::Diagnose(_)
+                | Command::Archivefetch(_)
                 | Command::Restore(_)
                 | Command::Migrate(_)
                 | Command::Load(_)

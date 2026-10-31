@@ -778,3 +778,98 @@ fn diagnose_reports_missing_archives_files_and_configuration() {
         "{progress}"
     );
 }
+
+/// Serve fixed files by path on a local port; other paths are 404.
+fn serve_files(files: std::collections::HashMap<String, Vec<u8>>) -> String {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let mut stream = stream;
+            let mut request = [0; 4096];
+            let count = stream.read(&mut request).unwrap_or(0);
+            let text = String::from_utf8_lossy(&request[..count]);
+            let path = text.split_whitespace().nth(1).unwrap_or("/").to_string();
+            match files.get(&path) {
+                Some(body) => {
+                    let _ = write!(
+                        stream,
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = stream.write_all(body);
+                }
+                None => {
+                    let _ = write!(
+                        stream,
+                        "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    );
+                }
+            }
+        }
+    });
+    format!("http://{address}/")
+}
+
+#[test]
+fn install_prefers_signed_archives_and_honors_source_and_binary_only() {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    use ed25519_compact::{KeyPair, Seed};
+    let tree = Tree::new();
+    tree.ok(&["-s", "archive", "lib"]);
+    let image = fs::read_dir(tree.root.join("db/software/lib"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| path.extension().is_some_and(|ext| ext == "tbz2"))
+        .unwrap();
+    let filename = image.file_name().unwrap().to_string_lossy().into_owned();
+    let bytes = fs::read(&image).unwrap();
+    tree.ok(&["uninstall", "lib"]);
+
+    let key = KeyPair::from_seed(Seed::new([7; 32]));
+    let envelope = |data: &[u8]| {
+        let mut packet = b"Ed12345678".to_vec();
+        packet.extend(data);
+        format!("untrusted comment: test\n{}\n", STANDARD.encode(packet))
+    };
+    let public = tree.root.join("archives.pub");
+    fs::write(&public, envelope(key.pk.as_ref())).unwrap();
+    let signature = envelope(key.sk.sign(&bytes, None).as_ref());
+    let url = serve_files(std::collections::HashMap::from([
+        (format!("/lib/{filename}"), bytes),
+        (format!("/lib/{filename}.sig"), signature.into_bytes()),
+    ]));
+    let prefix = tree.root.join("prefix");
+    let fetch = tree.root.join("ports/_resources/port1.0/fetch");
+    fs::create_dir_all(&fetch).unwrap();
+    fs::write(
+        fetch.join("archive_sites.tcl"),
+        format!(
+            "namespace eval ::portfetch::mirror_sites {{\nvariable sites\nset sites(test_archives) {{{url}:nosubdir}}\nvariable archive_type\nset archive_type(test_archives) tbz2\nvariable archive_prefix\nset archive_prefix(test_archives) {p}\nvariable archive_frameworks_dir\nset archive_frameworks_dir(test_archives) {p}/Library/Frameworks\nvariable archive_applications_dir\nset archive_applications_dir(test_archives) {p}/Applications\nvariable archive_cxx_stdlib\nset archive_cxx_stdlib(test_archives) libc++\nvariable archive_delete_la_files\nset archive_delete_la_files(test_archives) yes\nvariable archive_sigtype\nset archive_sigtype(test_archives) sig\nvariable archive_pubkey\nset archive_pubkey(test_archives) {key}\n}}\n",
+            p = prefix.display(),
+            key = public.display()
+        ),
+    )
+    .unwrap();
+
+    let binary = tree.run(&["install", "lib"]);
+    let progress = String::from_utf8_lossy(&binary.stderr);
+    assert!(binary.status.success(), "{progress}");
+    assert!(
+        progress.contains("Fetching archive for lib") && !progress.contains("Building lib"),
+        "{progress}"
+    );
+    assert_eq!(read(&tree.file("share/lib/version")), "lib-1\n");
+
+    let missing = tree.run(&["-b", "install", "app"]);
+    assert!(!missing.status.success());
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("binary-only mode"));
+    let source = tree.run(&["-s", "install", "app"]);
+    let progress = String::from_utf8_lossy(&source.stderr);
+    assert!(
+        source.status.success() && progress.contains("Building app"),
+        "{progress}"
+    );
+    assert!(!progress.contains("Fetching archive"), "{progress}");
+}

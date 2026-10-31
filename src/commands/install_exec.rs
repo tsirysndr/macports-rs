@@ -154,7 +154,27 @@ pub(super) fn run_specs(
             .get("keeplogs")
             .is_some_and(|value| matches!(value.as_str(), "yes" | "1" | "true" | "on"));
         let label = super::phase::prepare(session, &host, &worker, &item.port.name)?;
-        super::phase::run_targets(session, &label, &super::phase::ORDER)?;
+        // As upstream, a compatible signed archive replaces building from source.
+        let mut binary = None;
+        if super::archive_mode() != super::ArchiveMode::SourceOnly {
+            match super::archivefetch::fetch_archive(&host, session, item, &machine, staging.path())
+            {
+                Ok(archive) => binary = Some(archive),
+                Err(err) if super::archive_mode() == super::ArchiveMode::BinaryOnly => {
+                    bail!(
+                        "{}: binary-only mode, but no archive is available: {err:#}",
+                        item.port.name
+                    )
+                }
+                Err(err) => host.progress.log(
+                    "debug",
+                    &format!("no binary archive for {}: {err:#}", item.port.name),
+                ),
+            }
+        }
+        if binary.is_none() {
+            super::phase::run_targets(session, &label, &super::phase::ORDER)?;
+        }
         label.set(crate::build::Phase::Destroot);
         host.progress.set_log_phase("install");
         let portfile =
@@ -203,6 +223,9 @@ pub(super) fn run_specs(
                 )
             },
             |session, target| {
+                if let Some(archive) = binary {
+                    return Ok(archive);
+                }
                 let output = staging.path().join(target.filename(item)?);
                 package::create(&package_inputs(session, index)?, &output)?;
                 VerifiedArchive::local(fs::File::open(&output)?)
