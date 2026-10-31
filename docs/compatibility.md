@@ -1822,3 +1822,10 @@ Its temporary selector scope is removed before invoking host code, allowing the
 prepared runtime to access normal globals. The closure is fixed at entry like
 upstream dlist evaluation; newly registered targets are not silently added.
 The host still supplies package/context preparation and per-phase execution.
+
+Native `portarchivefetch::check_destroot_done` requires both an existing destroot
+directory and the destroot completion record. It uses an existing target state
+handle without closing it, or opens/releases its own state handle with normal
+work-state policy. Missing destroot directories do not create work directories.
+This supplies the completed-source-build check for archive-fetch startup; the
+remaining startup URL/cache/transport orchestration is not yet complete.
