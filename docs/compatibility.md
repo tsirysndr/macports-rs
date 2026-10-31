@@ -1989,6 +1989,13 @@ runtime. Its shared semaphore limits concurrent probes across queued batches;
 enables execution. The worker and comparator share one timing cache. Replacing
 that cache detaches the old worker to prevent split policy/results. Tests cover
 real service-resolution failure, cached penalties, native callback execution,
-read-only rejection, and teardown inside a single-thread Tokio runtime. Fetch
-startup's source/archive `start_pings` wrappers and CLI execution-driver binding
-remain unfinished.
+read-only rejection, and teardown inside a single-thread Tokio runtime. CLI execution-driver binding remains unfinished.
+
+Native source/archive `start_pings` wrappers now submit the live candidate URL
+maps to the bound mirror worker. Source fetch preserves `nomirror` and the exact
+`ports_fetch_no-mirrors` policy for its primary-mirror wait; archive fetch prefers
+the official class when present and otherwise selects the first configured
+class. Tests verify submission order, missing-map skipping, policy, errors, and
+source initialization through a real temporary mirror resource and native worker.
+CLI execution-driver binding, DNS diagnostics, and full fetch transport remain
+unfinished.
