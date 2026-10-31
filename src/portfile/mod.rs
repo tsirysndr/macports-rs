@@ -204,7 +204,9 @@ fn open(
             .collect::<Vec<_>>();
         interp.array_set("env", &values).map_err(failure)?;
     }
+    let mirror_times = crate::install::mirror_times::MirrorTimings::from_variables(variables)?;
     let id = interp.save_context(State {
+        mirror_times,
         archive_sites,
         registry_lookup,
         creation_mask: crate::source::startup_creation_mask(),

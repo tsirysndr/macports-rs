@@ -11,6 +11,7 @@ pub struct Context {
     pub variables: BTreeMap<String, String>,
     pub environment: BTreeMap<String, String>,
     pub proxies: Resolved,
+    pub mirror_timings: crate::install::mirror_times::MirrorTimings,
     pub warnings: Vec<String>,
     pub variants: super::Variants,
 }
@@ -127,7 +128,10 @@ impl Context {
             override_env,
         );
         environment.insert("CCACHE_DIR".into(), variables["ccache_dir"].clone());
+        let mirror_timings =
+            crate::install::mirror_times::MirrorTimings::from_variables(&variables)?;
         Ok(Self {
+            mirror_timings,
             variables,
             environment,
             proxies,

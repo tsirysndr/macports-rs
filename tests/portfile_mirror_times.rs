@@ -73,3 +73,46 @@ fn runtime_sort_uses_shared_measurements_without_comparator_stub() {
         "file:///tmp/distfiles https://fast/ https://slow/"
     );
 }
+
+#[test]
+fn configured_preferences_apply_during_portfile_evaluation() {
+    let variables = BTreeMap::from([
+        ("preferred_hosts".into(), "*.example".into()),
+        ("host_blacklist".into(), "{bad.example} blocked.*".into()),
+    ]);
+    let mut s = Session::open(
+        r#"name app; version 1
+        set ranking [compare_pingtimes https://good.example/ https://unknown/]
+        set blocked [compare_pingtimes https://bad.example/ https://unknown/]
+        # Portfile assignments do not override host policy.
+        set preferred_hosts unknown
+        "#,
+        &variables,
+        &PortSpec::named("app"),
+        PortGroups::default(),
+    )
+    .unwrap();
+    assert_eq!(s.scalar("ranking").unwrap(), "-3");
+    assert_eq!(s.scalar("blocked").unwrap(), "1");
+    assert_eq!(
+        s.invoke(
+            "compare_pingtimes",
+            &["https://good.example/", "https://unknown/"]
+        )
+        .unwrap(),
+        "-3"
+    );
+    let bad = BTreeMap::from([("host_blacklist".into(), "{unterminated".into())]);
+    assert!(
+        Session::open(
+            "name app; version 1",
+            &bad,
+            &PortSpec::named("app"),
+            PortGroups::default()
+        )
+        .err()
+        .unwrap()
+        .to_string()
+        .contains("invalid host_blacklist list")
+    );
+}

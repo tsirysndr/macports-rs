@@ -243,3 +243,32 @@ fn archive_type_startup_default_and_first_list_element_match_macports() {
         .contains("portarchivetype")
     );
 }
+
+#[test]
+fn context_shares_configured_mirror_policy_and_measurements() {
+    use std::{collections::BTreeMap, time::SystemTime};
+    let mut config = port_rs::config::Config::default();
+    config
+        .apply(
+            "preferred_hosts *.example\nhost_blacklist bad.example\n",
+            |p| Ok(p.into()),
+        )
+        .unwrap();
+    let context = port_rs::config::Context::new(
+        &config,
+        BTreeMap::from([("prefix".into(), "/opt/local".into())]),
+        &BTreeMap::new(),
+        501,
+        &port_rs::install::proxy::Settings::default(),
+    )
+    .unwrap();
+    let shared = context.mirror_timings.clone();
+    let now = SystemTime::now();
+    assert_eq!(shared.lookup("good.example", now), (2, None));
+    assert_eq!(shared.lookup("bad.example", now), (-2, None));
+    context
+        .mirror_timings
+        .record("measured", 12.0, now)
+        .unwrap();
+    assert_eq!(shared.lookup("measured", now), (1, Some(12.0)));
+}

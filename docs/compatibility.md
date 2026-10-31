@@ -1947,5 +1947,12 @@ file-URL precedence, case-insensitive blacklist/preferred-host globs, one-day
 freshness, rounded latency differences, and status tie-breaking. Sessions can
 share timestamped measurements through `set_mirror_timings`; tests exercise the
 real comparator through native mirror sorting. The cache accepts host-provided
-measurements, but active network probes, persistent cache loading, and binding
-configured host preferences in the CLI install driver are still unfinished.
+measurements, but active network probes and persistent cache loading remain
+unfinished.
+
+Configured `host_blacklist` and `preferred_hosts` lists now initialize native
+mirror policy before Portfile evaluation. Startup context owns a shared timing
+cache, which the install planner binds to every retained session so later
+measurements are visible across ports. Malformed lists fail with the option name;
+Portfile variable writes do not change the configured host policy. Network probes
+and persistent timing-cache loading remain unfinished.

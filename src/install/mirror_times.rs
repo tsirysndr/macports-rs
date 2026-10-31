@@ -1,5 +1,5 @@
 //! Shared mirror timing cache and MacPorts URL ordering policy.
-use anyhow::{Result, ensure};
+use anyhow::{Context as _, Result, ensure};
 use molt::glob::Glob;
 use std::{
     collections::BTreeMap,
@@ -16,6 +16,17 @@ struct Cache {
     times: BTreeMap<String, (f64, SystemTime)>,
 }
 impl MirrorTimings {
+    /// Parse configured Tcl lists without evaluating their contents.
+    pub fn from_variables(variables: &BTreeMap<String, String>) -> Result<Self> {
+        let patterns = |name: &str| {
+            crate::tcl_list::parse(variables.get(name).map(String::as_str).unwrap_or(""))
+                .with_context(|| format!("invalid {name} list"))
+        };
+        Ok(Self::new(
+            &patterns("host_blacklist")?,
+            &patterns("preferred_hosts")?,
+        ))
+    }
     pub fn new(blacklist: &[String], preferred: &[String]) -> Self {
         Self(Arc::new(Mutex::new(Cache {
             blacklist: blacklist.iter().map(|p| Glob::new(p, false)).collect(),

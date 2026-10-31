@@ -83,7 +83,7 @@ pub(super) fn run(
             let registry_path = context.registry_path(registry_file)?;
             let archives = paths.archive_resolver(&config, &context, root, progress.clone())?;
             install::plan_sessions(index, &specs, registry.as_ref(), |port, spec| {
-                crate::portfile::open_from_tree_with_registry(
+                let mut session = crate::portfile::open_from_tree_with_registry(
                     root,
                     port,
                     &context.variables,
@@ -91,7 +91,9 @@ pub(super) fn run(
                     &context.environment,
                     archives.clone(),
                     Some(&registry_path),
-                )
+                )?;
+                session.set_mirror_timings(context.mirror_timings.clone());
+                Ok(session)
             })
         })
         .transpose()?;
