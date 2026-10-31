@@ -91,6 +91,12 @@ pub(super) const OPTIONS: &[&str] = &[
     "livecheck.compression",
     "livecheck.curloptions",
     "livecheck.user_agent",
+    "package.type",
+    "package.destpath",
+    "package.flat",
+    "package.resources",
+    "package.scripts",
+    "pkg.asroot",
 ];
 pub(super) fn register(interp: &mut Interp, id: ContextID, name: &str) {
     interp.context::<State>(id).options.insert(name.into());

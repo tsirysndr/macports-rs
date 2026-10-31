@@ -801,16 +801,24 @@ fn action_ambiguity_includes_unimplemented_upstream_commands() {
 }
 
 #[test]
-fn exact_actions_win_and_unique_unsupported_prefixes_remain_errors() {
+fn exact_actions_win_unique_prefixes_expand_and_shell_only_actions_fail() {
     let fixture = Fixture::new();
-    for (action, canonical) in [("unarchiv", "unarchive"), ("mdm", "mdmg")] {
-        let output = fixture.run(&[action, "curl"]);
-        assert!(!output.status.success());
-        let error = String::from_utf8_lossy(&output.stderr);
-        assert!(error.contains("not implemented"), "{error}");
-        assert!(error.contains(&format!("\"{canonical}\"")), "{error}");
-        assert!(!error.contains("ambiguous"));
-    }
+    let output = fixture.run(&["selfupd", "--nosync"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let output = fixture.run(&["usag", "select"]);
+    assert!(String::from_utf8_lossy(&output.stderr).starts_with("Usage: port select"));
+    // `cd` only works in the interactive shell, which this CLI does not have.
+    let output = fixture.run(&["cd", "curl"]);
+    assert!(!output.status.success());
+    let error = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        error.contains("not implemented") && error.contains("\"cd\""),
+        "{error}"
+    );
     // Upstream performs the exact-name check before lowercasing prefixes.
     let output = fixture.run(&["INSTALL", "curl"]);
     assert!(String::from_utf8_lossy(&output.stderr).contains("is ambiguous"));

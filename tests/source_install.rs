@@ -873,3 +873,57 @@ fn install_prefers_signed_archives_and_honors_source_and_binary_only() {
     );
     assert!(!progress.contains("Fetching archive"), "{progress}");
 }
+
+#[test]
+fn packages_build_installer_pkgs_meta_packages_and_disk_images() {
+    let tree = Tree::new();
+    tree.ok(&["pkg", "app"]);
+    let work = tree
+        .root
+        .join("db/build")
+        .read_dir()
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| path.to_string_lossy().ends_with("_devel_app"))
+        .unwrap()
+        .join("app/work");
+    assert!(work.join("app-1.pkg").is_file());
+    let payload = Command::new("/usr/sbin/pkgutil")
+        .arg("--payload-files")
+        .arg(work.join("app-1-component.pkg"))
+        .output()
+        .unwrap();
+    assert!(String::from_utf8_lossy(&payload.stdout).contains("share/app/version"));
+
+    tree.ok(&["mpkg", "app"]);
+    let listing = Command::new("/usr/bin/xar")
+        .arg("-tf")
+        .arg(work.join("app-1.mpkg"))
+        .output()
+        .unwrap();
+    let listing = String::from_utf8_lossy(&listing.stdout);
+    assert!(
+        listing.contains("lib-1-component.pkg") && listing.contains("app-1-component.pkg"),
+        "{listing}"
+    );
+
+    tree.ok(&["dmg", "app"]);
+    assert!(work.join("app-1.dmg").is_file());
+
+    tree.ok(&["-s", "archive", "lib"]);
+    tree.ok(&["clean", "lib"]);
+    let output = tree.run(&["unarchive", "lib"]);
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Unpacking tbz2 archive for lib 1_0"));
+    let lib = tree
+        .root
+        .join("db/build")
+        .read_dir()
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| path.to_string_lossy().ends_with("_devel_lib"))
+        .unwrap()
+        .join("lib/work/destroot");
+    let staged = lib.join(tree.file("share/lib/version").strip_prefix("/").unwrap());
+    assert_eq!(read(&staged), "lib-1\n");
+    assert!(!lib.join("+CONTENTS").exists());
+}

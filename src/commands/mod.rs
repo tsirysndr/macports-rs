@@ -22,6 +22,7 @@ mod local;
 mod location;
 mod mirror;
 mod outdated;
+mod package;
 mod phase;
 mod portcmds;
 mod provides;
@@ -131,6 +132,16 @@ pub enum Command {
     RevUpgrade(rev_upgrade::RevUpgrade),
     /// Uninstall unneeded and inactive ports and delete unused files
     Reclaim(reclaim::Reclaim),
+    /// Build a macOS installer package for ports
+    Pkg(portcmds::Ports),
+    /// Build a macOS installer package including runtime dependencies
+    Mpkg(portcmds::Ports),
+    /// Build a disk image containing a port's installer package
+    Dmg(portcmds::Ports),
+    /// Build a disk image containing a port's meta-package
+    Mdmg(portcmds::Ports),
+    /// Unpack ports' binary archives into their destroot
+    Unarchive(portcmds::Ports),
     /// Fetch and verify ports' signed binary archives
     Archivefetch(portcmds::Ports),
     /// Build ports and store their images without activating them
@@ -396,6 +407,28 @@ impl Session {
                 args,
                 &root,
             )?;
+        } else if let Command::Pkg(_) | Command::Mpkg(_) | Command::Dmg(_) | Command::Mdmg(_) =
+            command
+        {
+            let (target, args) = match command {
+                Command::Pkg(args) => ("pkg", args),
+                Command::Mpkg(args) => ("mpkg", args),
+                Command::Dmg(args) => ("dmg", args),
+                Command::Mdmg(args) => ("mdmg", args),
+                _ => unreachable!(),
+            };
+            let root = local::root(index_file, false, target)?.unwrap();
+            package::run_target(
+                &mut out,
+                self.index(index_file, quiet)?,
+                &args.ports,
+                target,
+                quiet,
+                &root,
+            )?;
+        } else if let Command::Unarchive(args) = command {
+            let root = local::root(index_file, false, "unarchive")?.unwrap();
+            archivefetch::unarchive(self.index(index_file, quiet)?, &args.ports, quiet, &root)?;
         } else if let Command::Archivefetch(args) = command {
             let root = local::root(index_file, false, "archivefetch")?.unwrap();
             archivefetch::run(self.index(index_file, quiet)?, &args.ports, quiet, &root)?;
@@ -654,6 +687,11 @@ impl Session {
                 | Command::Bump(_)
                 | Command::Diagnose(_)
                 | Command::Archivefetch(_)
+                | Command::Unarchive(_)
+                | Command::Pkg(_)
+                | Command::Mpkg(_)
+                | Command::Dmg(_)
+                | Command::Mdmg(_)
                 | Command::Restore(_)
                 | Command::Migrate(_)
                 | Command::Load(_)
