@@ -155,11 +155,11 @@ fn local_variants_evaluate_source_and_groups_instead_of_stale_index_metadata() {
     );
     assert_eq!(
         stdout(fixture.run(&["variants", "example"])),
-        "example has the variants:\n   native: Native build\n[+]tls: Enable TLS\n"
+        "example has the variants:\n   native: Native build\n[+]tls: Enable TLS\n   universal\n"
     );
     assert_eq!(
         stdout(fixture.run(&["-q", "variants", "example", "-tls"])),
-        "   native: Native build\n  -tls: Enable TLS\n"
+        "   native: Native build\n  -tls: Enable TLS\n   universal\n"
     );
     assert_eq!(
         stdout(fixture.run(&["-q", "variants", "--index", "example"])),
@@ -188,7 +188,7 @@ fn local_variants_accept_explicit_tree_from_another_working_directory() {
         .env("PATH", "")
         .output()
         .unwrap();
-    assert_eq!(stdout(output), "   local\n");
+    assert_eq!(stdout(output), "   local\n   universal\n");
 }
 
 #[test]
@@ -236,7 +236,7 @@ fn local_variants_support_subports_and_user_options() {
     );
     assert_eq!(
         stdout(fixture.run(&["-q", "variants", "child", "feature=yes"])),
-        "   selected\n"
+        "   selected\n   universal\n"
     );
 }
 

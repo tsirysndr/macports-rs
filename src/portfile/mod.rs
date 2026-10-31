@@ -65,6 +65,7 @@ mod filesystem_mutations;
 mod groups;
 mod install_start;
 mod mirror_times;
+mod option_procs;
 mod patch_phase;
 mod paths;
 mod phase_start;
@@ -135,6 +136,10 @@ struct State {
     /// Lazy defaults that need execution inputs; metadata snapshots skip them
     /// until a Portfile assigns a value.
     execution_defaults: BTreeSet<String>,
+    option_procs: BTreeMap<String, Vec<String>>,
+    tracing: BTreeSet<String>,
+    callbacks: Vec<String>,
+    variant_descriptions: Option<BTreeMap<String, String>>,
     warned: BTreeSet<String>,
     notifications: Vec<(String, String)>,
     build_states: BTreeMap<String, crate::build::state::StateFile>,
@@ -307,6 +312,7 @@ fn open(
     build_settings::install(&mut interp, id).map_err(failure)?;
     compilers::install(&mut interp, id).map_err(failure)?;
     build_defaults::register_paths(&mut interp, id).map_err(failure)?;
+    option_procs::install(&mut interp, id).map_err(failure)?;
     build_phase::install(&mut interp, id);
     test_phase::install(&mut interp, id);
     configure_phase::install(&mut interp, id);
@@ -322,7 +328,9 @@ fn open(
             "unknown port option {name}"
         );
     }
+    interp.eval("universal_setup").map_err(failure)?;
     variants::apply(&mut interp, id).map_err(failure)?;
+    interp.eval("port::run_callbacks").map_err(failure)?;
     let options = interp.context::<State>(id).options.clone();
     let mut fields = BTreeMap::new();
     for name in options {

@@ -41,6 +41,9 @@ pub(super) fn declare(interp: &mut Interp, id: ContextID, argv: &[Value]) -> Mol
         return Err(error("invalid variant name"));
     }
     variant.description = description.join(" ");
+    if variant.description.is_empty() {
+        variant.description = global_description(interp, id, name);
+    }
     let state = interp.context::<State>(id);
     if !state.variants.contains_key(name) {
         state.order.push(name.into());
@@ -171,4 +174,27 @@ pub(super) fn defaults(interp: &mut Interp, id: ContextID, values: &[Value]) -> 
         }
     }
     Ok(Value::empty())
+}
+
+/// The ports tree's `variant_descriptions.conf` entry for an undescribed variant.
+fn global_description(interp: &mut Interp, id: ContextID, name: &str) -> String {
+    let state = interp.context::<State>(id);
+    let Some(root) = state.groups.resource_directory.clone() else {
+        return String::new();
+    };
+    let descriptions = state.variant_descriptions.get_or_insert_with(|| {
+        let path = root.join("port1.0/variant_descriptions.conf");
+        let mut table = BTreeMap::new();
+        for line in std::fs::read_to_string(path).unwrap_or_default().lines() {
+            if let Ok(words) = crate::tcl_list::parse(line)
+                && let [name, description, ..] = words.as_slice()
+                && !name.is_empty()
+                && !description.is_empty()
+            {
+                table.insert(name.clone(), description.clone());
+            }
+        }
+        table
+    });
+    descriptions.get(name).cloned().unwrap_or_default()
 }

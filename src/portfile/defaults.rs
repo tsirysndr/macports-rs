@@ -84,6 +84,7 @@ pub(super) fn register(
     Ok(Value::empty())
 }
 fn read(interp: &mut Interp, id: ContextID, name: &str) -> Result<Option<Value>, Exception> {
+    option_procs::on_read(interp, id, name)?;
     let state = interp.context::<State>(id);
     let Some(template) = state.lazy_defaults.get(name).cloned() else {
         return Ok(None);
@@ -121,7 +122,7 @@ fn changed(
     {
         interp.with_global_scope(|interp| format_changed(interp, id, name, change))?;
     }
-    Ok(())
+    option_procs::on_change(interp, id, name, change)
 }
 fn format_changed(
     interp: &mut Interp,

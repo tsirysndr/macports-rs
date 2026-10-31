@@ -1,0 +1,174 @@
+//! Option traces (`option_proc`), post-evaluation callbacks, and the default
+//! universal variant, as PortSystem runs them after sourcing a Portfile.
+use super::*;
+use molt::{MoltResult, check_args, interp::ScalarChange};
+
+pub(super) fn install(interp: &mut Interp, id: ContextID) -> MoltResult {
+    interp.add_context_command("option_proc", option_proc, id);
+    interp.add_context_command("port::register_callback", register_callback, id);
+    interp.add_context_command("port::run_callbacks", run_callbacks, id);
+    interp.add_context_command("universal_setup", universal_setup, id);
+    interp.add_context_command("variant_delete", variant_delete, id);
+    for name in [
+        "universal_variant",
+        "use_configure",
+        "os.universal_supported",
+    ] {
+        commands::register(interp, id, name);
+    }
+    let supported = if interp.var_exists(&"os.subplatform".into()) {
+        "[expr {${os.subplatform} eq \"macosx\"}]"
+    } else {
+        "0"
+    };
+    for (name, value) in [
+        ("use_configure", "yes"),
+        ("universal_variant", "${use_configure}"),
+        ("os.universal_supported", supported),
+    ] {
+        defaults::register(interp, id, name, value)?;
+    }
+    Ok(Value::empty())
+}
+
+fn option_proc(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(1, argv, 2, 0, "option ?proc ...?")?;
+    let option = argv[1].as_str().trim_start_matches("::").to_string();
+    interp
+        .context::<State>(id)
+        .option_procs
+        .entry(option)
+        .or_default()
+        .extend(argv[2..].iter().map(Value::to_string));
+    Ok(Value::empty())
+}
+
+fn handlers(interp: &mut Interp, id: ContextID, name: &str) -> Option<Vec<String>> {
+    let state = interp.context::<State>(id);
+    if state.option_procs.is_empty() || state.tracing.contains(name) {
+        return None;
+    }
+    state.option_procs.get(name).cloned()
+}
+
+fn call(interp: &mut Interp, words: Vec<Value>) -> MoltResult {
+    interp.with_global_scope(|interp| interp.eval_value(&Value::from(words)))
+}
+
+/// Run read traces before a global option is read. As with Tcl traces, the
+/// option's own traces are suspended while its handlers run.
+pub(super) fn on_read(interp: &mut Interp, id: ContextID, name: &str) -> Result<(), Exception> {
+    let Some(procs) = handlers(interp, id, name) else {
+        return Ok(());
+    };
+    interp.context::<State>(id).tracing.insert(name.into());
+    let result = procs.into_iter().try_for_each(|handler| {
+        call(interp, vec![handler.into(), name.into(), "read".into()]).map(|_| ())
+    });
+    interp.context::<State>(id).tracing.remove(name);
+    result
+}
+
+pub(super) fn on_change(
+    interp: &mut Interp,
+    id: ContextID,
+    name: &str,
+    change: ScalarChange,
+) -> Result<(), Exception> {
+    let Some(procs) = handlers(interp, id, name) else {
+        return Ok(());
+    };
+    interp.context::<State>(id).tracing.insert(name.into());
+    let result = (|| {
+        if change == ScalarChange::Write {
+            let value = interp.with_global_scope(|interp| interp.scalar(name))?;
+            for handler in procs {
+                call(
+                    interp,
+                    vec![handler.into(), name.into(), "set".into(), value.clone()],
+                )?;
+            }
+        } else {
+            for handler in procs {
+                // Upstream logs and ignores failures from delete handlers.
+                let _ = call(interp, vec![handler.into(), name.into(), "delete".into()]);
+            }
+        }
+        Ok(())
+    })();
+    interp.context::<State>(id).tracing.remove(name);
+    result
+}
+
+fn register_callback(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(1, argv, 2, 2, "callback")?;
+    interp
+        .context::<State>(id)
+        .callbacks
+        .push(argv[1].to_string());
+    Ok(Value::empty())
+}
+
+fn run_callbacks(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(1, argv, 1, 1, "")?;
+    let callbacks = std::mem::take(&mut interp.context::<State>(id).callbacks);
+    for callback in callbacks {
+        call(interp, vec![callback.into()])?;
+    }
+    Ok(Value::empty())
+}
+
+fn variant_delete(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(1, argv, 2, 2, "name")?;
+    let name = argv[1].as_str();
+    let state = interp.context::<State>(id);
+    state.variants.remove(name);
+    state.order.retain(|variant| variant != name);
+    Ok(Value::empty())
+}
+
+fn enabled(interp: &mut Interp, name: &str) -> Result<bool, Exception> {
+    Ok(interp.var_exists(&name.into()) && interp.scalar(name)?.as_bool().unwrap_or(false))
+}
+
+fn universal_setup(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(1, argv, 1, 0, "?args?")?;
+    interp.with_global_scope(|interp| {
+        let archs = interp.scalar("configure.universal_archs")?.as_list()?.len();
+        if interp
+            .context::<State>(id)
+            .variants
+            .contains_key("universal")
+        {
+            if archs < 2 {
+                call(interp, vec!["variant_delete".into(), "universal".into()])?;
+            }
+            return Ok(Value::empty());
+        }
+        let declined = interp.var_exists(&"universal_variant".into())
+            && !interp.scalar("universal_variant")?.as_bool()?;
+        if declined
+            || enabled(interp, "use_xmkmf")?
+            || !enabled(interp, "os.universal_supported")?
+            || archs <= 1
+        {
+            return Ok(Value::empty());
+        }
+        let compiler = interp.scalar("configure.compiler")?;
+        let supported = call(
+            interp,
+            vec![
+                "portconfigure::arch_flag_supported".into(),
+                compiler,
+                "yes".into(),
+            ],
+        )?;
+        if supported.as_bool()? {
+            call(
+                interp,
+                vec!["variant".into(), "universal".into(), Value::empty()],
+            )?;
+        }
+        Ok(Value::empty())
+    })
+}
