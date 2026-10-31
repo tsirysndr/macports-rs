@@ -147,7 +147,7 @@ fn open_tree(
         &source,
         &variables,
         requested,
-        PortGroups::from_directories(vec![root.join("_resources/port1.0/group")]),
+        PortGroups::from_tree(&root),
         environment,
         archives,
         registry,

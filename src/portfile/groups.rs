@@ -16,6 +16,7 @@ const MAX_SOURCE: u64 = 4 * 1024 * 1024;
 #[derive(Clone, Default)]
 pub struct PortGroups {
     directories: Vec<PathBuf>,
+    pub(super) resource_directory: Option<PathBuf>,
     embedded: BTreeMap<(String, String), String>,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -27,6 +28,14 @@ pub struct LoadedGroup {
     pub sha256: String,
 }
 impl PortGroups {
+    /// Bind local PortGroups and runtime resources to one selected ports tree.
+    pub fn from_tree(root: &std::path::Path) -> Self {
+        Self {
+            directories: vec![root.join("_resources/port1.0/group")],
+            resource_directory: Some(root.join("_resources")),
+            ..Self::default()
+        }
+    }
     pub fn from_directories(directories: Vec<PathBuf>) -> Self {
         Self {
             directories,

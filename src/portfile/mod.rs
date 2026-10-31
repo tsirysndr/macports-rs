@@ -41,6 +41,7 @@ use stage_context::StageContext;
 mod ditems;
 mod dlist;
 mod fetch_files;
+mod fetch_resources;
 mod fetch_sites;
 mod file_delete;
 mod file_link;
@@ -113,6 +114,7 @@ struct State {
     archive_sites: Option<ArchiveSites>,
     registry_lookup: Option<registry_lookup::Source>,
     groups: PortGroups,
+    mirror_resources: BTreeMap<String, crate::install::sites::resource::Resource>,
     progress: Option<crate::progress::Progress>,
     warned: BTreeSet<String>,
     notifications: Vec<(String, String)>,
@@ -250,6 +252,7 @@ fn open(
     archive_runtime::install(&mut interp, id);
     fetch_sites::install(&mut interp, id);
     fetch_files::install(&mut interp, id).map_err(failure)?;
+    fetch_resources::install(&mut interp, id);
     registry_lookup::install(&mut interp, id);
     phase_start::install(&mut interp, id);
     install_start::install(&mut interp, id);

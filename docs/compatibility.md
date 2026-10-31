@@ -1906,6 +1906,14 @@ excludes existing files in filespath, preserves caller-local URL lists, and runs
 patch candidates before distfiles. The source `checkfiles` wrapper applies
 NoMirror/no-mirrors policy before URL mapping. Fetch initialization reuses a
 nonempty candidate list and runs before completed-target skipping. Patch-site
-options and mirror subdirectory options are registered. Tests still provide the
-source mirror-resource path callback; source mirror getters, fetch transport,
+options and mirror subdirectory options are registered. Source fetch transport
 and the rest of source-build orchestration remain incomplete.
+
+Tree-loaded sessions now bind both PortGroups and source mirror resources to the
+selected ports tree. Native `portfetch::get_full_mirror_sites_path` and
+`get_mirror_site_urls` load bounded regular files in an isolated interpreter,
+provide explicit platform inputs, and cache results per path. Missing resources
+and unknown classes return empty lists; resource evaluation errors propagate.
+Tests run native fetch initialization against an actual temporary mirror resource
+and verify caching and forbidden-command failures. Fallback to a different
+default ports tree and source network transport are still unfinished.
