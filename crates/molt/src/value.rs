@@ -816,8 +816,13 @@ impl Value {
         } else if flt.is_nan() {
             write!(f, "NaN")
         } else {
-            // TODO: Needs improvement.
-            write!(f, "{}", flt)
+            // Tcl keeps a decimal point on whole floats: 1.0, not 1.
+            let text = flt.to_string();
+            if text.contains(['.', 'e', 'E']) {
+                write!(f, "{}", text)
+            } else {
+                write!(f, "{}.0", text)
+            }
         }
     }
 
@@ -1351,12 +1356,9 @@ mod tests {
         assert_eq!(val.as_int(), Ok(7));
         assert_eq!(val.as_float(), Ok(7.0));
 
-        // TODO: Note, 7.0 might not get converted to "7" long term.
-        // In Standard TCL, its string_rep would be "7.0".  Need to address
-        // MoltFloat formatting/parsing.
         let val = Value::from(7.0);
-        assert_eq!(val.as_str(), "7");
-        assert_eq!(val.as_int(), Ok(7));
+        assert_eq!(val.as_str(), "7.0");
+        assert!(val.as_int().is_err(), "Tcl rejects 7.0 as an integer");
         assert_eq!(val.as_float(), Ok(7.0));
 
         let val = Value::from("abc");

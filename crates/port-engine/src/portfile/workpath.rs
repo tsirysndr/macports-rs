@@ -21,8 +21,8 @@ fn elevate(_: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
 }
 fn drop_privileges(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 1, 1, "")?;
-    let user = interp.with_global_scope(|interp| interp.scalar("macports::macportsuser"))?;
-    if let Err(err) = crate::privileges::drop_to(user.as_str()) {
+    let user = build_user(interp);
+    if let Err(err) = crate::privileges::drop_to(&user) {
         eprintln!("Error: Failed to de-escalate privileges: {err}");
     }
     Ok(Value::empty())

@@ -44,6 +44,11 @@ pub(super) fn compile(
     expanded: bool,
     line: bool,
 ) -> Result<Pattern, Exception> {
+    // ARE directors: `***=` makes the rest literal, `***:` plain ARE.
+    if let Some(literal) = pattern.strip_prefix("***=") {
+        return compile(&regex::escape(literal), nocase, expanded, line);
+    }
+    let pattern = pattern.strip_prefix("***:").unwrap_or(pattern);
     let mut translated = String::with_capacity(pattern.len() + 8);
     let mut characters = pattern.chars().peekable();
     while let Some(character) = characters.next() {
@@ -107,7 +112,12 @@ fn options(argv: &[Value], allowed_inline: bool) -> Result<(Options, usize), Exc
         start: None,
     };
     let mut position = 1;
-    while position < argv.len() && argv[position].as_str().starts_with('-') {
+    // The pattern and string (and regsub's substitution) are never switches.
+    let required = if allowed_inline { 2 } else { 3 };
+    while position < argv.len()
+        && argv.len() - position > required
+        && argv[position].as_str().starts_with('-')
+    {
         match argv[position].as_str() {
             "-nocase" => options.nocase = true,
             "-expanded" => options.expanded = true,
@@ -214,18 +224,10 @@ pub fn cmd_regexp(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResu
         }
         return molt_ok!(Value::from(result));
     }
+    // As in Tcl, a failed match leaves the match variables untouched.
     if let Some(captures) = matches.last() {
         for (index, name) in variables.iter().enumerate() {
             interp.set_var(name, group(captures, index))?;
-        }
-    } else {
-        for name in variables {
-            let empty = if options.indices {
-                Value::from(vec![Value::from(-1), Value::from(-1)])
-            } else {
-                Value::empty()
-            };
-            interp.set_var(name, empty)?;
         }
     }
     if options.all {

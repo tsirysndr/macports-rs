@@ -28,6 +28,20 @@ impl Session {
 pub(super) fn install(interp: &mut Interp, id: ContextID) {
     interp.add_context_command("registry_exists", exists, id);
     interp.add_context_command("registry_exists_for_name", exists, id);
+    interp.add_context_command("registry_file_registered", file_registered, id);
+}
+/// The active port that installed `path`, or 0 (upstream `registry::file_registered`).
+fn file_registered(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(1, argv, 2, 2, "path")?;
+    let path = match &interp.context::<State>(id).registry_lookup {
+        Some(Source::Database(path)) => path.clone(),
+        _ => return Ok(0.into()),
+    };
+    let owner = crate::registry::Registry::open(Some(&path))
+        .ok()
+        .flatten()
+        .and_then(|registry| registry.owner(argv[1].as_str(), true).ok().flatten());
+    Ok(owner.map_or_else(|| 0.into(), Value::from))
 }
 fn exists(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     let name_only = argv[0].as_str() == "registry_exists_for_name";

@@ -174,9 +174,10 @@ pub fn cmd_dict(interp: &mut Interp, context_id: ContextID, argv: &[Value]) -> M
     interp.call_subcommand(context_id, argv, 1, &DICT_SUBCOMMANDS)
 }
 
-const DICT_SUBCOMMANDS: [Subcommand; 9] = [
+const DICT_SUBCOMMANDS: [Subcommand; 10] = [
     Subcommand("create", cmd_dict_new),
     Subcommand("exists", cmd_dict_exists),
+    Subcommand("for", cmd_dict_for),
     Subcommand("get", cmd_dict_get),
     Subcommand("keys", cmd_dict_keys),
     Subcommand("remove", cmd_dict_remove),
@@ -225,6 +226,29 @@ fn cmd_dict_exists(_: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
     }
 
     molt_ok!(true)
+}
+
+/// # dict for {*keyVar* *valueVar*} *dictionary* *body*
+fn cmd_dict_for(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(2, argv, 5, 5, "{keyVarName valueVarName} dictionary script")?;
+    let names = argv[2].as_list()?;
+    if names.len() != 2 {
+        return molt_err!("must have exactly two variable names");
+    }
+    let dict = argv[3].as_dict()?;
+    for (key, value) in dict.iter() {
+        interp.set_var(&names[0], key.clone())?;
+        interp.set_var(&names[1], value.clone())?;
+        match interp.eval_value(&argv[4]) {
+            Ok(_) => (),
+            Err(exception) => match exception.code() {
+                ResultCode::Break => break,
+                ResultCode::Continue => (),
+                _ => return Err(exception),
+            },
+        }
+    }
+    molt_ok!()
 }
 
 /// # dict get *dictionary* ?*key* ...?
@@ -789,8 +813,22 @@ pub fn cmd_info_cmdtype(interp: &mut Interp, _: ContextID, argv: &[Value]) -> Mo
 }
 
 /// # info commands ?*pattern*?
-pub fn cmd_info_commands(interp: &mut Interp, _: ContextID, _argv: &[Value]) -> MoltResult {
-    molt_ok!(Value::from(interp.command_names()))
+pub fn cmd_info_commands(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
+    molt_ok!(Value::from(matching(interp.command_names(), argv)))
+}
+
+/// Names matching the optional glob pattern after the subcommand.
+fn matching(names: MoltList, argv: &[Value]) -> MoltList {
+    match argv.get(2) {
+        Some(pattern) => {
+            let pattern = crate::glob::Glob::new(pattern.as_str(), true);
+            names
+                .into_iter()
+                .filter(|name| pattern.matches(name.as_str()))
+                .collect()
+        }
+        None => names,
+    }
 }
 
 /// # info default *procname* *arg* *varname*
@@ -825,8 +863,8 @@ pub fn cmd_info_complete(interp: &mut Interp, _: ContextID, argv: &[Value]) -> M
 
 /// # info globals
 /// TODO: Add glob matching as a feature, and provide optional pattern argument.
-pub fn cmd_info_globals(interp: &mut Interp, _: ContextID, _argv: &[Value]) -> MoltResult {
-    molt_ok!(Value::from(interp.vars_in_global_scope()))
+pub fn cmd_info_globals(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
+    molt_ok!(Value::from(matching(interp.vars_in_global_scope(), argv)))
 }
 
 /// # info locals
@@ -836,14 +874,14 @@ pub fn cmd_info_locals(interp: &mut Interp, _: ContextID, _argv: &[Value]) -> Mo
 }
 
 /// # info procs ?*pattern*?
-pub fn cmd_info_procs(interp: &mut Interp, _: ContextID, _argv: &[Value]) -> MoltResult {
-    molt_ok!(Value::from(interp.proc_names()))
+pub fn cmd_info_procs(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
+    molt_ok!(Value::from(matching(interp.proc_names(), argv)))
 }
 
 /// # info vars
 /// TODO: Add glob matching as a feature, and provide optional pattern argument.
-pub fn cmd_info_vars(interp: &mut Interp, _: ContextID, _argv: &[Value]) -> MoltResult {
-    molt_ok!(Value::from(interp.vars_in_scope()))
+pub fn cmd_info_vars(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
+    molt_ok!(Value::from(matching(interp.vars_in_scope(), argv)))
 }
 
 /// # join *list* ?*joinString*?

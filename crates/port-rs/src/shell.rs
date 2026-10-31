@@ -52,7 +52,7 @@ impl Completer for Shell {
         }
         let before = line[..start].trim_end();
         let lower = word.to_lowercase();
-        let candidates: Vec<String> = if before.is_empty() || before.ends_with(';') {
+        let mut candidates: Vec<String> = if before.is_empty() || before.ends_with(';') {
             port_rs::commands::ACTIONS
                 .iter()
                 .filter(|action| action.starts_with(&lower))
@@ -65,6 +65,7 @@ impl Completer for Shell {
                 .cloned()
                 .collect()
         };
+        candidates.sort();
         Ok((
             start,
             candidates
@@ -238,6 +239,6 @@ mod tests {
             (0, vec!["install".into(), "installed".into()])
         );
         assert_eq!(complete("info z"), (5, vec!["zlib".into(), "zstd".into()]));
-        assert_eq!(complete("info zlib; dep").1, ["deps"]);
+        assert_eq!(complete("info zlib; dep").1, ["dependents", "deps"]);
     }
 }

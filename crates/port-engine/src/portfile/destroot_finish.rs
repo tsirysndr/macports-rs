@@ -18,13 +18,13 @@ fn finish(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     interp.with_global_scope(|interp| {
         // Installed files must not belong to the unprivileged build account.
         if unsafe { libc::getuid() } == 0 {
-            let user = interp.scalar("macports::macportsuser")?;
+            let user = build_user(interp);
             let destroot = interp.scalar("destroot")?;
             let owner = interp.scalar("install.user")?;
             let group = interp.scalar("install.group")?;
             fix_ownership(
                 Path::new(destroot.as_str()),
-                user.as_str(),
+                &user,
                 owner.as_str(),
                 group.as_str(),
             )

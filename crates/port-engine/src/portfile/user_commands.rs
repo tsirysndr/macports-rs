@@ -616,16 +616,19 @@ fn strsed(_: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 3, 3, "string sed-expression")?;
     let text = argv[1].as_str();
     let expression = argv[2].as_str();
-    let mut characters = expression.chars();
-    // `s/a/b/[g]` substitutes once (or globally); `g/a/b/` always globally.
-    let leading_global = match characters.next() {
-        Some('s') => false,
-        Some('g') => true,
-        _ => {
-            return Err(error(
-                "strsed: only s/// and g/// expressions are supported",
-            ));
+    let mut characters = expression.chars().peekable();
+    // `[g]/a/b/` as Pextlib's strsed: a leading `g` substitutes globally and
+    // the next character delimits; `s/a/b/[g]` is also accepted.
+    let leading_global = match characters.peek() {
+        Some('g') => {
+            characters.next();
+            true
         }
+        Some('s') => {
+            characters.next();
+            false
+        }
+        _ => false,
     };
     let delimiter = characters
         .next()

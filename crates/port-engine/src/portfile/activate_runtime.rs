@@ -21,13 +21,7 @@ fn start(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     }
     interp.with_global_scope(|interp| {
         let prefix = interp.scalar("prefix_frozen")?;
-        // A prefix emptied by deactivation is created again on activation.
-        let existing = std::path::Path::new(prefix.as_str())
-            .ancestors()
-            .find(|path| path.exists())
-            .map(|path| path.to_string_lossy().into_owned())
-            .unwrap_or_else(|| prefix.to_string());
-        if !filesystem::predicate("writable", &existing) || crate::privileges::dropped() {
+        if !filesystem::predicate("writable", prefix.as_str()) || crate::privileges::dropped() {
             crate::privileges::elevate(argv[0].as_str()).map_err(|err| error(err.to_string()))?;
         }
         Ok(Value::empty())

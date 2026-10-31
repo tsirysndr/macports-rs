@@ -33,7 +33,7 @@ fn start(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
             // errors rather than silently disabling ccache.
             crate::privileges::elevate("configure ccache").map_err(|err| error(err.to_string()))?;
             let directory = interp.scalar("ccache_dir")?.to_string();
-            let user = interp.scalar("macports::macportsuser")?.to_string();
+            let user = build_user(interp);
             let created = (|| -> std::io::Result<()> {
                 use std::os::unix::fs::PermissionsExt;
                 std::fs::create_dir_all(&directory)?;

@@ -104,14 +104,17 @@ fn previous(path: &Path) -> Result<(Records, SystemTime)> {
             break;
         };
         let length: usize = length.parse().context("corrupt PortIndex")?;
-        let Some(line) = after.get(..length) else {
+        let Some(end) = crate::index::record_end(after, length) else {
             break;
         };
         records.insert(
             name.to_ascii_lowercase(),
-            (name.to_owned(), line.trim_end_matches('\n').to_owned()),
+            (
+                name.to_owned(),
+                after[..end].trim_end_matches('\n').to_owned(),
+            ),
         );
-        rest = &after[length..];
+        rest = &after[end..];
     }
     Ok((records, fs::metadata(path)?.modified()?))
 }
@@ -133,6 +136,7 @@ fn evaluate(
     portdir: &str,
     name: &str,
     variables: &BTreeMap<String, String>,
+    environment: &BTreeMap<String, String>,
     keep: &[&str],
     subport: bool,
 ) -> Result<(String, String, Vec<String>)> {
@@ -140,8 +144,14 @@ fn evaluate(
         name: name.to_owned(),
         fields: BTreeMap::from([("portdir".into(), portdir.to_owned())]),
     };
-    let mut evaluated =
-        crate::portfile::evaluate_from_tree(root, &port, variables, &PortSpec::named(name))?;
+    let mut evaluated = crate::portfile::open_from_tree_with_environment(
+        root,
+        &port,
+        variables,
+        &PortSpec::named(name),
+        environment,
+    )?
+    .into_metadata();
     let fields = &mut evaluated.port.fields;
     fields.insert("portdir".into(), portdir.to_owned());
     let subports = fields
@@ -149,11 +159,11 @@ fn evaluate(
         .map(|value| crate::tcl_list::parse(value))
         .transpose()?
         .unwrap_or_default();
-    Ok((
-        evaluated.port.name.clone(),
-        record(fields, keep, !subport),
-        subports,
-    ))
+    let name = fields
+        .get("name")
+        .cloned()
+        .unwrap_or_else(|| evaluated.port.name.clone());
+    Ok((name, record(fields, keep, !subport), subports))
 }
 
 /// The name the Portfile declares, for directories named differently.
@@ -173,22 +183,36 @@ fn index_port(
     root: &Path,
     portdir: &str,
     variables: &BTreeMap<String, String>,
+    environment: &BTreeMap<String, String>,
     keep: &[&str],
 ) -> Result<Entries> {
     let directory_name = portdir.rsplit('/').next().unwrap_or(portdir);
-    let (name, line, subports) =
-        match evaluate(root, portdir, directory_name, variables, keep, false) {
-            Ok(result) => result,
-            Err(err) => match declared_name(&root.join(portdir).join("Portfile")) {
-                Some(name) if name != directory_name => {
-                    evaluate(root, portdir, &name, variables, keep, false)?
-                }
-                _ => return Err(err),
-            },
-        };
+    let (name, line, subports) = match evaluate(
+        root,
+        portdir,
+        directory_name,
+        variables,
+        environment,
+        keep,
+        false,
+    ) {
+        Ok(result) => result,
+        Err(err) => match declared_name(&root.join(portdir).join("Portfile")) {
+            Some(name) if name != directory_name => {
+                evaluate(root, portdir, &name, variables, environment, keep, false)?
+            }
+            _ => return Err(err),
+        },
+    };
+    // Subports are only declared when evaluated under the port's own name.
+    let (name, line, subports) = if name != directory_name {
+        evaluate(root, portdir, &name, variables, environment, keep, false)?
+    } else {
+        (name, line, subports)
+    };
     let mut entries = vec![(name, line)];
     for subport in subports {
-        let (name, line, _) = evaluate(root, portdir, &subport, variables, keep, true)
+        let (name, line, _) = evaluate(root, portdir, &subport, variables, environment, keep, true)
             .with_context(|| format!("subport '{subport}'"))?;
         entries.push((name, line));
     }
@@ -198,20 +222,22 @@ fn index_port(
 /// Write `PortIndex.quick` (lowercase name and byte offset per entry) for an
 /// existing PortIndex, as upstream's `mports_generate_quickindex`.
 pub fn write_quick(index: &Path) -> Result<()> {
-    let text = fs::read(index)?;
+    let text = fs::read_to_string(index)?;
     let mut quick = String::new();
     let mut offset = 0;
     while offset < text.len() {
-        let Some(end) = text[offset..].iter().position(|byte| *byte == b'\n') else {
+        let Some(end) = text[offset..].find('\n') else {
             break;
         };
-        let header = String::from_utf8_lossy(&text[offset..offset + end]).into_owned();
-        let mut words = header.split_whitespace();
+        let mut words = text[offset..offset + end].split_whitespace();
         let (Some(name), Some(length), None) = (words.next(), words.next(), words.next()) else {
             break;
         };
         quick.push_str(&format!("{} {offset}\n", name.to_ascii_lowercase()));
-        offset += end + 1 + length.parse::<usize>().context("corrupt PortIndex")?;
+        let body = offset + end + 1;
+        let length = length.parse::<usize>().context("corrupt PortIndex")?;
+        offset =
+            body + crate::index::record_end(&text[body..], length).context("corrupt PortIndex")?;
     }
     let mut path = index.as_os_str().to_owned();
     path.push(".quick");
@@ -234,6 +260,7 @@ pub fn run(root: &Path, options: &Options) -> Result<Stats> {
     };
     let host = super::local::Host::new(&root, None, true)?;
     let mut variables = host.context.variables.clone();
+    let environment = &host.context.environment;
     // Keep ${prefix} literal so the index works with any prefix.
     variables.insert("prefix".into(), "${prefix}".into());
     if let Some(platform) = &options.platform {
@@ -307,7 +334,7 @@ pub fn run(root: &Path, options: &Options) -> Result<Stats> {
                             *skipped.lock().unwrap() += 1;
                             Ok(entries)
                         }
-                        None => index_port(&root, portdir, &variables, &keep),
+                        None => index_port(&root, portdir, &variables, environment, &keep),
                     };
                     results.lock().unwrap()[position] = Some(result);
                 }
@@ -329,7 +356,10 @@ pub fn run(root: &Path, options: &Options) -> Result<Stats> {
         match result.expect("every directory is indexed") {
             Ok(entries) => {
                 for (name, line) in entries {
-                    let text = format!("{name} {}\n{line}\n", line.len() + 1);
+                    let text = format!(
+                        "{name} {}\n{line}\n",
+                        crate::index::record_length(&line) + 1
+                    );
                     quick.push_str(&format!("{} {offset}\n", name.to_ascii_lowercase()));
                     offset += text.len();
                     writer.write_all(text.as_bytes())?;

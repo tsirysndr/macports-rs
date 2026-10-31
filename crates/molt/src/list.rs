@@ -258,9 +258,15 @@ fn get_mode(word: &str) -> Mode {
         return Mode::Brace;
     }
 
-    // NEXT, inspect the content.
-    let mut mode = Mode::AsIs;
+    // NEXT, inspect the content. A leading brace or quote would be read as
+    // quoting, so such words need quoting themselves.
+    let mut mode = if word.starts_with(['{', '"']) {
+        Mode::Brace
+    } else {
+        Mode::AsIs
+    };
     let mut brace_count = 0;
+    let mut unbalanced = false;
 
     let mut iter = word.chars().peekable();
 
@@ -274,7 +280,10 @@ fn get_mode(word: &str) -> Mode {
                 mode = Mode::Brace;
             }
             '{' => brace_count += 1,
-            '}' => brace_count -= 1,
+            '}' => {
+                brace_count -= 1;
+                unbalanced |= brace_count < 0;
+            }
             '\\' => {
                 if iter.peek() == Some(&'\n') {
                     return Mode::Escape;
@@ -286,7 +295,7 @@ fn get_mode(word: &str) -> Mode {
         }
     }
 
-    if brace_count != 0 {
+    if brace_count != 0 || unbalanced {
         Mode::Escape
     } else {
         mode

@@ -262,7 +262,7 @@ fn explicit_environment_is_available_during_tree_and_group_evaluation() {
     .unwrap();
     assert_eq!(session.metadata().port.get("version"), "7");
     assert_eq!(
-        session.metadata().port.get("description"),
+        port_rs::tcl_list::parse(session.metadata().port.get("description")).unwrap()[0],
         environment["TEXT"]
     );
     assert_eq!(session.invoke("set", &["env(FROM_GROUP)"]).unwrap(), "yes");

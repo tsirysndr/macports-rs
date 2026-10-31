@@ -19,13 +19,11 @@ test expr-1.1 {literals} {
 
 test expr-1.2 {literals} {
     lexpr {1.1} {-1.1} {+1.1} {1.1e3} {-1.1e3} {1.1e-3}
-} -ok {1.1 -1.1 1.1 1100 -1100 0.0011}
+} -ok {1.1 -1.1 1.1 1100.0 -1100.0 0.0011}
 
 test expr-1.3 {literals} {
     lexpr {1.0} {-1.0} {+1.0}
-    # In Tcl, would be "1.0", etc.
-    # TODO: Look into floating point compatibility with TCL.
-} -ok {1 -1 1}
+} -ok {1.0 -1.0 1.0}
 
 test expr-1.4 {literals} {
    lexpr true yes on false no off
@@ -60,7 +58,7 @@ test expr-2.6 {arithmetic} {
 
 test expr-2.7 {arithmetic} {
     lexpr {1.1 + 2} {3 + 2.1} {3 + 1.0}
-} -ok {3.1 5.1 4}
+} -ok {3.1 5.1 4.0}
 
 test expr-2.8 {arithmetic} {
     lexpr {3.1 - 1} {1.1 - 3} {3.1 - 0}
@@ -68,11 +66,11 @@ test expr-2.8 {arithmetic} {
 
 test expr-2.9 {arithmetic} {
     lexpr {2.5 * 3} {0.0 * 2} {2.0 * 0}
-} -ok {7.5 0 0}
+} -ok {7.5 0.0 0.0}
 
 test expr-2.10 {arithmetic} {
     lexpr {4.0 / 2} {5 / 2.0} {6.2 / 2}
-} -ok {2 2.5 3.1}
+} -ok {2.0 2.5 3.1}
 
 test expr-2.11 {arithmetic} {
     expr {2.1 / 0.0}

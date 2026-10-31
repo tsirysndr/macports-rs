@@ -100,7 +100,7 @@ pub(super) const OPTIONS: &[&str] = &[
 ];
 pub(super) fn register(interp: &mut Interp, id: ContextID, name: &str) {
     interp.context::<State>(id).options.insert(name.into());
-    for suffix in ["", "-append", "-prepend", "-delete", "-replace"] {
+    for suffix in ["", "-append", "-prepend", "-delete", "-replace", "-strsed"] {
         interp.add_context_command(&format!("{name}{suffix}"), option, id);
     }
 }
@@ -155,10 +155,25 @@ fn option(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     let command = argv[0].as_str();
     let (name, operation) = command
         .rsplit_once('-')
-        .filter(|(_, suffix)| ["append", "prepend", "delete", "replace"].contains(suffix))
+        .filter(|(_, suffix)| ["append", "prepend", "delete", "replace", "strsed"].contains(suffix))
         .unwrap_or((command, "set"));
     global(interp, name);
     if interp.context::<State>(id).overrides.contains(name) {
+        return Ok(Value::empty());
+    }
+    // Rewrite the current value with each sed expression, if it is set.
+    if operation == "strsed" {
+        if interp.var_exists(&Value::from(name)) {
+            for expression in &argv[1..] {
+                let current = interp.scalar(name)?;
+                let updated = interp.eval_value(&Value::from(vec![
+                    "strsed".into(),
+                    current,
+                    expression.clone(),
+                ]))?;
+                interp.eval_value(&Value::from(vec!["set".into(), name.into(), updated]))?;
+            }
+        }
         return Ok(Value::empty());
     }
     let mut values = if operation == "set" || !interp.var_exists(&Value::from(name)) {
@@ -193,19 +208,8 @@ fn option(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
         super::variants::defaults(interp, id, &argv[1..])?;
     }
 
-    // Notes stay a list of paragraphs, as upstream's handle_option stores them.
-    let value = if matches!(name, "description" | "long_description" | "homepage") {
-        Value::from(
-            values
-                .iter()
-                .map(Value::as_str)
-                .collect::<Vec<_>>()
-                .join(" "),
-        )
-    } else {
-        Value::from(values)
-    };
-    interp.set_scalar_return(name, value)
+    // Every option holds its words as a list, as upstream's handle_option.
+    interp.set_scalar_return(name, Value::from(values))
 }
 fn access(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 2, 3, "name ?value?")?;

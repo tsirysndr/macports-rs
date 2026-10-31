@@ -80,7 +80,7 @@ fn job_defaults_are_lazy_and_do_not_capture_old_option_values() {
         build.mem_per_job 4096
         set middle ${build.jobs}
         use_parallel_build no
-        description "$before $middle ${build.jobs}"
+        description {*}"$before $middle ${build.jobs}"
     "#,
         &[
             ("port_rs.active_cpus", "16"),

@@ -247,7 +247,7 @@ fn man_page(prefix: &Path, action: Option<&str>, topic: Option<&str>) -> Option<
     let path = man.join(&page);
     if path.is_file() {
         Some(path)
-    } else if action.is_some() || topic.is_none() {
+    } else if (action.is_some() || topic.is_none()) && man.join("man1/port.1.gz").is_file() {
         Some(man.join("man7/portundocumented.7.gz")).filter(|path| path.is_file())
     } else {
         None
@@ -263,13 +263,17 @@ pub(super) fn help(
     let topic = topics.first().map(String::as_str);
     let action = topic.filter(|topic| super::ACTIONS.contains(topic));
     if let Some(page) = man_page(&prefix(), action, topic) {
-        let status = std::process::Command::new("/usr/bin/man")
-            .arg(&page)
-            .status();
-        match status {
+        let mut command = std::process::Command::new("/usr/bin/man");
+        command.arg(&page);
+        if std::env::var_os("PATH").is_none_or(|path| path.is_empty()) {
+            command.env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin");
+        }
+        match command.status() {
             Ok(status) if status.success() => return Ok(()),
-            Ok(status) => bail!("Unable to show man page using /usr/bin/man: {status}"),
-            Err(err) => bail!("Unable to show man page using /usr/bin/man: {err}"),
+            Ok(status) => {
+                eprintln!("Warning: Unable to show man page using /usr/bin/man: {status}")
+            }
+            Err(err) => eprintln!("Warning: Unable to show man page using /usr/bin/man: {err}"),
         }
     }
     match (topic, action) {

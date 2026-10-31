@@ -352,8 +352,20 @@ pub fn cmd_lsort(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResul
     let mut index: Option<Value> = None;
     let mut command: Option<Value> = None;
     let mut position = 1;
+    const LSORT_OPTIONS: &[&str] = &[
+        "-ascii",
+        "-dictionary",
+        "-integer",
+        "-real",
+        "-increasing",
+        "-decreasing",
+        "-unique",
+        "-nocase",
+        "-index",
+        "-command",
+    ];
     while position < argv.len() - 1 {
-        match argv[position].as_str() {
+        match option_prefix(argv[position].as_str(), LSORT_OPTIONS) {
             "-ascii" => kind = Kind::Ascii,
             "-dictionary" => kind = Kind::Dictionary,
             "-integer" => kind = Kind::Integer,
@@ -1060,8 +1072,17 @@ pub fn cmd_glob(_: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
     let mut prefix = String::new();
     let mut types: Vec<String> = Vec::new();
     let mut position = 1;
+    const GLOB_OPTIONS: &[&str] = &[
+        "-nocomplain",
+        "-tails",
+        "-join",
+        "-directory",
+        "-path",
+        "-types",
+        "--",
+    ];
     while position < argv.len() && argv[position].as_str().starts_with('-') {
-        match argv[position].as_str() {
+        match option_prefix(argv[position].as_str(), GLOB_OPTIONS) {
             "-nocomplain" => nocomplain = true,
             "-tails" => tails = true,
             "-join" => join = true,
@@ -1141,6 +1162,19 @@ pub fn cmd_glob(_: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
     molt_ok!(Value::from(results))
 }
 
+/// The option `given` names: an exact match or, as Tcl allows, a unique
+/// prefix. Anything else is returned unchanged for the caller to reject.
+fn option_prefix<'a>(given: &'a str, options: &[&'a str]) -> &'a str {
+    if options.contains(&given) || given.len() < 2 {
+        return given;
+    }
+    let mut matches = options.iter().filter(|option| option.starts_with(given));
+    match (matches.next(), matches.next()) {
+        (Some(option), None) => option,
+        _ => given,
+    }
+}
+
 /// # clock seconds | clock milliseconds
 pub fn cmd_clock(_: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 2, 0, "subcommand ?arg ...?")?;
@@ -1151,8 +1185,117 @@ pub fn cmd_clock(_: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
         "seconds" => molt_ok!(now.as_secs() as MoltInt),
         "milliseconds" => molt_ok!(now.as_millis() as MoltInt),
         "microseconds" => molt_ok!(now.as_micros() as MoltInt),
+        "format" => clock_format(argv),
+        "scan" => clock_scan(argv),
         other => molt_err!("unsupported clock subcommand \"{}\"", other),
     }
+}
+
+/// `-format`, and whether `-gmt`/`-timezone` select UTC.
+fn clock_options(argv: &[Value], first: usize) -> Result<(Option<String>, bool), Exception> {
+    let mut format = None;
+    let mut gmt = false;
+    let mut index = first;
+    while index < argv.len() {
+        let value = argv.get(index + 1).ok_or_else(|| {
+            Exception::molt_err(Value::from(format!(
+                "missing value for option \"{}\"",
+                argv[index]
+            )))
+        })?;
+        match argv[index].as_str() {
+            "-format" => format = Some(value.as_str().to_string()),
+            "-gmt" => gmt = value.as_bool()?,
+            "-timezone" => {
+                gmt = matches!(value.as_str(), ":UTC" | "UTC" | ":GMT" | "GMT" | "+0000")
+            }
+            "-locale" | "-base" => {}
+            other => return molt_err!("bad option \"{}\"", other),
+        }
+        index += 2;
+    }
+    Ok((format, gmt))
+}
+
+/// # clock format seconds ?-format format? ?-gmt boolean? ?-timezone zone?
+fn clock_format(argv: &[Value]) -> MoltResult {
+    check_args(2, argv, 3, 0, "clockval ?-option value ...?")?;
+    let seconds = argv[2].as_int()? as libc::time_t;
+    let (format, gmt) = clock_options(argv, 3)?;
+    let format = format.unwrap_or_else(|| "%a %b %d %H:%M:%S %Z %Y".into());
+    let format =
+        std::ffi::CString::new(format).map_err(|_| Exception::molt_err("invalid format".into()))?;
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    // SAFETY: both pointers refer to live, initialized values.
+    unsafe {
+        if gmt {
+            libc::gmtime_r(&seconds, &mut tm);
+        } else {
+            libc::localtime_r(&seconds, &mut tm);
+        }
+    }
+    let mut buffer = vec![0u8; 1024];
+    // SAFETY: the buffer length bounds the write; format is NUL terminated.
+    let length = unsafe {
+        libc::strftime(
+            buffer.as_mut_ptr().cast(),
+            buffer.len(),
+            format.as_ptr(),
+            &tm,
+        )
+    };
+    buffer.truncate(length);
+    molt_ok!(String::from_utf8_lossy(&buffer).into_owned())
+}
+
+/// # clock scan string ?-format format? ?-gmt boolean? ?-timezone zone?
+///
+/// Without `-format`, ISO 8601 dates and times are recognized.
+fn clock_scan(argv: &[Value]) -> MoltResult {
+    check_args(2, argv, 3, 0, "string ?-option value ...?")?;
+    let (format, gmt) = clock_options(argv, 3)?;
+    let text = argv[2].as_str().trim();
+    let formats: Vec<String> = match format {
+        Some(format) => vec![format],
+        None => [
+            "%Y-%m-%dT%H:%M:%SZ",
+            "%Y-%m-%dT%H:%M:%S",
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%d %H:%M",
+            "%Y-%m-%d",
+            "%Y%m%dT%H%M%S",
+            "%Y%m%d",
+        ]
+        .iter()
+        .map(|format| format.to_string())
+        .collect(),
+    };
+    let input =
+        std::ffi::CString::new(text).map_err(|_| Exception::molt_err("invalid date".into()))?;
+    for format in formats {
+        let pattern = match std::ffi::CString::new(format) {
+            Ok(pattern) => pattern,
+            Err(_) => continue,
+        };
+        let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+        // SAFETY: both strings are NUL terminated and tm is a valid output.
+        let end = unsafe { libc::strptime(input.as_ptr(), pattern.as_ptr(), &mut tm) };
+        // SAFETY: strptime returns a pointer into `input` on success.
+        if end.is_null() || unsafe { *end } != 0 {
+            continue;
+        }
+        tm.tm_isdst = -1;
+        // SAFETY: tm was filled by strptime.
+        let seconds = unsafe {
+            if gmt {
+                libc::timegm(&mut tm)
+            } else {
+                libc::mktime(&mut tm)
+            }
+        };
+        return molt_ok!(seconds as MoltInt);
+    }
+    molt_err!("unable to convert date-time string \"{}\"", text)
 }
 
 // ---------------------------------------------------------------------------

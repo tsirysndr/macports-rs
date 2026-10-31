@@ -59,6 +59,34 @@ impl BuildHost {
             ("universal_archs".into(), universal.into()),
             ("port_rs.active_cpus".into(), self.active_cpus.to_string()),
         ]);
+        // Kernel release for os.version and os.minor, as upstream's uname.
+        let release =
+            kernel_release().unwrap_or_else(|| format!("{}.0.0", self.platform.darwin_major));
+        let minor = release.split('.').nth(1).unwrap_or("0").to_string();
+        for (name, value) in [
+            ("version", release),
+            ("minor", minor),
+            ("endian", "little".into()),
+        ] {
+            variables.insert(format!("os.{name}"), value);
+        }
+        // The system options the os.* defaults come from.
+        for name in [
+            "platform",
+            "subplatform",
+            "version",
+            "major",
+            "minor",
+            "arch",
+            "endian",
+        ] {
+            let value = variables[&format!("os.{name}")].clone();
+            variables.insert(format!("os_{name}"), value);
+        }
+        variables.insert("registry.format".into(), "receipt_sqlite".into());
+        if let Some(home) = std::env::var_os("HOME") {
+            variables.insert("user_home".into(), home.to_string_lossy().into_owned());
+        }
         if let Some(mask) = startup_creation_mask() {
             variables.insert(
                 "port_rs.initial_creation_mask".into(),
@@ -140,4 +168,25 @@ pub fn detect_build_host() -> Result<BuildHost> {
 #[cfg(not(target_os = "macos"))]
 pub fn detect_build_host() -> Result<BuildHost> {
     bail!("automatic build configuration requires macOS")
+}
+
+/// `kern.osrelease`, such as `24.6.0`.
+fn kernel_release() -> Option<String> {
+    let mut buffer = [0u8; 64];
+    let mut length = buffer.len();
+    // SAFETY: the buffer and its length describe valid writable storage.
+    let status = unsafe {
+        libc::sysctlbyname(
+            c"kern.osrelease".as_ptr(),
+            buffer.as_mut_ptr().cast(),
+            &mut length,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    (status == 0).then(|| {
+        String::from_utf8_lossy(&buffer[..length])
+            .trim_end_matches('\0')
+            .to_string()
+    })
 }

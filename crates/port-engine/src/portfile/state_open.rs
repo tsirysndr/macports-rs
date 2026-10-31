@@ -48,8 +48,8 @@ pub(super) fn open(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltRe
             }
         }
         // De-escalate to the build account if started as root.
-        let user = interp.scalar("macports::macportsuser")?;
-        crate::privileges::drop_to(user.as_str()).map_err(|err| error(err.to_string()))?;
+        let user = build_user(interp);
+        crate::privileges::drop_to(&user).map_err(|err| error(err.to_string()))?;
         let portfile = Path::new(&portpath).join("Portfile");
         let prepared = if dry {
             work_state::prepare_dry_run(Path::new(&work), &subport, &portfile, ignore)

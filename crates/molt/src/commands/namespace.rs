@@ -48,6 +48,35 @@ pub fn command(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult 
             }
             molt_ok!()
         }
+        // A namespace exists once something has been defined in it.
+        "exists" => {
+            check_args(2, argv, 3, 3, "name")?;
+            let name = argv[2].as_str().trim_start_matches(':');
+            if name.is_empty() {
+                return molt_ok!(true);
+            }
+            let prefix = format!("{name}::");
+            let defined = |names: crate::MoltList| {
+                names
+                    .iter()
+                    .any(|item| item.as_str().trim_start_matches(':').starts_with(&prefix))
+            };
+            molt_ok!(defined(interp.command_names()) || defined(interp.vars_in_global_scope()))
+        }
+        // `a::b::c` → `a::b` and `c`, as Tcl splits qualified names.
+        "qualifiers" | "tail" => {
+            check_args(2, argv, 3, 3, "string")?;
+            let name = argv[2].as_str();
+            let (qualifiers, tail) = match name.rfind("::") {
+                Some(index) => (name[..index].trim_end_matches(':'), &name[index + 2..]),
+                None => ("", name),
+            };
+            if argv[1].as_str() == "tail" {
+                molt_ok!(tail)
+            } else {
+                molt_ok!(qualifiers)
+            }
+        }
         other => molt_err!("unsupported namespace subcommand \"{}\"", other),
     }
 }

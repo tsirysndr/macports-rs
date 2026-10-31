@@ -35,10 +35,10 @@ fn required_closure_and_execution_order_are_distinct_and_deduplicate_shared_item
         set selected [dlist_append_dependents $all $root {}]
         set names {}
         foreach entry $selected {lappend names [ditem_key $entry name]}
-        description $names
+        description {*}$names
         set remaining [dlist_eval $selected {} execute]
         if {$remaining ne {}} {error remaining}
-        long_description $events
+        long_description {*}$events
     "#);
     assert_eq!(result.port.get("description"), "root left base right");
     assert_eq!(result.port.get("long_description"), "base left right root");
@@ -51,8 +51,8 @@ fn optional_dependencies_delay_pending_providers_and_prefer_fewer_unmet_tokens()
         set provider [item provider provider {}]
         set ready [item ready ready {}]
         set remaining [dlist_eval [list $consumer $absent $provider $ready] {} execute]
-        description $events
-        long_description $dlist_eval_reason
+        description {*}$events
+        long_description {*}$dlist_eval_reason
     "#);
     assert_eq!(
         result.port.get("description"),
@@ -69,7 +69,7 @@ fn cycles_and_missing_requirements_remain_pending_without_running_handlers() {
         set closure [dlist_append_dependents [list $a $b] $a {}]
         if {[llength $closure] != 2} {error cycle}
         set pending [dlist_eval [list $a $b $missing] {} execute]
-        description [list [llength $pending] $dlist_eval_reason $events]
+        description {*}[list [llength $pending] $dlist_eval_reason $events]
     "#);
     assert_eq!(result.port.get("description"), "3 unmet_deps {}");
 }
@@ -81,10 +81,10 @@ fn handler_prefixes_failure_statuses_and_can_fail_follow_native_rules() {
         set c [item c c {}]
         proc fail {prefix item} {global events; lappend events "$prefix:[ditem_key $item name]"; return 4}
         set pending [dlist_eval [list $a $b $c] {} {fail failed}]
-        description [list [llength $pending] $dlist_eval_reason $events]
+        description {*}[list [llength $pending] $dlist_eval_reason $events]
         set events {}
         set pending [dlist_eval [list $a $b $c] {} {fail failed} 1]
-        long_description [list [llength $pending] $dlist_eval_reason $events]
+        long_description {*}[list [llength $pending] $dlist_eval_reason $events]
     "#);
     assert_eq!(result.port.get("description"), "3 handler failed:a");
     assert_eq!(
@@ -99,9 +99,9 @@ fn handler_exceptions_stop_even_when_can_fail_and_nonnumeric_status_is_failure()
         proc broken {item} {error failed}
         proc invalid {item} {return invalid}
         set result [dlist_eval [list $a] {} broken 1]
-        description [list [llength $result] $dlist_eval_reason]
+        description {*}[list [llength $result] $dlist_eval_reason]
         set result [dlist_eval [list $a] {} invalid]
-        long_description [list [llength $result] $dlist_eval_reason]
+        long_description {*}[list [llength $result] $dlist_eval_reason]
     "#);
     assert_eq!(result.port.get("description"), "1 handler");
     assert_eq!(result.port.get("long_description"), "1 handler");
@@ -122,8 +122,8 @@ fn test_condition_marks_tokens_and_custom_selector_can_upvar_local_status() {
             set pending [dlist_eval $items done execute 0 selector reason]
             return [list $pending $reason]
         }
-        description [schedule [list $b $a]]
-        long_description $events
+        description {*}[schedule [list $b $a]]
+        long_description {*}$events
         if {[info exists statusdict] || [info exists reason]} {error leaked}
     "#);
     assert_eq!(result.port.get("description"), "{} {}");
@@ -140,8 +140,8 @@ fn list_helpers_preserve_literal_tokens_and_modify_callers_list() {
         set status($token) 1.0
         if {[dlist_count_unmet $items status [list $token missing]] != 1} {error count}
         proc remove {value} {set items [list $value $value]; dlist_delete items $value; return $items}
-        description [llength [remove $a]]
-        long_description [llength $items]
+        description {*}[llength [remove $a]]
+        long_description {*}[llength $items]
     "#);
     assert_eq!(result.port.get("description"), "1");
     assert_eq!(result.port.get("long_description"), "2");
@@ -158,11 +158,11 @@ fn deep_required_closures_are_iterative_and_keep_all_providers() {
             set previous t$i
         }
         set closure [dlist_append_dependents $items $current {}]
-        description [llength $closure]
+        description {*}[llength $closure]
         set first [item first shared {}]
         set second [item second shared {}]
         set root [item root root shared]
-        long_description [llength [dlist_append_dependents [list $first $second $root] $root {}]]
+        long_description {*}[llength [dlist_append_dependents [list $first $second $root] $root {}]]
     "#);
     assert_eq!(result.port.get("description"), "5000");
     assert_eq!(result.port.get("long_description"), "3");

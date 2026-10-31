@@ -183,6 +183,18 @@ struct State {
     active: BTreeSet<String>,
     unsupported: BTreeSet<String>,
 }
+/// The build account (`macportsuser`), `macports` when none is configured.
+pub(crate) fn build_user(interp: &mut Interp) -> String {
+    interp
+        .with_global_scope(|interp| {
+            ["macports::macportsuser", "macportsuser"]
+                .iter()
+                .find_map(|name| interp.scalar(name).ok())
+        })
+        .map(|user| user.to_string())
+        .unwrap_or_else(|| "macports".into())
+}
+
 /// Configuration values upstream copies into each port's `system_options`.
 const SYSTEM_OPTIONS: &[&str] = &[
     "portdbpath",
@@ -339,7 +351,7 @@ fn open(
     command_options::install(&mut interp, id).map_err(failure)?;
     command_exec::install(&mut interp, id);
     for (name, value) in [
-        ("name", requested.name.as_str()),
+        // Upstream leaves `name` unset until the Portfile sets it.
         ("subport", requested.name.as_str()),
         ("revision", "0"),
         ("epoch", "0"),
@@ -474,7 +486,7 @@ fn open(
     ensure!(
         fields
             .get("name")
-            .is_some_and(|name| name == &requested.name)
+            .is_some_and(|name| name.eq_ignore_ascii_case(&requested.name))
             || state.selected_subport,
         "Portfile does not define requested port {}",
         requested.name
@@ -487,7 +499,13 @@ fn open(
             "Portfile version does not match requested version {version}"
         );
     }
-    fields.insert("name".into(), requested.name.clone());
+    // Keep the Portfile's spelling of its own name.
+    let name = fields
+        .get("name")
+        .filter(|name| name.eq_ignore_ascii_case(&requested.name))
+        .cloned()
+        .unwrap_or_else(|| requested.name.clone());
+    fields.insert("name".into(), name);
     fields.insert("variants".into(), list(state.order.clone()).to_string());
     if !state.subports.is_empty() {
         fields.insert("subports".into(), list(state.subports.clone()).to_string());

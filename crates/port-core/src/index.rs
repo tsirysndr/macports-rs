@@ -87,6 +87,23 @@ pub struct Index {
     ports: BTreeMap<String, Port>,
     folded_names: OnceLock<HashMap<String, String>>,
 }
+/// Tcl 8.6 string length, which PortIndex headers use: UTF-16 code units.
+pub fn record_length(record: &str) -> usize {
+    record.encode_utf16().count()
+}
+
+/// The byte offset in `body` after a record `length` UTF-16 units long.
+pub fn record_end(body: &str, length: usize) -> Option<usize> {
+    let mut units = 0;
+    for (offset, character) in body.char_indices() {
+        if units == length {
+            return Some(offset);
+        }
+        units += character.len_utf16();
+    }
+    (units == length).then_some(body.len())
+}
+
 impl Index {
     /// Catalogs are immutable after parsing, keeping lazy lookup data consistent.
     pub fn ports(&self) -> &BTreeMap<String, Port> {
@@ -135,21 +152,9 @@ impl Index {
                 .parse()
                 .context("invalid PortIndex record length")?;
             ensure!(length > 0, "empty PortIndex record");
-            // Tcl 8.6 string length counts UTF-16 code units, not UTF-8 bytes.
-            let mut units = 0;
-            let mut end = 0;
-            for (offset, c) in body.char_indices() {
-                units += c.len_utf16();
-                end = offset + c.len_utf8();
-                if units >= length {
-                    break;
-                }
-            }
-            ensure!(
-                units == length && body[..end].ends_with('\n'),
-                "truncated or invalid record for {}",
-                header[0]
-            );
+            let end = record_end(body, length)
+                .filter(|end| body[..*end].ends_with('\n'))
+                .with_context(|| format!("truncated or invalid record for {}", header[0]))?;
             let values = tcl_list::parse(&body[..end - 1])
                 .with_context(|| format!("invalid fields for {}", header[0]))?;
             ensure!(values.len() % 2 == 0, "odd field count for {}", header[0]);

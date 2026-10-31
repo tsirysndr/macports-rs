@@ -122,7 +122,7 @@ struct BuiltinFunc {
     func: MathFunc,
 }
 
-const FUNC_TABLE: [BuiltinFunc; 4] = [
+const FUNC_TABLE: [BuiltinFunc; 12] = [
     BuiltinFunc {
         name: "abs",
         num_args: 1,
@@ -146,6 +146,54 @@ const FUNC_TABLE: [BuiltinFunc; 4] = [
         num_args: 1,
         arg_types: [ArgType::Number, ArgType::None],
         func: expr_round_func,
+    },
+    BuiltinFunc {
+        name: "pow",
+        num_args: 2,
+        arg_types: [ArgType::Number, ArgType::Number],
+        func: expr_pow_func,
+    },
+    BuiltinFunc {
+        name: "fmod",
+        num_args: 2,
+        arg_types: [ArgType::Number, ArgType::Number],
+        func: expr_fmod_func,
+    },
+    BuiltinFunc {
+        name: "sqrt",
+        num_args: 1,
+        arg_types: [ArgType::Number, ArgType::None],
+        func: expr_sqrt_func,
+    },
+    BuiltinFunc {
+        name: "floor",
+        num_args: 1,
+        arg_types: [ArgType::Number, ArgType::None],
+        func: expr_floor_func,
+    },
+    BuiltinFunc {
+        name: "ceil",
+        num_args: 1,
+        arg_types: [ArgType::Number, ArgType::None],
+        func: expr_ceil_func,
+    },
+    BuiltinFunc {
+        name: "exp",
+        num_args: 1,
+        arg_types: [ArgType::Number, ArgType::None],
+        func: expr_exp_func,
+    },
+    BuiltinFunc {
+        name: "log",
+        num_args: 1,
+        arg_types: [ArgType::Number, ArgType::None],
+        func: expr_log_func,
+    },
+    BuiltinFunc {
+        name: "log10",
+        num_args: 1,
+        arg_types: [ArgType::Number, ArgType::None],
+        func: expr_log10_func,
     },
 ];
 
@@ -1351,7 +1399,7 @@ fn expr_parse_string(string: &str) -> DatumResult {
 fn expr_as_str(value: Datum) -> Datum {
     match value.vtype {
         Type::Int => Datum::string(&format!("{}", value.int)),
-        Type::Float => Datum::string(&format!("{}", value.flt)),
+        Type::Float => Datum::string(&Value::from(value.flt).to_string()),
         _ => value,
     }
 }
@@ -1427,6 +1475,49 @@ fn expr_int_func(args: &[Datum; MAX_MATH_ARGS]) -> DatumResult {
         // TODO: need to handle integer overflow here.
         Ok(Datum::int(arg.flt as MoltInt))
     }
+}
+
+fn as_float(datum: &Datum) -> MoltFloat {
+    if datum.vtype == Type::Float {
+        datum.flt
+    } else {
+        datum.int as MoltFloat
+    }
+}
+
+fn expr_pow_func(args: &[Datum; MAX_MATH_ARGS]) -> DatumResult {
+    if args[0].vtype == Type::Int && args[1].vtype == Type::Int && args[1].int >= 0 {
+        return Ok(Datum::int(args[0].int.wrapping_pow(args[1].int as u32)));
+    }
+    Ok(Datum::float(as_float(&args[0]).powf(as_float(&args[1]))))
+}
+
+fn expr_fmod_func(args: &[Datum; MAX_MATH_ARGS]) -> DatumResult {
+    Ok(Datum::float(as_float(&args[0]) % as_float(&args[1])))
+}
+
+fn expr_sqrt_func(args: &[Datum; MAX_MATH_ARGS]) -> DatumResult {
+    Ok(Datum::float(as_float(&args[0]).sqrt()))
+}
+
+fn expr_floor_func(args: &[Datum; MAX_MATH_ARGS]) -> DatumResult {
+    Ok(Datum::float(as_float(&args[0]).floor()))
+}
+
+fn expr_ceil_func(args: &[Datum; MAX_MATH_ARGS]) -> DatumResult {
+    Ok(Datum::float(as_float(&args[0]).ceil()))
+}
+
+fn expr_exp_func(args: &[Datum; MAX_MATH_ARGS]) -> DatumResult {
+    Ok(Datum::float(as_float(&args[0]).exp()))
+}
+
+fn expr_log_func(args: &[Datum; MAX_MATH_ARGS]) -> DatumResult {
+    Ok(Datum::float(as_float(&args[0]).ln()))
+}
+
+fn expr_log10_func(args: &[Datum; MAX_MATH_ARGS]) -> DatumResult {
+    Ok(Datum::float(as_float(&args[0]).log10()))
 }
 
 fn expr_round_func(args: &[Datum; MAX_MATH_ARGS]) -> DatumResult {

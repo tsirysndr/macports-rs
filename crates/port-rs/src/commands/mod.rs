@@ -381,23 +381,23 @@ pub fn port_names(index: Option<&Path>) -> Vec<String> {
         .map(Path::to_path_buf)
         .or_else(|| Some(PathBuf::from("PortIndex")).filter(|path| path.is_file()))
         .or_else(sync::default_index);
-    let Some(text) = path.and_then(|path| std::fs::read(path).ok()) else {
+    let Some(text) = path.and_then(|path| std::fs::read_to_string(path).ok()) else {
         return Vec::new();
     };
     let mut names = Vec::new();
     let mut offset = 0;
-    while let Some(end) = text[offset..].iter().position(|byte| *byte == b'\n') {
-        let header = String::from_utf8_lossy(&text[offset..offset + end]).into_owned();
-        let mut words = header.split_whitespace();
+    while let Some(end) = text[offset..].find('\n') {
+        let mut words = text[offset..offset + end].split_whitespace();
         let (Some(name), Some(Ok(length))) = (words.next(), words.next().map(str::parse::<usize>))
         else {
             break;
         };
         names.push(name.to_string());
-        offset += end + 1 + length;
-        if offset >= text.len() {
+        let body = offset + end + 1;
+        let Some(record) = crate::index::record_end(&text[body..], length) else {
             break;
-        }
+        };
+        offset = body + record;
     }
     names
 }

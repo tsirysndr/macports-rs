@@ -78,8 +78,8 @@ fn check(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
         // Root-only files in the destroot need root to read, as upstream.
         let destroot = interp.scalar("destroot")?;
         let destpath = interp.scalar("destpath")?;
-        let user = interp.scalar("macports::macportsuser")?;
-        let (files, warnings) = crate::privileges::as_root(user.as_str(), || {
+        let user = build_user(interp);
+        let (files, warnings) = crate::privileges::as_root(&user, || {
             inspect(Path::new(destpath.as_str()), destroot.as_str())
         })?;
         for warning in warnings {

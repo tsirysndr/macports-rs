@@ -27,7 +27,7 @@ fn evaluates_substitution_expressions_procedures_loops_and_option_operations() {
         set major 2
         version ${major}.0
         revision [expr {1 + 2}]
-        description {A useful application}
+        description {*}{A useful application}
         depends_lib port:first port:second port:first
         proc add_dependencies {names} {
             foreach name $names { depends_lib-append port:$name }

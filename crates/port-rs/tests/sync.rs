@@ -16,13 +16,27 @@ fn index(version: &str) -> String {
     format!("zlib {}\n{body}\n", body.len() + 1)
 }
 
+/// A tree whose Portfile sync indexes, as upstream reindexes file:// sources.
+fn tree(directory: &Path, version: &str) {
+    let port = directory.join("archivers/zlib");
+    fs::create_dir_all(&port).unwrap();
+    fs::create_dir_all(directory.join("_resources/port1.0/group")).unwrap();
+    fs::write(directory.join("_resources/port1.0/group/.keep"), "").unwrap();
+    fs::write(
+        port.join("Portfile"),
+        format!("PortSystem 1.0\nname zlib\nversion {version}\ncategories archivers\nmaintainers nomaintainer\ndescription zlib\nlong_description zlib\nhomepage https://zlib.net\nplatforms darwin\nlicense Zlib\n"),
+    )
+    .unwrap();
+    fs::write(directory.join("PortIndex"), index(version)).unwrap();
+}
+
 #[test]
 fn sync_pulls_file_sources_skips_nosync_and_selects_the_default_tree() {
     let temp = tempfile::tempdir().unwrap();
     let root = fs::canonicalize(temp.path()).unwrap();
     let upstream = root.join("upstream");
     fs::create_dir_all(&upstream).unwrap();
-    fs::write(upstream.join("PortIndex"), index("1")).unwrap();
+    tree(&upstream, "1");
     git(&upstream, &["init", "-q"]);
     git(&upstream, &["add", "."]);
     git(&upstream, &["commit", "-qm", "one"]);
@@ -34,7 +48,7 @@ fn sync_pulls_file_sources_skips_nosync_and_selects_the_default_tree() {
         .status()
         .unwrap();
     assert!(status.success());
-    fs::write(upstream.join("PortIndex"), index("2")).unwrap();
+    tree(&upstream, "2");
     git(&upstream, &["commit", "-qam", "two"]);
     fs::write(
         root.join("sources.conf"),

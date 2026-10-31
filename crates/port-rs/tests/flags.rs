@@ -174,6 +174,9 @@ fn lifecycle_actions_run_saved_portfile_hooks_unless_no_exec() {
         ),
     );
     let hooks = tree.root.join("hooks");
+    // A file no port owns keeps the prefix from vanishing on deactivation.
+    fs::create_dir_all(tree.prefix()).unwrap();
+    fs::write(tree.prefix().join(".keep"), "").unwrap();
     tree.ok(&["install", "hooked"]);
     let saved: Vec<_> = fs::read_dir(tree.root.join("db/registry/portfiles/hooked-1_0"))
         .unwrap()

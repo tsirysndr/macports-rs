@@ -374,7 +374,7 @@ fn rev_upgrade_reports_and_retries_ports_with_missing_libraries() {
     fs::create_dir_all(&directory).unwrap();
     fs::write(directory.join("Portfile"), text).unwrap();
     tree.port("lib", "1", "");
-    tree.ok(&["install", "lib", "linked"]);
+    tree.ok(&["install", "--no-rev-upgrade", "lib", "linked"]);
     let clean = tree.run(&["rev-upgrade"]);
     let progress = String::from_utf8_lossy(&clean.stderr);
     assert!(progress.contains("Found 1 broken file"), "{progress}");

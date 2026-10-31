@@ -25,7 +25,7 @@ fn items_preserve_fields_lists_and_membership() {
         if {![ditem_contains $item requires]} {error existence}
         if {[ditem_contains $item absent]} {error absence}
         if {[ditem_as_string $item] ne [ditem_key $item]} {error snapshot}
-        description [ditem_key $item requires]
+        description {*}[ditem_key $item requires]
     "#)
     .unwrap();
     assert_eq!(
@@ -46,12 +46,12 @@ fn unique_append_keeps_its_native_cache_and_delete_removes_it() {
         set item [ditem_create]
         ditem_append_unique $item values a b a
         ditem_key $item values replaced
-        description [ditem_append_unique $item values b c]
+        description {*}[ditem_append_unique $item values b c]
         ditem_delete $item
         if {[ditem_key $item] ne ""} {error deleted}
         if {![catch {ditem_key $item name}]} {error missing}
         ditem_key $item values fresh
-        long_description [ditem_append_unique $item values final]
+        long_description {*}[ditem_append_unique $item values final]
     "#)
     .unwrap();
     assert_eq!(result.port.get("description"), "a b c");
@@ -73,7 +73,7 @@ fn custom_targets_record_properties_without_invoking_procedures() {
         target_runtype $item always
         target_state $item no
         target_runpkg $item custom_runtime
-        description [lindex ${portutil::targets} end]
+        description {*}[lindex ${portutil::targets} end]
     "#)
     .unwrap();
     let fields = &result.dependency_items[result.port.get("description")];
@@ -101,7 +101,7 @@ fn builtin_target_handles_expose_metadata_and_track_registered_hooks() {
         if {${revision} != 0} {error executed}
         set handler [ditem_key $item procedure]
         if {[$handler ignored] != 0} {error status}
-        description [ditem_key $item name]
+        description {*}[ditem_key $item name]
     "#)
     .unwrap();
     assert_eq!(result.port.get("revision"), "5");
@@ -113,13 +113,13 @@ fn builtin_target_handles_expose_metadata_and_track_registered_hooks() {
 #[test]
 fn user_procedures_import_globals_at_invocation_and_preserve_errors() {
     let result = run(r#"
-        makeuserproc deferred {description $later}
+        makeuserproc deferred {description {*}$later}
         set later {available later}
         deferred
         build {error expected-failure}
         set handler [ditem_key ${org.macports.build} procedure]
         if {![catch {$handler ignored} message]} {error missing-error}
-        long_description $message
+        long_description {*}$message
     "#)
     .unwrap();
     assert_eq!(result.port.get("description"), "available later");

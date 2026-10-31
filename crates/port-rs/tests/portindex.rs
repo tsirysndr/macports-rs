@@ -61,7 +61,10 @@ impl Tree {
             format!("file://{} [default]\n", ports.display()),
         )
         .unwrap();
-        let tool = root.join("portindex");
+        // Not beside the tree root: on a case-insensitive volume a link named
+        // portindex there would also be ./PortIndex.
+        fs::create_dir_all(root.join("bin")).unwrap();
+        let tool = root.join("bin/portindex");
         std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_port"), &tool).unwrap();
         Self {
             _temp: temp,
@@ -98,7 +101,11 @@ fn entries(index: &Path) -> Vec<(String, std::collections::BTreeMap<String, Stri
     let mut entries = Vec::new();
     while let (Some(header), Some(line)) = (lines.next(), lines.next()) {
         let (name, length) = header.split_once(' ').unwrap();
-        assert_eq!(length.parse::<usize>().unwrap(), line.len() + 1, "{header}");
+        assert_eq!(
+            length.parse::<usize>().unwrap(),
+            line.encode_utf16().count() + 1,
+            "{header}"
+        );
         entries.push((
             name.to_string(),
             port_rs::tcl_list::dictionary(line).unwrap(),
@@ -130,12 +137,12 @@ fn portindex_indexes_ports_and_subports_keeping_prefix_literal() {
     assert_eq!(alpha["revision"], "3");
     assert_eq!(alpha["categories"], "devel net");
     assert_eq!(
-        alpha["depends_lib"],
-        "port:zlib path:${prefix}/lib/libssl.dylib:openssl"
+        port_rs::tcl_list::parse(&alpha["depends_lib"]).unwrap(),
+        ["port:zlib", "path:${prefix}/lib/libssl.dylib:openssl"]
     );
     assert!(!alpha.contains_key("subports"));
     assert_eq!(entries[1].1["subports"], "beta-extra");
-    assert_eq!(entries[1].1["variants"], "x");
+    assert_eq!(entries[1].1["variants"], "x universal");
     assert_eq!(entries[2].1["description"], "extra beta");
     assert!(!entries[2].1.contains_key("subports"));
     assert_eq!(entries[3].1["known_fail"], "yes");
@@ -186,5 +193,10 @@ fn sync_indexes_file_sources_and_ports_resolve_through_it() {
     );
     assert!(tree.root.join("ports/PortIndex").is_file());
     let output = tree.port(&["info", "--version", "beta-extra"]);
-    assert_eq!(String::from_utf8_lossy(&output.stdout), "version: 1.2\n");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "version: 1.2\n",
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
