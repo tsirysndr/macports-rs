@@ -101,7 +101,7 @@ impl MirrorTimings {
         Ok(b.0 - a.0)
     }
 }
-fn parts(text: &str) -> Result<(String, Option<String>)> {
+pub(super) fn parts(text: &str) -> Result<(String, Option<String>)> {
     match reqwest::Url::parse(text) {
         Ok(url) => Ok((url.scheme().to_owned(), url.host_str().map(str::to_owned))),
         Err(_) if !text.contains(':') => Ok((String::new(), None)),

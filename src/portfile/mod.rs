@@ -119,6 +119,7 @@ struct State {
     registry_lookup: Option<registry_lookup::Source>,
     groups: PortGroups,
     mirror_times: crate::install::mirror_times::MirrorTimings,
+    mirror_worker: Option<crate::install::mirror_worker::MirrorWorker>,
     mirror_resources: BTreeMap<String, crate::install::sites::resource::Resource>,
     progress: Option<crate::progress::Progress>,
     warned: BTreeSet<String>,

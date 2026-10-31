@@ -1982,3 +1982,13 @@ waiting for unrelated probes; registration precedes cache inspection to avoid
 lost wakeups. Tests exercise multiple waiters, stale updates, immediate returns,
 and an actual probe batch whose second host never completes. Interpreter worker
 callbacks and persistent cache loading remain unfinished.
+
+`MirrorWorker` now bridges synchronous Portfile callbacks to an independent Tokio
+runtime. Its shared semaphore limits concurrent probes across queued batches;
+`async_ping_start` and `wait_for_pingtime` use it when the host binds a worker and
+enables execution. The worker and comparator share one timing cache. Replacing
+that cache detaches the old worker to prevent split policy/results. Tests cover
+real service-resolution failure, cached penalties, native callback execution,
+read-only rejection, and teardown inside a single-thread Tokio runtime. Fetch
+startup's source/archive `start_pings` wrappers and CLI execution-driver binding
+remain unfinished.
