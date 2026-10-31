@@ -51,6 +51,8 @@ fn record() -> NewImage {
         version: "1".into(),
         variants: "+ssl".into(),
         archs: "arm64".into(),
+        platform: "darwin".into(),
+        os_major: "24".into(),
         dependencies: vec!["base".into()],
         ..NewImage::default()
     }
@@ -724,11 +726,13 @@ fn registration_and_activation_run_in_separate_hook_boundaries() {
                 session.scalar("events").unwrap(),
                 "pre-install post-install"
             );
-            let image_id = db
-                .query_row("SELECT id FROM ports", [], |r| r.get::<_, i64>(0))
-                .unwrap();
             let mut activate_item = item(&port);
             activate_item.action = Action::Activate;
+            let entries = installer.registry.transaction().unwrap().entries().unwrap();
+            let image_id =
+                port_rs::install::binary::select_inactive(&entries, &activate_item, &target())
+                    .unwrap()
+                    .id;
             let mut cached = store
                 .load(
                     &activate_item,

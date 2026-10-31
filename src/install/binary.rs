@@ -3,6 +3,7 @@
 //! This backend does not build source archives.
 mod batch;
 mod lifecycle;
+mod selection;
 use super::{
     Action, Item, activation::Plan, archive::VerifiedArchive, extract, inspect::Limits,
     store::Store, target::Target,
@@ -16,6 +17,7 @@ pub use batch::{
     Batch, Job, TrustedJob, fetch_batch, fetch_batch_with_proxies, fetch_trusted_batch,
 };
 pub use lifecycle::LifecycleResult;
+pub use selection::select_inactive;
 use std::path::{Path, PathBuf};
 
 pub struct Installer<'a> {

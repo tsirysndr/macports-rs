@@ -1792,3 +1792,10 @@ runs after pre-activate hooks and is skipped for dry runs/custom bodies.
 Recovery coverage re-verifies a retained archive after post-install failure,
 activates the same registry entry, runs activation hooks, and checks cleanup.
 The CLI still needs to select and dispatch these activate plan steps.
+
+`binary::select_inactive` resolves an activation step against a fresh registry
+snapshot using version, revision, epoch, variants, archive platform, and canonical
+architectures. It rejects an active same-name image, ambiguous matches, malformed
+epochs, and missing compatible images instead of selecting an arbitrary ID.
+Selection does not authenticate cached bytes; the recovery path still uses
+`Store::load` and the activation transaction's identity/ownership checks.
