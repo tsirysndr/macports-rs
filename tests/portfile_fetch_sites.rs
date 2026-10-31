@@ -4,7 +4,7 @@ use port_rs::{
 };
 use std::collections::BTreeMap;
 #[test]
-fn mirror_maps_keep_tags_environment_precedence_and_literal_command_arguments() {
+fn mirror_maps_append_environment_and_global_sites_and_keep_literal_command_arguments() {
     let mut s = Session::open(
         r#"
         name app; version 1; set global_mirror_site global
@@ -40,11 +40,11 @@ fn mirror_maps_keep_tags_environment_precedence_and_literal_command_arguments() 
     .unwrap();
     assert_eq!(
         s.invoke("set", &["portfetch::urlmap(tbz2)"]).unwrap(),
-        "https://global/ https://local/ https://tagged/ https://named/extra/suffix https://second/app"
+        "https://named/extra/suffix https://second/app https://tagged/ https://local/ https://global/"
     );
     assert_eq!(
         s.invoke("set", &["portfetch::urlmap(txz)"]).unwrap(),
-        "https://global/ https://local/ https://literal/"
+        "https://literal/ https://local/ https://global/"
     );
     assert_eq!(
         s.invoke("set", &["portfetch::urlmap(archive_sites)"])

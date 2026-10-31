@@ -42,7 +42,7 @@ fn selected_tree_resource_drives_native_fetch_initialization_and_is_cached() {
     assert_eq!(
         s.invoke("set", &["portfetch::urlmap(master_sites)"])
             .unwrap(),
-        "https://global/app https://new/"
+        "https://new/ https://global/app"
     );
     fs::write(&resource, "error changed-after-first-read").unwrap();
     assert_eq!(

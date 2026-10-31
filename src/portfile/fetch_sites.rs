@@ -123,23 +123,20 @@ fn check(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
             let mut global_sites = Vec::new();
             let mut untagged = Vec::new();
             if extras.len() >= 2 {
+                if !extras[0].as_str().is_empty() {
+                    full.push(extras[0].clone());
+                    global_sites = expand(interp, id, extras[0].as_str(), "", "", &argv[2])?
+                        .as_list()?
+                        .to_vec();
+                }
                 if let Ok(env) = interp.element("env", extras[1].as_str()) {
-                    let mut local = Vec::new();
                     for site in env.as_list()?.iter() {
                         let (site, tagged) = resolve_env(interp, site.as_str())?;
                         if !tagged {
                             untagged.push(Value::from(site.clone()));
                         }
-                        local.push(site.into());
+                        full.push(site.into());
                     }
-                    local.extend(full);
-                    full = local;
-                }
-                if !extras[0].as_str().is_empty() {
-                    full.insert(0, extras[0].clone());
-                    global_sites = expand(interp, id, extras[0].as_str(), "", "", &argv[2])?
-                        .as_list()?
-                        .to_vec();
                 }
             }
             let mut sites = Vec::new();
@@ -187,15 +184,12 @@ fn check(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
                 }
             }
             for tag in tags {
-                let mut sites = global_sites.clone();
+                let mut sites = interp
+                    .element("portfetch::urlmap", &tag)?
+                    .as_list()?
+                    .to_vec();
                 sites.extend(untagged.iter().cloned());
-                sites.extend(
-                    interp
-                        .element("portfetch::urlmap", &tag)?
-                        .as_list()?
-                        .iter()
-                        .cloned(),
-                );
+                sites.extend(global_sites.iter().cloned());
                 interp.set_element("portfetch::urlmap", &tag, sites.into())?;
             }
         }
