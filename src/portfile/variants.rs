@@ -77,6 +77,14 @@ pub(super) fn query(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltR
     })
 }
 
+/// `eval_variants variationsArrayName`: select and run variant bodies. A
+/// native command so PortGroups can wrap it with `rename`, as upstream allows.
+pub(super) fn eval_command(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(1, argv, 1, 2, "?variations?")?;
+    interp.with_global_scope(|interp| apply(interp, id))?;
+    Ok(0.into())
+}
+
 /// Mirror a variant choice into the global `variations` array that upstream
 /// PortGroups consult; defaults never override an existing choice.
 pub(super) fn mark(

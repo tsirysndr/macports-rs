@@ -315,6 +315,7 @@ fn open(
     dlist::install(&mut interp, id);
     targets::install(&mut interp, id).map_err(failure)?;
     interp.add_context_command("PortGroup", groups::command, id);
+    interp.add_context_command("eval_variants", variants::eval_command, id);
     interp.add_context_command("platform", platform::command, id);
     defaults::install(&mut interp, id).map_err(failure)?;
     archive_defaults::install(&mut interp, id).map_err(failure)?;
@@ -339,7 +340,7 @@ fn open(
         );
     }
     interp.eval("universal_setup").map_err(failure)?;
-    variants::apply(&mut interp, id).map_err(failure)?;
+    interp.eval("eval_variants variations").map_err(failure)?;
     interp.eval("port::run_callbacks").map_err(failure)?;
     let options = interp.context::<State>(id).options.clone();
     let mut fields = BTreeMap::new();
