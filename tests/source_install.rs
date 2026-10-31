@@ -270,3 +270,58 @@ fn archive_stores_inactive_images_that_install_later_activates_without_rebuildin
     assert!(tree.ok(&["installed"]).contains("app @1_0 (active)"));
     assert!(tree.ok(&["installed", "requested"]).contains("app @1_0"));
 }
+
+#[test]
+fn reclaim_removes_inactive_and_unneeded_ports_and_unused_files() {
+    let tree = Tree::new();
+    tree.ok(&["install", "app"]);
+    tree.port("app", "2", "depends_lib port:lib");
+    tree.ok(&["upgrade", "app"]);
+    let unused = tree.root.join("db/distfiles/old/old-1.tar.gz");
+    fs::create_dir_all(unused.parent().unwrap()).unwrap();
+    fs::write(&unused, "x").unwrap();
+    fs::create_dir_all(tree.root.join("db/build/leftover")).unwrap();
+
+    tree.ok(&["-y", "reclaim"]);
+    assert!(unused.exists() && tree.root.join("db/build/leftover").exists());
+    assert!(tree.ok(&["installed"]).contains("app @1_0"));
+
+    let output = tree.run(&["reclaim"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let progress = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        progress.contains("Found no unrequested ports without requested dependents."),
+        "{progress}"
+    );
+    assert!(progress.contains("Uninstalling app @1_0"), "{progress}");
+    assert!(!unused.exists() && !unused.parent().unwrap().exists());
+    assert!(!tree.root.join("db/build/leftover").exists());
+    let list = tree.ok(&["installed"]);
+    assert!(
+        list.contains("app @2_0 (active)")
+            && list.contains("lib @1_0 (active)")
+            && !list.contains("app @1_0"),
+        "{list}"
+    );
+    assert!(
+        read(&tree.root.join("db/last_reclaim"))
+            .trim()
+            .parse::<u64>()
+            .is_ok()
+    );
+
+    tree.ok(&["setunrequested", "app"]);
+    let output = tree.run(&["reclaim"]);
+    let progress = String::from_utf8_lossy(&output.stderr);
+    let app = progress.find("Uninstalling app @2_0").expect(&progress);
+    let lib = progress.find("Uninstalling lib @1_0").expect(&progress);
+    assert!(app < lib, "{progress}");
+    assert!(tree.ok(&["installed"]).contains("No ports are installed"));
+
+    tree.ok(&["reclaim", "--disable-reminders"]);
+    assert_eq!(read(&tree.root.join("db/last_reclaim")), "disabled\n");
+}

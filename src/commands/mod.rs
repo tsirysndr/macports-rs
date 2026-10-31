@@ -18,6 +18,7 @@ mod outdated;
 mod phase;
 mod portcmds;
 mod provides;
+mod reclaim;
 mod search;
 mod select;
 mod size;
@@ -95,6 +96,8 @@ pub enum Command {
     Log(portcmds::Log),
     /// List a port's distfiles with their checksums and download URLs
     Distfiles(portcmds::Ports),
+    /// Uninstall unneeded and inactive ports and delete unused files
+    Reclaim(reclaim::Reclaim),
     /// Build ports and store their images without activating them
     Archive(portcmds::Ports),
     /// Load a port's startup items with launchctl
@@ -331,6 +334,12 @@ impl Session {
                 args,
                 &root,
             )?;
+        } else if let Command::Reclaim(args) = command {
+            let root = local::root(index_file, false, "reclaim")?.unwrap();
+            let path = registry_file
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| PathBuf::from(crate::registry::DEFAULT_PATH));
+            reclaim::run(self.index(index_file, quiet)?, &path, args, quiet, &root)?;
         } else if let Command::Load(_) | Command::Unload(_) | Command::Reload(_) = command {
             let (action, args) = match command {
                 Command::Load(args) => ("load", args),
@@ -515,6 +524,7 @@ impl Session {
                 | Command::Select(_)
                 | Command::Log(_)
                 | Command::Distfiles(_)
+                | Command::Reclaim(_)
                 | Command::Load(_)
                 | Command::Unload(_)
                 | Command::Reload(_)

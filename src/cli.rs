@@ -77,10 +77,12 @@ impl Cli {
         let mut cli = Self::parse_from(args);
         if let Command::Install(install) = &mut cli.command {
             install.dry_run = cli.dry_run;
+        } else if let Command::Reclaim(reclaim) = &mut cli.command {
+            reclaim.dry_run = cli.dry_run;
         } else {
             anyhow::ensure!(
                 !cli.dry_run,
-                "-y/--dry-run is currently supported only for install"
+                "-y/--dry-run is currently supported only for install and reclaim"
             );
         }
         Ok(cli)
