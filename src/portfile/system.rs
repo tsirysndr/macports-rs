@@ -169,6 +169,11 @@ pub(super) fn execute_request(
     id: ContextID,
     request: SystemRequest,
 ) -> MoltResult {
+    let progress = interp.context::<State>(id).progress.clone();
+    let script = request.script.clone();
+    if let Some(progress) = &progress {
+        progress.log("debug", &format!("system: {script}"));
+    }
     let result = interp
         .context::<State>(id)
         .system_executor
@@ -177,6 +182,12 @@ pub(super) fn execute_request(
     .map_err(|err| error(format!("system execution: {err:#}")))?;
     if result.status.success() {
         return Ok(Value::empty());
+    }
+    if let Some(progress) = &progress {
+        progress.log("debug", &format!("Command failed: {script}"));
+        if let Some(code) = result.status.code() {
+            progress.log("debug", &format!("Exit code: {code}"));
+        }
     }
     let code = if let Some(code) = result.status.code() {
         list([

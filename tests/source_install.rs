@@ -363,3 +363,27 @@ fn rev_upgrade_reports_and_retries_ports_with_missing_libraries() {
     );
     assert!(tree.ok(&["installed"]).contains("linked @1_0 (active)"));
 }
+
+#[test]
+fn failing_phases_name_the_target_and_point_to_the_log() {
+    let tree = Tree::new();
+    let text = portfile("broken", "1", "").replace("build {}", "build { system \"exit 3\" }");
+    let directory = tree.root.join("ports/devel/broken");
+    fs::create_dir_all(&directory).unwrap();
+    fs::write(directory.join("Portfile"), text).unwrap();
+    tree.port("lib", "1", "");
+    let output = tree.run(&["install", "broken"]);
+    assert!(!output.status.success());
+    let error = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        error.contains("Error: Failed to build broken: command execution failed"),
+        "{error}"
+    );
+    assert!(error.contains("main.log for details."), "{error}");
+    let log = tree.ok(&["log", "--phase", "build", "broken"]);
+    assert!(
+        log.contains("DEBUG: Command failed: exit 3") && log.contains("DEBUG: Exit code: 3"),
+        "{log}"
+    );
+    assert!(log.contains("Error: Failed to build broken"), "{log}");
+}

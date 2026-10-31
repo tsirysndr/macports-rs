@@ -21,6 +21,7 @@ pub struct Progress {
 /// A port's main.log, in upstream's `:priority:phase message` line format.
 struct LogFile {
     file: std::fs::File,
+    path: std::path::PathBuf,
     phase: String,
 }
 impl Progress {
@@ -48,6 +49,7 @@ impl Progress {
         let file = std::fs::File::create(path)?;
         *self.log.lock().expect("log lock") = Some(LogFile {
             file,
+            path: path.to_path_buf(),
             phase: "main".into(),
         });
         Ok(())
@@ -67,6 +69,13 @@ impl Progress {
                 let _ = writeln!(log.file, ":{priority}:{} {line}", log.phase);
             }
         }
+    }
+    pub fn log_path(&self) -> Option<std::path::PathBuf> {
+        self.log
+            .lock()
+            .expect("log lock")
+            .as_ref()
+            .map(|log| log.path.clone())
     }
     pub fn logging(&self) -> bool {
         self.log.lock().expect("log lock").is_some()

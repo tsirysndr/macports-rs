@@ -85,7 +85,24 @@ pub(super) fn run_targets(session: &mut Session, label: &Label, targets: &[&str]
             progress.set_log_phase(target);
         }
         let item = session.scalar(&format!("org.macports.{target}"))?;
-        session.run_prepared_target(&item, false)?;
+        if let Err(err) = session.run_prepared_target(&item, false) {
+            let message = err.to_string();
+            let message = message
+                .strip_prefix("Portfile evaluation: ")
+                .unwrap_or(&message);
+            let failure = format!(
+                "Failed to {target} {}: {message}",
+                session.scalar("subport")?
+            );
+            let Some(progress) = session.progress() else {
+                return Err(anyhow::anyhow!(failure));
+            };
+            progress.log("error", &failure);
+            match progress.log_path() {
+                Some(log) => bail!("{failure}\nError: See {} for details.", log.display()),
+                None => bail!("{failure}"),
+            }
+        }
     }
     Ok(())
 }
