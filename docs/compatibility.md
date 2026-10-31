@@ -1900,3 +1900,12 @@ Source-only and dry-run modes reject acceptance. Tests verify mismatch rejection
 idempotent records, and that build dispatch skips its source body afterward.
 The host must retain the verified archive and cancel any pending source fetch;
 network execution has not yet been connected to this acceptance step.
+
+Native source-fetch initialization now assembles tagged patch/distfile candidates,
+excludes existing files in filespath, preserves caller-local URL lists, and runs
+patch candidates before distfiles. The source `checkfiles` wrapper applies
+NoMirror/no-mirrors policy before URL mapping. Fetch initialization reuses a
+nonempty candidate list and runs before completed-target skipping. Patch-site
+options and mirror subdirectory options are registered. Tests still provide the
+source mirror-resource path callback; source mirror getters, fetch transport,
+and the rest of source-build orchestration remain incomplete.
