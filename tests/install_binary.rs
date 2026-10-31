@@ -925,3 +925,105 @@ fn prepared_install_dry_run_and_custom_targets_skip_native_registration() {
         }
     }
 }
+
+#[test]
+fn accepted_archive_marks_source_phases_only_after_live_identity_checks() {
+    use port_rs::{
+        build::state::StateFile,
+        portfile::{PortGroups, Session, TargetOutcome},
+        spec::PortSpec,
+    };
+    let work = tempfile::tempdir().unwrap();
+    let state_path = work.path().join("state");
+    let mut spec = PortSpec::named("app");
+    spec.parse_modifier("+ssl").unwrap();
+    let mut s = Session::open(
+        r#"
+        name app; version 1; variant ssl {}
+        set os.platform darwin; set os.subplatform macosx; set os.major 24
+        set os.arch arm; set configure.build_arch arm64
+        build {error source-body-must-not-run}
+    "#,
+        &BTreeMap::new(),
+        &spec,
+        PortGroups::default(),
+    )
+    .unwrap();
+    s.enable_system(&BTreeMap::new(), |_| panic!("no subprocess expected"))
+        .unwrap();
+    let fd = s
+        .attach_build_state(StateFile::open(&state_path, None).unwrap())
+        .unwrap();
+    s.invoke("set", &["target_state_fd", &fd]).unwrap();
+    let mut bytes = archive();
+    let port = port();
+    for (key, value, original) in [
+        ("version", "wrong", "1"),
+        ("portvariants", "+other", "+ssl"),
+        ("configure.build_arch", "x86_64", "arm64"),
+        ("ports_source_only", "yes", "no"),
+        ("ports_dryrun", "yes", "no"),
+    ] {
+        s.invoke("set", &[key, value]).unwrap();
+        assert!(
+            s.accept_verified_archive(&mut bytes, &item(&port), &target(), Limits::default())
+                .is_err(),
+            "{key}"
+        );
+        assert_eq!(
+            s.invoke(
+                "check_statefile",
+                &["target", "org.macports.archivefetch", &fd]
+            )
+            .unwrap(),
+            "0"
+        );
+        s.invoke("set", &[key, original]).unwrap();
+    }
+    for _ in 0..2 {
+        s.accept_verified_archive(&mut bytes, &item(&port), &target(), Limits::default())
+            .unwrap();
+    }
+    for phase in [
+        "archivefetch",
+        "fetch",
+        "checksum",
+        "extract",
+        "patch",
+        "configure",
+        "build",
+        "destroot",
+    ] {
+        assert_eq!(
+            s.invoke(
+                "check_statefile",
+                &["target", &format!("org.macports.{phase}"), &fd]
+            )
+            .unwrap(),
+            "1"
+        );
+    }
+    for phase in ["install", "activate"] {
+        assert_eq!(
+            s.invoke(
+                "check_statefile",
+                &["target", &format!("org.macports.{phase}"), &fd]
+            )
+            .unwrap(),
+            "0"
+        );
+    }
+    let build = s.scalar("org.macports.build").unwrap();
+    assert_eq!(
+        s.execute_target(&build, Some(&fd), false).unwrap(),
+        TargetOutcome::AlreadyCompleted
+    );
+    s.close_build_state(&fd).unwrap();
+    let text = fs::read_to_string(state_path).unwrap();
+    assert_eq!(
+        text.lines()
+            .filter(|line| line.starts_with("target:"))
+            .count(),
+        8
+    );
+}

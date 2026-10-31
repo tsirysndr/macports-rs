@@ -45,3 +45,85 @@ fn destroot_done(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResu
         result
     })
 }
+
+impl Session {
+    /// Accept an authenticated archive for this live build and mark the source
+    /// phases satisfied. The archive bytes, plan identity, and live coordinates
+    /// are checked before writing any completion records. The host retains the
+    /// verified archive for installation and cancels any pending source fetch.
+    pub fn accept_verified_archive(
+        &mut self,
+        archive: &mut crate::install::archive::VerifiedArchive,
+        item: &crate::install::Item<'_>,
+        target: &crate::install::target::Target,
+        limits: crate::install::inspect::Limits,
+    ) -> Result<()> {
+        check_supported(&mut self.interp, self.id)?;
+        ensure!(
+            self.interp
+                .context::<State>(self.id)
+                .system_executor
+                .is_some(),
+            "archive acceptance requires an execution-enabled session"
+        );
+        for option in ["ports_dryrun", "ports_source_only"] {
+            let enabled = self
+                .interp
+                .scalar(option)
+                .ok()
+                .and_then(|v| v.as_bool().ok())
+                .unwrap_or(false);
+            ensure!(!enabled, "archive acceptance is disabled by {option}");
+        }
+        ensure!(
+            item.variants_resolved && item.provider_fallbacks.is_empty(),
+            "archive acceptance requires resolved variants and dependency providers"
+        );
+        let fd = self.scalar("target_state_fd")?;
+        ensure!(
+            self.interp
+                .context::<State>(self.id)
+                .build_states
+                .contains_key(&fd),
+            "unknown build-state handle \"{fd}\""
+        );
+        let contents = crate::install::inspect::tbz2(archive, limits)?.contents;
+        contents.matches(item)?;
+        target.matches(&contents)?;
+        ensure!(
+            self.scalar("subport")?
+                .eq_ignore_ascii_case(&item.port.name)
+                && self.scalar("version")? == item.port.get("version")
+                && self.scalar("revision")?.parse::<u64>()? == contents.revision
+                && self.scalar("epoch")?.parse::<u64>()? == contents.epoch
+                && self.scalar("portvariants")? == item.variants
+                && self.active_variants()? == item.variants,
+            "live Portfile identity changed before archive acceptance"
+        );
+        ensure!(
+            self.invoke("_get_archive_platform", &[])? == target.platform()
+                && crate::tcl_list::parse(&self.invoke("get_canonical_archs", &[])?)?
+                    == target.architectures(),
+            "live archive coordinates changed before archive acceptance"
+        );
+        let state = self
+            .interp
+            .context::<State>(self.id)
+            .build_states
+            .get_mut(&fd)
+            .expect("validated owned state handle");
+        for phase in [
+            "archivefetch",
+            "fetch",
+            "checksum",
+            "extract",
+            "patch",
+            "configure",
+            "build",
+            "destroot",
+        ] {
+            state.record("target", &format!("org.macports.{phase}"))?;
+        }
+        Ok(())
+    }
+}

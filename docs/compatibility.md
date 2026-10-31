@@ -1890,3 +1890,13 @@ uses upstream's `rmd160` fallback when no named site supplies a type. Literal
 URLs contribute no signature metadata. Tests cover mixed official/configured
 sites and propagate resource errors. Discovery does not add legacy RSA/rmd160
 verification; the authenticated transport remains Signify-only.
+
+`Session::accept_verified_archive` connects an authenticated archive to build
+state: bounded archive inspection, plan identity, live name/version/revision/
+epoch/variants, platform, and architectures must agree before any target records
+are written. It then marks archivefetch through destroot complete, matching the
+source-phase bypass in upstream archivefetch; install/activate remain pending.
+Source-only and dry-run modes reject acceptance. Tests verify mismatch rejection,
+idempotent records, and that build dispatch skips its source body afterward.
+The host must retain the verified archive and cancel any pending source fetch;
+network execution has not yet been connected to this acceptance step.
