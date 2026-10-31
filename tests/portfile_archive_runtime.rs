@@ -78,3 +78,61 @@ fn unusable_binary_sites_and_callback_errors_stop_startup() {
     );
     assert_eq!(s.scalar("events").unwrap(), "state urls cache");
 }
+
+#[test]
+fn signature_discovery_preserves_order_and_legacy_fallback() {
+    let mut s = session();
+    s.invoke(
+        "proc",
+        &[
+            "portarchivefetch::get_full_archive_sites_path",
+            "",
+            "return {/tree with spaces/sites.tcl}",
+        ],
+    )
+    .unwrap();
+    s.invoke(
+        "proc",
+        &[
+            "portarchivefetch::get_archive_site_sigtype",
+            "path site",
+            r#"
+        if {$path ne {/tree with spaces/sites.tcl}} {error wrong-path}
+        if {$site eq "old"} {return rmd160}
+        if {$site eq "new"} {return sig}
+        return {}
+    "#,
+        ],
+    )
+    .unwrap();
+    for (sites, expected) in [
+        ("old::tbz2 new::tbz2 old::tbz2", "rmd160 sig"),
+        ("new::tbz2 old::tbz2", "sig rmd160"),
+        ("https://literal/:tbz2 unknown::tbz2", "rmd160"),
+        ("", "rmd160"),
+    ] {
+        s.invoke("archive_sites", &[sites]).unwrap();
+        // Set a list literally rather than a single list-valued option argument.
+        s.invoke("set", &["archive_sites", sites]).unwrap();
+        assert_eq!(
+            s.invoke("portarchivefetch::get_all_sigtypes", &[]).unwrap(),
+            expected
+        );
+    }
+    s.invoke("set", &["archive_sites", "new::tbz2"]).unwrap();
+    s.invoke(
+        "proc",
+        &[
+            "portarchivefetch::get_archive_site_sigtype",
+            "args",
+            "error resource-failed",
+        ],
+    )
+    .unwrap();
+    assert!(
+        s.invoke("portarchivefetch::get_all_sigtypes", &[])
+            .unwrap_err()
+            .to_string()
+            .contains("resource-failed")
+    );
+}

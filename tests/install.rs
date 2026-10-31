@@ -745,6 +745,11 @@ fn local_install_resolves_configured_archive_defaults_before_portfile_mutations(
         set resource [portarchivefetch::get_full_archive_sites_path]
         if {[portarchivefetch::get_archive_site_archivetype $resource configured] ne "tbz2"} {error wrong-archive-type}
         if {[portarchivefetch::get_archive_site_urls $resource unknown] ne ""} {error unknown-site}
+        if {[portarchivefetch::get_all_sigtypes] ne "rmd160"} {error wrong-config-signature}
+        archive_sites macports_archives::tbz2 configured::tbz2 macports_archives::tbz2
+        if {[portarchivefetch::get_all_sigtypes] ne "sig rmd160"} {error wrong-signature-order}
+        archive_sites https://literal/:tbz2
+        if {[portarchivefetch::get_all_sigtypes] ne "rmd160"} {error wrong-legacy-signature}
     "#,
     );
     let before = std::fs::read(f.dir.path().join("registry.db")).unwrap();

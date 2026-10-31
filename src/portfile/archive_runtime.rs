@@ -1,8 +1,9 @@
-//! Archive-fetch phase dispatch; URL preparation and transport remain host-owned.
+//! Native archive-fetch preparation and dispatch; transport remains host-owned.
 use super::*;
 use molt::{MoltResult, check_args};
 pub(super) fn install(interp: &mut Interp, id: ContextID) {
     interp.add_context_command("portarchivefetch::checkfiles", check_files, id);
+    interp.add_context_command("portarchivefetch::get_all_sigtypes", signature_types, id);
     interp.add_context_command("portarchivefetch::_archivefetch_start", start_quiet, id);
     interp.add_context_command("portarchivefetch::archivefetch_start", start, id);
     interp.add_context_command("portarchivefetch::archivefetch_main", main, id);
@@ -104,4 +105,29 @@ fn check_files(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult
             argv[1].clone(),
         ],
     )
+}
+
+fn signature_types(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(1, argv, 1, 1, "")?;
+    interp.with_global_scope(|interp| {
+        let sites = interp.scalar("archive_sites")?.as_list()?;
+        let mut seen = BTreeSet::new();
+        let mut types = Vec::new();
+        for site in sites.iter() {
+            let class = site.as_str().split(':').next().unwrap_or("");
+            let path = call(interp, "portarchivefetch::get_full_archive_sites_path", &[])?;
+            let kind = call(
+                interp,
+                "portarchivefetch::get_archive_site_sigtype",
+                &[path.as_str(), class],
+            )?;
+            if !kind.as_str().is_empty() && seen.insert(kind.to_string()) {
+                types.push(kind.to_string());
+            }
+        }
+        if types.is_empty() {
+            types.push("rmd160".into());
+        }
+        Ok(list(types))
+    })
 }

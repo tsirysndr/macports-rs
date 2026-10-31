@@ -1883,3 +1883,10 @@ resource getters require the richer provider. Getters currently accept only the
 active resource selection and reject a mismatched path. CLI preview coverage
 exercises configured getters, URL mapping, and candidate bookkeeping with the
 fixture's variant identity supplied explicitly; no network work runs in previews.
+
+Native `portarchivefetch::get_all_sigtypes` now queries the configured archive
+resource getters, preserves first-seen signature order, removes duplicates, and
+uses upstream's `rmd160` fallback when no named site supplies a type. Literal
+URLs contribute no signature metadata. Tests cover mixed official/configured
+sites and propagate resource errors. Discovery does not add legacy RSA/rmd160
+verification; the authenticated transport remains Signify-only.
