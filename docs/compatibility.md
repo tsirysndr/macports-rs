@@ -1588,5 +1588,12 @@ Selection filters tree and configured sites independently by normalized paths,
 runtime policy, and supported archive type, then applies compatible configured
 metadata overrides. Default references retain tree-then-configuration order and
 duplicates, matching MacPorts base. Configured URLs receive `:nosubdir`; tree URL
-tags and optional signature/key metadata remain intact. Download request creation
-and installation wiring remain pending.
+tags and optional signature/key metadata remain intact.
+
+Selected sites can now produce Signify/tbz2 download requests using explicit live
+Portfile name, mirror subdirectory, archive subdirectory, and dist subdirectory
+values. Mirror expansion follows portlib tag splitting, `nosubdir`/`mirror` rules,
+and first-only `$name` substitution; archive subdirectories are appended separately.
+The resulting requests use the existing ordered parallel fetch transport. Other
+archive/signature formats are explicitly rejected by this builder. Automatic
+selection, site-key loading, and installation command wiring remain pending.

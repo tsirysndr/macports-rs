@@ -1,4 +1,5 @@
 //! archive_sites.conf data and installation-compatibility filtering.
+pub mod requests;
 pub mod resource;
 mod selection;
 use anyhow::{Context, Result};
