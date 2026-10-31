@@ -244,3 +244,29 @@ fn load_requires_an_installed_plist_and_ignores_ports_without_startup_items() {
         "{error}"
     );
 }
+
+#[test]
+fn archive_stores_inactive_images_that_install_later_activates_without_rebuilding() {
+    let tree = Tree::new();
+    tree.ok(&["archive", "app"]);
+    let list = tree.ok(&["installed"]);
+    assert!(list.contains("lib @1_0 (active)"), "{list}");
+    assert!(
+        list.contains("app @1_0\n") && !list.contains("app @1_0 (active)"),
+        "{list}"
+    );
+    assert!(!tree.file("share/app/version").exists());
+    let again = tree.run(&["archive", "app"]);
+    assert!(String::from_utf8_lossy(&again.stderr).contains("app @1_0 is already archived"));
+
+    let installed = tree.run(&["install", "app"]);
+    assert!(installed.status.success());
+    let progress = String::from_utf8_lossy(&installed.stderr);
+    assert!(
+        progress.contains("Activating app @1_0") && !progress.contains("Building app"),
+        "{progress}"
+    );
+    assert_eq!(read(&tree.file("share/app/version")), "app-1\n");
+    assert!(tree.ok(&["installed"]).contains("app @1_0 (active)"));
+    assert!(tree.ok(&["installed", "requested"]).contains("app @1_0"));
+}

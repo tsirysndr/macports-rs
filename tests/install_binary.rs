@@ -819,7 +819,7 @@ fn registration_and_activation_run_in_separate_hook_boundaries() {
             assert_eq!(outcome.install, port_rs::portfile::TargetOutcome::Completed);
             assert_eq!(
                 outcome.activate,
-                port_rs::portfile::TargetOutcome::Completed
+                Some(port_rs::portfile::TargetOutcome::Completed)
             );
             let location = outcome.image.unwrap().location;
             assert_eq!(
@@ -902,7 +902,7 @@ fn prepared_install_dry_run_and_custom_targets_skip_native_registration() {
             TargetOutcome::Completed
         };
         assert_eq!(outcome.install, expected);
-        assert_eq!(outcome.activate, expected);
+        assert_eq!(outcome.activate, Some(expected));
         assert!(outcome.image.is_none());
         assert_eq!(
             session.scalar("events").unwrap(),

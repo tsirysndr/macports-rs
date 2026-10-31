@@ -37,7 +37,7 @@ pub(super) fn run(
         }
         specs.push(spec);
     }
-    super::install_exec::run_specs(out, index, Some(registry_path), specs, quiet, root)?;
+    super::install_exec::run_specs(out, index, Some(registry_path), specs, quiet, root, true)?;
     // Restore requested flags and optionally remove the replaced images.
     let entries = registry::Registry::open(Some(registry_path))?
         .map(|registry| registry.entries())

@@ -234,46 +234,57 @@ pub(super) fn activate(
             "multiple inactive versions of {} are installed; specify one",
             spec.name
         );
-        // Activating another version first deactivates the current one.
-        if let Some(active) = snapshot
-            .entries
-            .iter()
-            .find(|entry| entry.active && entry.name.eq_ignore_ascii_case(&target.name))
-        {
-            progress.phase(&format!("Deactivating {}", label(active)));
-            let mut writer = open_writer(path)?;
-            deactivation::deactivate(&mut writer, active.id, &snapshot.files[&active.id])?;
-        }
-        progress.phase(&format!("Activating {}", label(target)));
-        let location = &snapshot.locations[&target.id];
-        let signature = PathBuf::from(format!("{location}.sig"));
-        ensure!(
-            !signature.exists(),
-            "re-activating signed binary images is not supported yet; reinstall {}",
-            target.name
-        );
-        let mut archive = VerifiedArchive::local(
-            fs::File::open(location).with_context(|| format!("cannot open image {location}"))?,
-        )?;
-        let port = Port {
-            name: target.name.clone(),
-            fields: BTreeMap::from([
-                ("version".into(), target.version.clone()),
-                ("revision".into(), target.revision.to_string()),
-                ("epoch".into(), target.epoch.clone()),
-            ]),
-        };
-        let item = Item {
-            port: &port,
-            variants: target.variants.clone(),
-            variants_resolved: true,
-            provider_fallbacks: Vec::new(),
-            requested: target.requested,
-            action: Action::Activate,
-        };
-        let prepared = extract::prepare(&mut archive, &item, staging, Limits::default())?;
-        let mut writer = open_writer(path)?;
-        Plan::inspect(&prepared, Path::new("/"))?.activate(&mut writer, target.id)?;
+        activate_entry(path, target, progress, staging)?;
     }
+    Ok(())
+}
+
+/// Activate an installed image, deactivating another active version first.
+pub(super) fn activate_entry(
+    path: &Path,
+    target: &Entry,
+    progress: &Progress,
+    staging: &Path,
+) -> Result<()> {
+    let snapshot = snapshot(path)?;
+    if let Some(active) = snapshot
+        .entries
+        .iter()
+        .find(|entry| entry.active && entry.name.eq_ignore_ascii_case(&target.name))
+    {
+        progress.phase(&format!("Deactivating {}", label(active)));
+        let mut writer = open_writer(path)?;
+        deactivation::deactivate(&mut writer, active.id, &snapshot.files[&active.id])?;
+    }
+    progress.phase(&format!("Activating {}", label(target)));
+    let location = &snapshot.locations[&target.id];
+    let signature = PathBuf::from(format!("{location}.sig"));
+    ensure!(
+        !signature.exists(),
+        "re-activating signed binary images is not supported yet; reinstall {}",
+        target.name
+    );
+    let mut archive = VerifiedArchive::local(
+        fs::File::open(location).with_context(|| format!("cannot open image {location}"))?,
+    )?;
+    let port = Port {
+        name: target.name.clone(),
+        fields: BTreeMap::from([
+            ("version".into(), target.version.clone()),
+            ("revision".into(), target.revision.to_string()),
+            ("epoch".into(), target.epoch.clone()),
+        ]),
+    };
+    let item = Item {
+        port: &port,
+        variants: target.variants.clone(),
+        variants_resolved: true,
+        provider_fallbacks: Vec::new(),
+        requested: target.requested,
+        action: Action::Activate,
+    };
+    let prepared = extract::prepare(&mut archive, &item, staging, Limits::default())?;
+    let mut writer = open_writer(path)?;
+    Plan::inspect(&prepared, Path::new("/"))?.activate(&mut writer, target.id)?;
     Ok(())
 }

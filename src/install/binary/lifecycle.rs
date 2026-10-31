@@ -5,7 +5,8 @@ use crate::portfile::{Session, TargetOutcome};
 #[derive(Debug)]
 pub struct LifecycleResult {
     pub install: TargetOutcome,
-    pub activate: TargetOutcome,
+    /// `None` when activation was not requested (archive-only installs).
+    pub activate: Option<TargetOutcome>,
     /// Present only when the native activation body ran. Custom target bodies
     /// remain responsible for their own registry and filesystem effects.
     pub image: Option<InstalledImage>,
@@ -117,7 +118,7 @@ impl Installer<'_> {
         }
         Ok(LifecycleResult {
             install,
-            activate,
+            activate: Some(activate),
             image,
         })
     }
@@ -131,6 +132,7 @@ impl Installer<'_> {
         item: &Item<'_>,
         session: &mut Session,
         dry_run: bool,
+        activate: bool,
         registration: impl FnOnce(&mut Session) -> Result<(Target, NewImage)>,
         package: impl FnOnce(&mut Session, &Target) -> Result<VerifiedArchive>,
     ) -> Result<LifecycleResult> {
@@ -150,6 +152,20 @@ impl Installer<'_> {
                 Ok(())
             },
         )?;
+        if !activate {
+            drop(pending);
+            progress.phase(&format!(
+                "Archived {} @{}{}",
+                item.port.name,
+                item.port.version(),
+                item.variants
+            ));
+            return Ok(LifecycleResult {
+                install,
+                activate: None,
+                image: None,
+            });
+        }
         let activate_target = session.scalar("org.macports.activate")?;
         let mut image = None;
         let activate = session.run_prepared_target_with_native_body(
@@ -174,7 +190,7 @@ impl Installer<'_> {
         }
         Ok(LifecycleResult {
             install,
-            activate,
+            activate: Some(activate),
             image,
         })
     }

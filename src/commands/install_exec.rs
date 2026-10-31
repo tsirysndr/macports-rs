@@ -34,10 +34,12 @@ pub(super) fn run(
     root: &Path,
 ) -> Result<()> {
     let specs = query::specifications(index, ports)?;
-    run_specs(out, index, registry_file, specs, quiet, root)
+    run_specs(out, index, registry_file, specs, quiet, root, true)
 }
 
-/// Install already parsed specifications (with explicit variants).
+/// Install already parsed specifications (with explicit variants). Without
+/// `activate`, requested ports are only built and stored (`port archive`);
+/// their dependencies are still installed and activated.
 pub(super) fn run_specs(
     out: &mut impl Write,
     index: &Index,
@@ -45,6 +47,7 @@ pub(super) fn run_specs(
     mut specs: Vec<PortSpec>,
     quiet: bool,
     root: &Path,
+    activate: bool,
 ) -> Result<()> {
     let host = super::local::Host::new(root, registry_file, quiet)?;
     for spec in &mut specs {
@@ -110,12 +113,34 @@ pub(super) fn run_specs(
                 item.port.name,
                 item.provider_fallbacks.join(", ")
             ),
-            Action::Activate => bail!(
-                "{}: an inactive image is already installed; activating existing images is not supported yet",
-                item.port.name
-            ),
+            Action::Activate if !activate && item.requested => {
+                host.progress.phase(&format!(
+                    "{} @{}{} is already archived",
+                    item.port.name,
+                    item.port.version(),
+                    item.variants
+                ));
+                continue;
+            }
+            Action::Activate => {
+                let entry = installed_image(&registry_path, item)?;
+                super::lifecycle::activate_entry(
+                    &registry_path,
+                    &entry,
+                    &host.progress,
+                    staging.path(),
+                )?;
+                if item.requested && !entry.requested {
+                    let mut writer = Writer::open(&registry_path)?;
+                    let mut transaction = writer.transaction()?;
+                    transaction.set_requested(entry.id, true)?;
+                    transaction.commit()?;
+                }
+                continue;
+            }
             Action::Install => {}
         }
+        let activate = activate || !item.requested;
         let session = sessions
             .get_mut(&item.port.name)
             .with_context(|| format!("{}: no evaluated session", item.port.name))?;
@@ -137,7 +162,7 @@ pub(super) fn run_specs(
         // Hold the registry write lock only while this port installs.
         let mut writer = Writer::open(&registry_path)?;
         // As upstream activation does, retire another active version first.
-        if let Some(reader) = crate::registry::Registry::open(Some(&registry_path))? {
+        if activate && let Some(reader) = crate::registry::Registry::open(Some(&registry_path))? {
             let active = reader
                 .entries()?
                 .into_iter()
@@ -165,6 +190,7 @@ pub(super) fn run_specs(
             item,
             session,
             false,
+            activate,
             |session| {
                 let reader = crate::registry::Registry::open(Some(&registry_path))?;
                 install::registration::with_providers(
@@ -205,6 +231,25 @@ pub(super) fn run_specs(
         }
     }
     Ok(())
+}
+
+/// The registered, inactive image matching a planned item.
+fn installed_image(registry_path: &Path, item: &Item<'_>) -> Result<crate::registry::Entry> {
+    let revision = item.port.get("revision").parse::<i64>().unwrap_or(0);
+    let epoch = item.port.get("epoch");
+    crate::registry::Registry::open(Some(registry_path))?
+        .context("registry is missing")?
+        .entries()?
+        .into_iter()
+        .find(|entry| {
+            !entry.active
+                && entry.name.eq_ignore_ascii_case(&item.port.name)
+                && entry.version == item.port.get("version")
+                && entry.revision == revision
+                && entry.variants == item.variants
+                && entry.epoch.parse::<i64>().unwrap_or(0) == epoch.parse::<i64>().unwrap_or(0)
+        })
+        .with_context(|| format!("{}: installed image not found", item.port.name))
 }
 
 fn optional(session: &mut Session, name: &str) -> Option<String> {

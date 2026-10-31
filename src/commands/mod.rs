@@ -95,6 +95,8 @@ pub enum Command {
     Log(portcmds::Log),
     /// List a port's distfiles with their checksums and download URLs
     Distfiles(portcmds::Ports),
+    /// Build ports and store their images without activating them
+    Archive(portcmds::Ports),
     /// Load a port's startup items with launchctl
     Load(portcmds::Ports),
     /// Unload a port's startup items with launchctl
@@ -431,6 +433,20 @@ impl Session {
             // Offline index queries never initialize an async runtime or HTTP client.
             let index = self.index(index_file, quiet)?;
             match command {
+                Command::Archive(args) => {
+                    let root = local::root(index_file, false, "archive")?
+                        .context("archive requires a local ports tree")?;
+                    let specs = crate::query::specifications(index, &args.ports)?;
+                    install_exec::run_specs(
+                        &mut out,
+                        index,
+                        registry_file,
+                        specs,
+                        quiet,
+                        &root,
+                        false,
+                    )?
+                }
                 Command::Install(args) if !args.dry_run => {
                     let root = local::root(index_file, false, "install")?
                         .context("installation requires a local ports tree")?;
