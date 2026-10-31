@@ -29,22 +29,42 @@ if {$multiline} {
 list $foundmatch $updated_version
 "#;
 
+/// Upstream's libcurl user agent; some servers (the GitHub API) format
+/// responses differently for curl clients, which livecheck regexes rely on.
+fn user_agent() -> String {
+    let libcurl = std::process::Command::new("/usr/bin/curl")
+        .arg("--version")
+        .output()
+        .ok()
+        .and_then(|output| {
+            String::from_utf8_lossy(&output.stdout)
+                .split_whitespace()
+                .find(|word| word.starts_with("libcurl/"))
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| "libcurl/8.7.1".into());
+    format!(
+        "MacPorts/{} {libcurl}",
+        crate::portfile::MACPORTS_BASE_VERSION
+    )
+}
+
 fn client(ignore_sslcert: bool) -> Result<reqwest::Client> {
     Ok(reqwest::Client::builder()
-        .user_agent(format!(
-            "MacPorts/{}",
-            crate::portfile::MACPORTS_BASE_VERSION
-        ))
+        .user_agent(user_agent())
         .danger_accept_invalid_certs(ignore_sslcert)
         .timeout(Duration::from_secs(60))
         .build()?)
 }
 
 /// Fetch a URL; schemes other than HTTP(S), such as FTP, go through curl(1).
-fn fetch(url: &str, ignore_sslcert: bool) -> Result<Vec<u8>> {
+fn fetch(url: &str, ignore_sslcert: bool, headers: &[String]) -> Result<Vec<u8>> {
     if !url.starts_with("http://") && !url.starts_with("https://") {
         let mut command = std::process::Command::new("/usr/bin/curl");
         command.args(["-f", "-s", "-S", "-L"]);
+        for header in headers {
+            command.args(["-H", header]);
+        }
         if ignore_sslcert {
             command.arg("-k");
         }
@@ -65,14 +85,13 @@ fn fetch(url: &str, ignore_sslcert: bool) -> Result<Vec<u8>> {
         .enable_all()
         .build()?;
     runtime.block_on(async {
-        let response = client(ignore_sslcert)?
-            .get(url)
-            .header(
-                "Accept",
-                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            )
-            .send()
-            .await?;
+        let mut request = client(ignore_sslcert)?.get(url);
+        for header in headers {
+            if let Some((name, value)) = header.split_once(':') {
+                request = request.header(name.trim(), value.trim());
+            }
+        }
+        let response = request.send().await?;
         if !response.status().is_success() {
             bail!(
                 "The requested URL returned error: {}",
@@ -126,7 +145,7 @@ fn check(
     };
     let mut updated_version = "unknown".to_string();
     let updated = match plan.kind.as_str() {
-        "regex" | "regexm" => match fetch(&plan.url, plan.ignore_sslcert) {
+        "regex" | "regexm" => match fetch(&plan.url, plan.ignore_sslcert, &plan.headers) {
             Err(err) => {
                 failed(progress, format!("{err:#}"));
                 false
@@ -173,7 +192,7 @@ fn check(
                 }
             }
         },
-        "md5" => match fetch(&plan.url, plan.ignore_sslcert) {
+        "md5" => match fetch(&plan.url, plan.ignore_sslcert, &plan.headers) {
             Err(err) => {
                 failed(progress, format!("{err:#}"));
                 false

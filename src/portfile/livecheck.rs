@@ -117,7 +117,8 @@ if {${livecheck.type} in [split $available_types |]} {
 }
 set livecheck.url [join ${livecheck.url}]
 list ${livecheck.type} ${livecheck.url} [join ${livecheck.regex}] ${livecheck.md5} \
-    ${livecheck.branch} ${livecheck.version} ${livecheck.ignore_sslcert} ${subport}
+    ${livecheck.branch} ${livecheck.version} ${livecheck.ignore_sslcert} ${subport} \
+    ${livecheck.curloptions}
 "#;
 
 /// The resolved livecheck configuration of a port.
@@ -131,6 +132,8 @@ pub struct LivecheckPlan {
     pub version: String,
     pub ignore_sslcert: bool,
     pub subport: String,
+    /// Extra request headers from `--append-http-header` curl options.
+    pub headers: Vec<String>,
 }
 
 impl Session {
@@ -147,6 +150,11 @@ impl Session {
             version: field(5),
             ignore_sslcert: matches!(field(6).as_str(), "yes" | "1" | "true" | "on"),
             subport: field(7),
+            headers: crate::tcl_list::parse(&field(8))?
+                .windows(2)
+                .filter(|pair| pair[0] == "--append-http-header")
+                .map(|pair| pair[1].clone())
+                .collect(),
         })
     }
 }
