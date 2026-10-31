@@ -698,6 +698,27 @@ impl Interp {
         interp.add_command("for", commands::cmd_for);
         interp.add_command("foreach", commands::cmd_foreach);
         interp.add_command("lmap", commands::cmd_lmap);
+        for (name, command) in [
+            ("switch", commands::cmd_switch as crate::types::CommandFunc),
+            ("eval", commands::cmd_eval),
+            ("uplevel", commands::cmd_uplevel),
+            ("subst", commands::cmd_subst),
+            ("concat", commands::cmd_concat),
+            ("lassign", commands::cmd_lassign),
+            ("lreplace", commands::cmd_lreplace),
+            ("linsert", commands::cmd_linsert),
+            ("lreverse", commands::cmd_lreverse),
+            ("lrepeat", commands::cmd_lrepeat),
+            ("lset", commands::cmd_lset),
+            ("lsort", commands::cmd_lsort),
+            ("format", commands::cmd_format),
+            ("glob", commands::cmd_glob),
+            ("clock", commands::cmd_clock),
+            ("regexp", commands::cmd_regexp),
+            ("regsub", commands::cmd_regsub),
+        ] {
+            interp.add_command(name, command);
+        }
         interp.add_command("apply", commands::cmd_apply);
         interp.add_command("global", commands::cmd_global);
         interp.add_command("namespace", commands::cmd_namespace);
@@ -1353,6 +1374,17 @@ impl Interp {
         result
     }
     /// Run host work in global scope without exposing or changing caller locals.
+    /// Run `action` with stack frame `level` current, as `uplevel` does.
+    pub(crate) fn with_scope_level<T>(
+        &mut self,
+        level: usize,
+        action: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let frames = self.scopes.take_above(level);
+        let result = action(self);
+        self.scopes.restore_locals(frames);
+        result
+    }
     pub fn with_global_scope<T>(&mut self, action: impl FnOnce(&mut Self) -> T) -> T {
         let locals = self.scopes.take_locals();
         let result = action(self);

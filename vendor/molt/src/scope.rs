@@ -177,6 +177,10 @@ impl ScopeStack {
     pub(crate) fn take_locals(&mut self) -> Vec<Scope> {
         self.stack.split_off(1)
     }
+    /// Remove every frame above `level`, so that `level` becomes current.
+    pub(crate) fn take_above(&mut self, level: usize) -> Vec<Scope> {
+        self.stack.split_off(level + 1)
+    }
     pub(crate) fn restore_locals(&mut self, mut locals: Vec<Scope>) {
         self.stack.append(&mut locals);
     }

@@ -13,6 +13,10 @@ use std::fs;
 use std::time::Instant;
 mod array_patterns;
 mod list_ops;
+mod regexp;
+mod tcl_core;
+pub use regexp::{cmd_regexp, cmd_regsub};
+pub use tcl_core::*;
 mod namespace;
 pub use namespace::{command as cmd_namespace, variable as cmd_variable};
 mod list_search;
@@ -1118,25 +1122,27 @@ pub fn cmd_string(interp: &mut Interp, context_id: ContextID, argv: &[Value]) ->
     interp.call_subcommand(context_id, argv, 1, &STRING_SUBCOMMANDS)
 }
 
-const STRING_SUBCOMMANDS: [Subcommand; 6] = [
+const STRING_SUBCOMMANDS: [Subcommand; 20] = [
     Subcommand("cat", cmd_string_cat),
     Subcommand("compare", cmd_string_compare),
     Subcommand("equal", cmd_string_equal),
-    // Subcommand("first", cmd_string_todo),
-    // Subcommand("index", cmd_string_todo),
-    // Subcommand("last", cmd_string_todo),
+    Subcommand("first", cmd_string_first),
+    Subcommand("index", cmd_string_index),
+    Subcommand("is", cmd_string_is),
+    Subcommand("last", cmd_string_last),
     Subcommand("length", cmd_string_length),
     Subcommand("map", string_map::command),
     Subcommand("match", string_match::command),
-    // Subcommand("range", cmd_string_todo),
-    // Subcommand("replace", cmd_string_todo),
-    // Subcommand("repeat", cmd_string_todo),
-    // Subcommand("reverse", cmd_string_todo),
-    // Subcommand("tolower", cmd_string_todo),
-    // Subcommand("toupper", cmd_string_todo),
-    // Subcommand("trim", cmd_string_todo),
-    // Subcommand("trimleft", cmd_string_todo),
-    // Subcommand("trimright", cmd_string_todo),
+    Subcommand("range", cmd_string_range),
+    Subcommand("repeat", cmd_string_repeat),
+    Subcommand("replace", cmd_string_replace),
+    Subcommand("reverse", cmd_string_reverse),
+    Subcommand("tolower", cmd_string_tolower),
+    Subcommand("totitle", cmd_string_totitle),
+    Subcommand("toupper", cmd_string_toupper),
+    Subcommand("trim", cmd_string_trim),
+    Subcommand("trimleft", cmd_string_trimleft),
+    Subcommand("trimright", cmd_string_trimright),
 ];
 
 /// Temporary: stub for string subcommands.

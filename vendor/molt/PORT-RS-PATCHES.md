@@ -50,3 +50,9 @@ The upstream source and tests remain available to verify interpreter behavior.
   anonymous procedures, as used by ports-tree compiler selection resources.
 - `source` treats a top-level `return` as the end of the sourced script, so
   sourcing from within a procedure no longer returns from that procedure.
+- Core Tcl commands used by Portfiles and PortGroups: `switch`, `eval`, `uplevel`,
+  `subst`, `concat`, `lassign`, `lreplace`, `linsert`, `lreverse`, `lrepeat`,
+  `lset`, `lsort`, `format`, `glob`, `clock seconds`, and `regexp`/`regsub`
+  (Tcl ARE patterns translated to the `regex` crate), plus the `string`
+  subcommands `first`, `last`, `index`, `range`, `replace`, `repeat`, `reverse`,
+  `tolower`, `toupper`, `totitle`, `trim*` and `is`.

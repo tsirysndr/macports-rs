@@ -859,6 +859,7 @@ name = "molt"
 version = "0.3.1"
 dependencies = [
  "indexmap",
+ "regex",
 ]
 
 [[package]]
