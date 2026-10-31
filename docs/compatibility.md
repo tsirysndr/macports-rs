@@ -1564,8 +1564,7 @@ The native interpreter supports lsearch glob/exact modes with -all, -inline, -no
 original inline values, option abbreviation ambiguity, and end-relative start
 indices. Tests exercise the mirror-filter expression used by archive_sites.tcl,
 Portfile evaluation, and the Tcl regression suite. Sorted, dictionary, regexp,
-indexed/stride search modes remain explicitly unsupported; namespace evaluation
-is still needed before loading the full archive-site resource file.
+indexed/stride search modes remain explicitly unsupported.
 
 Native namespace evaluation now supports `namespace eval`, `namespace current`,
 `namespace upvar`, and `variable` links. Namespace frames retain qualified scalar
@@ -1574,5 +1573,13 @@ namespace and resolve local commands before root commands. Failed calls restore
 scope and namespace frames, including argument-binding failures. Tests exercise
 archive-resource-style platform links and mirror filtering, nested namespaces,
 procedure state, and Portfile option isolation. Namespace import/export/deletion,
-full namespace introspection, and complete archive-site resource loading remain
-unfinished.
+and full namespace introspection remain unfinished.
+
+The archive-site resource loader evaluates `archive_sites.tcl` in an isolated
+native interpreter with explicit platform values and no process environment,
+filesystem commands, terminal output, or process exit command. It preserves all
+nine upstream metadata arrays, URL order and tags, and signature/public-key
+configuration. Missing files contribute no sites; source size is limited to 4 MiB
+and evaluation depth to 128. CPU time and interpreter allocation are not bounded.
+Tests cover the pinned real resource on modern and older Darwin versions.
+Conversion into selected compatible sites and installation wiring remain pending.

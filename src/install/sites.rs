@@ -1,4 +1,5 @@
 //! archive_sites.conf data and installation-compatibility filtering.
+pub mod resource;
 use anyhow::{Context, Result};
 use std::{
     collections::{BTreeMap, HashMap},
