@@ -57,6 +57,7 @@ mod filesystem;
 mod filesystem_mutations;
 mod groups;
 mod install_start;
+mod mirror_times;
 mod paths;
 mod phase_start;
 mod platform;
@@ -117,6 +118,7 @@ struct State {
     archive_sites: Option<ArchiveSites>,
     registry_lookup: Option<registry_lookup::Source>,
     groups: PortGroups,
+    mirror_times: crate::install::mirror_times::MirrorTimings,
     mirror_resources: BTreeMap<String, crate::install::sites::resource::Resource>,
     progress: Option<crate::progress::Progress>,
     warned: BTreeSet<String>,
@@ -259,6 +261,7 @@ fn open(
     fetch_runtime::install(&mut interp, id);
     fetch_selection::install(&mut interp, id);
     fetch_start::install(&mut interp, id);
+    mirror_times::install(&mut interp, id);
     registry_lookup::install(&mut interp, id);
     phase_start::install(&mut interp, id);
     install_start::install(&mut interp, id);

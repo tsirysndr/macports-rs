@@ -1941,3 +1941,11 @@ DNS checks follow successful setup. Privilege elevation remains a host callback,
 and missing privilege/network primitives still fail rather than implying a
 completed fetch. Tests create real temporary distribution directories and verify
 cache skipping plus probe and elevation failure ordering.
+
+`compare_pingtimes` now uses a shared native mirror timing cache. It implements
+file-URL precedence, case-insensitive blacklist/preferred-host globs, one-day
+freshness, rounded latency differences, and status tie-breaking. Sessions can
+share timestamped measurements through `set_mirror_timings`; tests exercise the
+real comparator through native mirror sorting. The cache accepts host-provided
+measurements, but active network probes, persistent cache loading, and binding
+configured host preferences in the CLI install driver are still unfinished.
