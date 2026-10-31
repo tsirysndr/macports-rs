@@ -161,6 +161,9 @@ impl<'a> EvalPtr<'a> {
 
     /// Is the current character is a valid whitespace character, excluding newlines?
     pub fn next_is_line_white(&mut self) -> bool {
+        if self.tok.as_str().starts_with("\\\n") {
+            return true;
+        }
         match self.tok.peek() {
             Some(c) => c.is_whitespace() && c != '\n',
             None => false,
@@ -192,6 +195,9 @@ impl<'a> EvalPtr<'a> {
     /// current command, or on a non-white-space character.
     pub fn skip_line_white(&mut self) {
         while !self.at_end() && self.next_is_line_white() {
+            if self.next_is('\\') {
+                self.tok.next();
+            }
             self.tok.next();
         }
     }

@@ -177,6 +177,12 @@ impl<'a> Tokenizer<'a> {
                 'r' => '\r',   // Carriage Return
                 't' => '\t',   // Tab
                 'v' => '\x0b', // Vertical Tab
+                '\n' => {
+                    while self.has(|ch| *ch == ' ' || *ch == '\t') {
+                        self.next();
+                    }
+                    ' '
+                }
 
                 // 1 to 3 octal digits
                 '0'..='7' => {

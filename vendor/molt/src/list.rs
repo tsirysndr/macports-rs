@@ -214,6 +214,19 @@ fn escape_item(hash: bool, item: &str) -> String {
     }
 
     for ch in item.chars() {
+        let control = match ch {
+            '\n' => Some('n'),
+            '\t' => Some('t'),
+            '\r' => Some('r'),
+            '\x0c' => Some('f'),
+            '\x0b' => Some('v'),
+            _ => None,
+        };
+        if let Some(letter) = control {
+            word.push('\\');
+            word.push(letter);
+            continue;
+        }
         if ch.is_whitespace() {
             word.push('\\');
             word.push(ch);
@@ -221,7 +234,7 @@ fn escape_item(hash: bool, item: &str) -> String {
         }
 
         match ch {
-            '{' | ';' | '$' | '[' | ']' | '\\' => {
+            '{' | '}' | '"' | ';' | '$' | '[' | ']' | '\\' => {
                 word.push('\\');
                 word.push(ch);
             }
@@ -283,6 +296,16 @@ fn get_mode(word: &str) -> Mode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn escaped_elements_round_trip_control_characters_and_continuations() {
+        for item in ["a\\\nb", "x\\\n", "{\n\t}\"", "\\\n\r\x0b\x0c"] {
+            let list = list_to_string(&[Value::from(item), Value::from("z")]);
+            let parsed = get_list(&list).unwrap();
+            assert_eq!(parsed[0].as_str(), item, "{list:?}");
+            assert_eq!(parsed[1].as_str(), "z");
+        }
+    }
 
     #[test]
     fn test_list_to_string() {

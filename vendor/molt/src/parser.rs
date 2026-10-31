@@ -253,6 +253,9 @@ pub(crate) fn parse_braced_word(ctx: &mut EvalPtr) -> Result<Word, Exception> {
             if let Some(ch) = ctx.next() {
                 if ch == '\n' {
                     text.push(' ');
+                    while ctx.next_is(' ') || ctx.next_is('\t') {
+                        ctx.skip();
+                    }
                 } else {
                     text.push('\\');
                     text.push(ch);
@@ -1063,6 +1066,24 @@ mod tests {
         assert_eq!(parse_varname_literal("a()"), array("a", ""));
         assert_eq!(parse_varname_literal("%(()"), array("%", "("));
         assert_eq!(parse_varname_literal("%())"), array("%", ")"));
+    }
+
+    #[test]
+    fn backslash_newline_separates_words_and_collapses_whitespace() {
+        let mut interp = crate::Interp::new();
+        for (script, expected) in [
+            ("list a \\\n    b", "a b"),
+            ("list a\\\n\tb", "a b"),
+            ("list \"a\\\n   b\"", "{a b}"),
+            ("list {a\\\n   b}", "{a b}"),
+            ("list a \\\n", "a"),
+        ] {
+            assert_eq!(
+                interp.eval(script).unwrap().as_str(),
+                expected,
+                "{script:?}"
+            );
+        }
     }
 
     fn scalar(name: &str) -> VarName {

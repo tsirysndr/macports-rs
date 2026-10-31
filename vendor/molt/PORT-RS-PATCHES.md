@@ -41,3 +41,7 @@ The upstream source and tests remain available to verify interpreter behavior.
   use the same prefixes; malformed prefixed literals return errors instead of
   panicking. Integer negation and absolute value report overflow rather than
   panicking on the signed minimum. Arbitrary-precision integers remain pending.
+
+- Tcl backslash-newline handling: `\<newline>` plus following spaces/tabs becomes
+  one space in bare, quoted and braced words, and separates words in commands,
+  so multi-line Portfile options no longer gain a literal newline element.
