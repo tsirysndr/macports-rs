@@ -6,6 +6,26 @@ use std::{
     process::{Command, Output},
 };
 
+/// `_resources/port1.0/livecheck/master-sites.tcl` from the ports tree.
+const MASTER_SITES: &str = r#"set livecheck.type "regex"
+if {${livecheck.name} eq "default"} {
+    set livecheck.name ${name}
+}
+if {${livecheck.distname} eq "default"} {
+    set livecheck.distname ${livecheck.name}
+}
+if {!$has_homepage || ${livecheck.url} eq ${homepage}} {
+    if {!$has_master_sites || [llength ${master_sites}] == 0} {
+        set livecheck.type "none"
+    } else {
+        set livecheck.url [lindex ${master_sites} 0]
+    }
+}
+if {${livecheck.regex} eq ""} {
+    set livecheck.regex [list "[quotemeta ${livecheck.distname}]-(\\d+(?:\\.\\d+)*)"]
+}
+"#;
+
 struct Tree {
     _temp: tempfile::TempDir,
     root: PathBuf,
@@ -52,6 +72,14 @@ impl Tree {
         )
         .unwrap();
         fs::write(root.join("sources.conf"), "").unwrap();
+        let livecheck = root.join("ports/_resources/port1.0/livecheck");
+        fs::create_dir_all(&livecheck).unwrap();
+        fs::write(
+            livecheck.join("fallback.tcl"),
+            "source [getdefaultportresourcepath \"port1.0/livecheck\"]/master-sites.tcl\n",
+        )
+        .unwrap();
+        fs::write(livecheck.join("master-sites.tcl"), MASTER_SITES).unwrap();
         let tree = Self { _temp: temp, root };
         tree.port("lib", "1", "");
         tree.port("app", "1", "depends_lib port:lib");
@@ -548,4 +576,53 @@ fn lint_reports_errors_and_warnings_like_portlint() {
         );
     }
     assert!(progress.contains("--->  4 errors and"), "{progress}");
+}
+
+/// Serve one fixed body to every request on a local port.
+fn serve(body: &'static str) -> String {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let mut stream = stream;
+            let mut request = [0; 4096];
+            let _ = stream.read(&mut request);
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+        }
+    });
+    format!("http://{address}/")
+}
+
+#[test]
+fn livecheck_extracts_the_newest_version_with_the_port_regex() {
+    let tree = Tree::new();
+    let url = serve("<a href=app-1.5.tar.gz>x</a> <a href=app-2.0.tar.gz>y</a>\napp-1.10.tar.gz\n");
+    let text = portfile("checked", "1.5", "").replace(
+        "build {}",
+        &format!(
+            "livecheck.url {url}\nlivecheck.regex {{app-(\\d+(?:\\.\\d+)*)\\.tar}}\nbuild {{}}"
+        ),
+    );
+    let directory = tree.root.join("ports/devel/checked");
+    fs::create_dir_all(&directory).unwrap();
+    fs::write(directory.join("Portfile"), text).unwrap();
+    let newest = portfile("newest", "2.0", "").replace(
+        "build {}",
+        &format!(
+            "livecheck.url {url}\nlivecheck.regex {{app-(\\d+(?:\\.\\d+)*)\\.tar}}\nbuild {{}}"
+        ),
+    );
+    let directory = tree.root.join("ports/devel/newest");
+    fs::create_dir_all(&directory).unwrap();
+    fs::write(directory.join("Portfile"), newest).unwrap();
+    tree.port("lib", "1", "");
+    assert_eq!(
+        tree.ok(&["livecheck", "checked", "newest", "lib"]),
+        "checked seems to have been updated (port version: 1.5, new version: 2.0)\n"
+    );
 }

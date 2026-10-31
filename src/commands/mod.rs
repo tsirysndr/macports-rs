@@ -13,6 +13,7 @@ mod installed;
 mod launchd;
 mod lifecycle;
 mod lint;
+mod livecheck;
 mod local;
 mod location;
 mod outdated;
@@ -102,6 +103,8 @@ pub enum Command {
     Distfiles(portcmds::Ports),
     /// Show the command syntax, or the usage of the given actions
     Usage { topics: Vec<String> },
+    /// Check whether upstream released newer versions of ports
+    Livecheck(portcmds::Ports),
     /// Check Portfiles against MacPorts conventions
     Lint(lint::Lint),
     /// Record, list, compare, export or import registry snapshots
@@ -352,6 +355,15 @@ impl Session {
                 args,
                 &root,
             )?;
+        } else if let Command::Livecheck(args) = command {
+            let root = local::root(index_file, false, "livecheck")?.unwrap();
+            livecheck::run(
+                &mut out,
+                self.index(index_file, quiet)?,
+                &args.ports,
+                quiet,
+                &root,
+            )?;
         } else if let Command::Lint(args) = command {
             let root = local::root(index_file, false, "lint")?.unwrap();
             lint::run(self.index(index_file, quiet)?, args, quiet, &root)?;
@@ -586,6 +598,7 @@ impl Session {
                 | Command::RevUpgrade(_)
                 | Command::Snapshot(_)
                 | Command::Lint(_)
+                | Command::Livecheck(_)
                 | Command::Restore(_)
                 | Command::Migrate(_)
                 | Command::Load(_)
