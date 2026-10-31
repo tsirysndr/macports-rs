@@ -1799,3 +1799,10 @@ architectures. It rejects an active same-name image, ambiguous matches, malforme
 epochs, and missing compatible images instead of selecting an arbitrary ID.
 Selection does not authenticate cached bytes; the recovery path still uses
 `Store::load` and the activation transaction's identity/ownership checks.
+
+The native target graph now includes `org.macports.main`, providing `main` with
+state disabled and no prerequisite, startup callback, or runtime package. Its
+`portmain::main` procedure returns zero, matching upstream. Main hooks and custom
+bodies use the existing deferred target dispatch. This fills the graph root;
+it does not replace the host startup/configuration or dependency traversal that
+the full CLI installation driver still needs to arrange.

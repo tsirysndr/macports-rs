@@ -14,6 +14,14 @@ struct Binding {
 
 pub(super) fn install(interp: &mut Interp, id: ContextID) -> MoltResult {
     interp.add_context_command("target_provides", provides, id);
+    // PortSystem's main target is stateless, has no runtime package or
+    // prerequisites, and its native procedure simply returns zero.
+    interp.add_context_command("portmain::main", main, id);
+    let handle = ditems::new_target(interp, id, "org.macports.main", "portmain::main")?;
+    interp.set_scalar("org.macports.main", handle.clone())?;
+    ditems::set(interp, id, &handle, "provides", list(["main".into()]));
+    ditems::set(interp, id, &handle, "state", "no".into());
+    register(interp, id, "main", Some(handle))?;
     for phase in [
         "archivefetch",
         "fetch",
@@ -102,6 +110,10 @@ pub(super) fn install(interp: &mut Interp, id: ContextID) -> MoltResult {
         register(interp, id, phase, handle)?;
     }
     Ok(Value::empty())
+}
+
+fn main(_: &mut Interp, _: ContextID, _: &[Value]) -> MoltResult {
+    Ok(0.into())
 }
 
 fn register(
