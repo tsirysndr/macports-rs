@@ -1,0 +1,50 @@
+[package]
+name = "port-rs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "A standalone Rust implementation of MacPorts CLI functionality"
+
+[[bin]]
+name = "port"
+path = "src/main.rs"
+
+[[bench]]
+name = "index"
+harness = false
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+console.workspace = true
+flate2.workspace = true
+httpdate.workspace = true
+libc.workspace = true
+md-5.workspace = true
+port-core.workspace = true
+port-engine.workspace = true
+port-registry.workspace = true
+regex.workspace = true
+reqwest.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tar.workspace = true
+tempfile.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+molt.workspace = true
+anyhow.workspace = true
+base64.workspace = true
+bzip2.workspace = true
+ed25519-compact.workspace = true
+flate2.workspace = true
+libc.workspace = true
+reqwest.workspace = true
+ripemd.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tar.workspace = true
+tempfile.workspace = true
+tokio.workspace = true

@@ -43,16 +43,15 @@ cargo bench --locked --bench index
 Tests run offline after dependencies are installed; HTTP tests use local servers.
 CI targets macOS `aarch64-apple-darwin` and `x86_64-apple-darwin` only.
 
-| Directory | Purpose |
+The project is a Cargo workspace:
+
+| Crate | Purpose |
 | --- | --- |
-| `src/cli.rs`, `src/cli/`, `src/commands/` | CLI parsing and command handlers |
-| `src/portfile/` | Native Portfile evaluation, variants, and phase commands |
-| `src/build/` | Subprocess execution and live, prefixed build logs |
-| `src/install/` | Dependency planning, signed archives, and staging |
-| `src/registry/` | SQLite registry queries and transactions |
-| `src/dependencies/` | Dependency graphs and rendering |
-| `tests/`, `tests/fixtures/` | Integration tests and compatibility fixtures |
-| `vendor/molt/` | Vendored interpreter and [local patches](vendor/molt/PORT-RS-PATCHES.md) |
+| `crates/port-core/` | Catalog parsing, selectors, port specifications, dependency graphs, progress and terminal output |
+| `crates/port-registry/` | SQLite registry queries, transactions and snapshots, through sqlx with sea-query statements |
+| `crates/port-engine/` | Portfile evaluation (`portfile/`), builds (`build/`), signed archives and installation (`install/`), configuration (`config/`) |
+| `crates/port-rs/` | The `port` binary: CLI parsing, command handlers (`src/commands/`), integration tests and benchmarks |
+| `crates/molt/` | Vendored Tcl interpreter and [local patches](crates/molt/PORT-RS-PATCHES.md) |
 
 ## Contributing
 

@@ -246,18 +246,23 @@ state for a changed Portfile), `-p` (continue after errors), `-N`
 (non-interactive), `-D portdir`, and `-F cmdfile`. They also reach Portfiles as
 the usual `ports_*` variables.
 
-Remaining differences from MacPorts base:
+Notes on behaviors that use different mechanisms than MacPorts base:
 
-- `-t` (trace mode) needs darwintrace and is accepted with a warning only.
-- Binary archive sites must use Signify signatures; legacy RSA (`rmd160`)
-  sites from `archive_sites.conf` are skipped, so such ports build from source.
-- `pkg` builds flat packages with pkgbuild/productbuild; PackageMaker bundles
-  for very old macOS are not produced.
-- `mirror` records mirrored files in `distfiles_mirror.txt` beside upstream's
-  binary `distfiles_mirror.db`, which it never writes.
-- `selfupdate` syncs the ports trees but does not replace MacPorts base, so
-  `migrate` skips base's self-upgrade.
-- Ports named by directory must belong to the selected ports tree.
+- Build sandboxing (`sandbox_enable`, `sandbox_network`) and trace mode (`-t`)
+  use Seatbelt profiles applied with sandbox-exec(1). Trace mode hides prefix
+  files owned by ports outside the target's dependency closure, as darwintrace
+  does, and fences writes to the work area.
+- Binary archives are verified with Signify keys or, for RSA-signed sites,
+  with `openssl dgst -ripemd160` against `.pem` keys from `pubkeys.conf`.
+- `pkg` builds flat packages with pkgbuild/productbuild, or `.pkg` bundles with
+  mkbom, pax and lsbom when `package.flat` is off; `mpkg` likewise.
+- `mirror` records mirrored distfiles in `distfiles_mirror.db`, written in
+  Pextlib's filemap format.
+- `selfupdate` replaces this `port` executable with the newest published
+  release that has a `port-<target>.tar.gz` asset (checked against its
+  `.sha256` asset when present), then syncs the ports trees.
+- Ports named by directory outside the selected tree are evaluated from their
+  Portfile, with PortGroups from the selected tree.
 
 ## Installed-port registry
 
@@ -608,7 +613,7 @@ a default updates its template without overriding explicit values. Computed
 `distname` and `distfiles` follow name/version and archive-format changes. The
 `use_*` extraction choices act as radio buttons while preserving an explicit
 `extract.suffix`. Circular defaults and excessive evaluation depth are reported.
-The [vendored Molt core](../vendor/molt/PORT-RS-PATCHES.md) provides host variable hooks;
+The [vendored Molt core](../crates/molt/PORT-RS-PATCHES.md) provides host variable hooks;
 its upstream tests run in the macOS CI matrix alongside port-rs tests.
 Integer arguments and expressions recognize Tcl 9's case-insensitive `0x`, `0o`,
 `0b`, and `0d` prefixes; plain leading-zero integers are decimal. The interpreter
@@ -925,27 +930,25 @@ report measured differences without assuming a speedup.
 
 ## Code organization
 
-- `src/main.rs`, `src/cli.rs`, `src/cli/actions.rs`: CLI options, command chaining,
-  action expansion, and exit handling.
-- `src/commands/`: action-specific arguments and handlers for search, info,
-  dependency queries, downloads, and basic index inspection.
-- `src/build/`: asynchronous source-phase execution and live prefixed logs.
-- `src/portfile/`: Rust metadata evaluation, options, and variant selection.
-- `src/registry/`: SQLite readers, explicit transactional writes, and MacPorts version comparison.
-- `src/dependencies/`: dependency specifications, phase filters, graph traversal,
-  and direct/tree output.
-- `src/index.rs`, `src/source.rs`, `src/tcl_list.rs`: catalog parsing and discovery.
-- `src/query.rs`, `src/spec.rs`, `src/order.rs`: selectors, expressions, port
-  specifications, and dictionary ordering.
-- `src/info.rs`, `src/fields.rs`, `src/output.rs`: metadata and text formatting.
-- `src/download.rs`, `src/progress.rs`, `src/theme.rs`: transfers and terminal UI.
+- `crates/port-rs`: `src/main.rs`, `src/cli.rs`, `src/cli/actions.rs` (CLI options,
+  command chaining, the shell, action expansion and exit handling) and
+  `src/commands/` (action handlers).
+- `crates/port-engine`: `src/build/` (source-phase execution and live prefixed
+  logs), `src/portfile/` (Portfile evaluation, options and variants),
+  `src/install/` (planning, signed archives, staging and activation) and
+  `src/config/` (macports.conf and startup configuration).
+- `crates/port-registry`: SQLite readers, transactional writes, snapshots and
+  MacPorts version comparison.
+- `crates/port-core`: `index.rs`, `source.rs`, `tcl_list.rs` (catalog parsing and
+  discovery); `query.rs`, `spec.rs`, `order.rs` (selectors, expressions, port
+  specifications and ordering); `dependencies/` (dependency graphs and output);
+  `info.rs`, `fields.rs`, `output.rs` (formatting); `download.rs`, `progress.rs`,
+  `theme.rs` (transfers and terminal UI).
+- `crates/molt`: the vendored Tcl interpreter.
 
 ## Next compatibility gates
 
-1. Trace mode (`-t`) with a native darwintrace replacement.
-2. Legacy RSA-signed (`rmd160`) archive sites alongside Signify ones.
-3. Ports named by directories outside the selected ports tree.
-4. Broader end-to-end comparisons with upstream on real ports, including
+1. Broader end-to-end comparisons with upstream on real ports, including
    installs into a real `/opt/local` prefix as root, and performance checks.
 
 Original interface references: [MacPorts guide](https://guide.macports.org/#using.port),

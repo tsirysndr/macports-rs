@@ -1,16 +1,21 @@
-[package]
-name = "port-rs"
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+# molt is vendored; it is tested explicitly with `-p molt` but not linted.
+default-members = [
+    "crates/port-core",
+    "crates/port-registry",
+    "crates/port-engine",
+    "crates/port-rs",
+]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
 authors = ["Tsiry Sandratraina <tsiry.sndr@rocksky.app>"]
-description = "A standalone Rust implementation of MacPorts CLI functionality"
 
-[[bin]]
-name = "port"
-path = "src/main.rs"
-
-[dependencies]
+[workspace.dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }
 futures-util = "0.3"
@@ -23,7 +28,9 @@ serde_json = "1"
 sha2 = "0.10"
 tempfile = "3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-util", "time", "net", "sync", "process", "io-std"] }
-rusqlite = { version = "0.41.1", default-features = false, features = ["bundled", "collation"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite"] }
+sea-query = { version = "0.32", default-features = false, features = ["backend-sqlite", "derive"] }
+sea-query-binder = { version = "0.7", features = ["sqlx-sqlite"] }
 ed25519-compact = { version = "2.6", default-features = false, features = ["std"] }
 base64 = "0.22"
 tar = { version = "0.4", default-features = false }
@@ -32,19 +39,16 @@ ripemd = "0.2"
 md-5 = "0.11"
 sha1 = "0.11"
 httpdate = "1"
-molt = { version = "0.3.1", path = "vendor/molt" }
 libc = "0.2"
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+fancy-regex = "0.11"
+indexmap = "1.3.0"
+molt = { version = "0.3.1", path = "crates/molt" }
+port-core = { path = "crates/port-core" }
+port-registry = { path = "crates/port-registry" }
+port-engine = { path = "crates/port-engine" }
 
 [profile.release]
 lto = "thin"
 codegen-units = 1
 strip = true
-
-[[bench]]
-name = "index"
-harness = false
-
-[workspace]
-members = ["vendor/molt"]
-default-members = ["."]

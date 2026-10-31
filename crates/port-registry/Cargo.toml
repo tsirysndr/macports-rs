@@ -1,0 +1,18 @@
+[package]
+name = "port-registry"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "MacPorts registry access for port-rs"
+
+[dependencies]
+anyhow.workspace = true
+libc.workspace = true
+port-core.workspace = true
+sea-query.workspace = true
+sea-query-binder.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+serde.workspace = true
+tempfile.workspace = true

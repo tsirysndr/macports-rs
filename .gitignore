@@ -1,4 +1,4 @@
 /target
 
-/vendor/molt/target
-/vendor/molt/Cargo.lock
+/crates/molt/Cargo.lock
+target/

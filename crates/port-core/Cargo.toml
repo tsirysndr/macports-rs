@@ -1,0 +1,22 @@
+[package]
+name = "port-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Index, query, port specification and progress primitives of port-rs"
+
+[dependencies]
+anyhow.workspace = true
+molt.workspace = true
+clap.workspace = true
+console.workspace = true
+futures-util.workspace = true
+indicatif.workspace = true
+libc.workspace = true
+regex.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+tokio.workspace = true
