@@ -4,6 +4,7 @@
 use crate::accounts;
 mod architecture;
 mod archive_defaults;
+mod archive_files;
 pub use archive_defaults::ArchiveSites;
 mod binaries;
 mod build_defaults;
@@ -254,6 +255,7 @@ fn open(
     configure_phase::install(&mut interp, id);
     destroot_phase::install(&mut interp, id);
     architecture::install(&mut interp, id);
+    archive_files::install(&mut interp, id);
     build_defaults::install(&mut interp, id);
     binaries::install(&mut interp, id);
     interp.eval(source).map_err(failure)?;

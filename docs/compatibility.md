@@ -1682,3 +1682,14 @@ opening, dry-run behavior, callback order, repeated always-target execution,
 and pre-hook failure without a completion marker. The native archivefetch
 startup/body callbacks still need connection to the archive transport and cache
 lifecycle; target registration alone does not perform downloads or enable install.
+
+Native `get_portimage_name` and `_get_archive_platform` now expose live archive
+coordinates to Portfile runtime code, including platform independence, canonical
+architectures, explicit archive type, and the upstream long-variant hash fallback.
+They require initialized `portvariants` and `portarchivetype` globals.
+`portarchivefetch::checkarchivefiles` derives candidate filenames by archive tag,
+deduplicates types in first-seen order, sets the incoming/verified path, and
+appends to both the global archive list and caller's URL list. These commands do
+not create directories, download data, or imply support for decoding every named
+archive format. Tests cover live changes, caller-local variables, repeated calls,
+empty sites, malformed lists, and filename limits.
