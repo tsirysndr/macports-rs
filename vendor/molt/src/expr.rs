@@ -1063,7 +1063,13 @@ fn expr_lex(interp: &mut Interp, info: &mut ExprInfo) -> DatumResult {
 
             // NOTE: Could use get_boolean to test for the boolean constants, but it's
             // probably overkill.
-            match str.as_ref() {
+            // Boolean literals are case-insensitive, as in Tcl.
+            let lower = str.to_ascii_lowercase();
+            let word = match lower.as_str() {
+                "true" | "yes" | "on" | "false" | "no" | "off" => lower.as_str(),
+                _ => str.as_str(),
+            };
+            match word {
                 "true" | "yes" | "on" => {
                     info.expr = p;
                     info.token = VALUE;

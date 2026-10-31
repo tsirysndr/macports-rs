@@ -60,3 +60,5 @@ The upstream source and tests remain available to verify interpreter behavior.
   the whitespace rule after a close quote/brace applies only to command words.
 - `scan`, `info level`, `info frame` (file-level frames only), `info script`,
   `Interp::eval_file`, and unique class-name abbreviations for `string is`.
+- `rename` accepts fully qualified (`::name`) command names; `expr` boolean
+  literals are case-insensitive.

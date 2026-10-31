@@ -1005,12 +1005,13 @@ pub fn cmd_puts(_interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResul
 pub fn cmd_rename(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 3, 3, "oldName newName")?;
 
-    // FIRST, get the arguments
-    let old_name = argv[1].as_str();
-    let new_name = argv[2].as_str();
+    // FIRST, get the arguments. Fully qualified names refer to the root
+    // namespace, which stores commands without a leading "::".
+    let old_name = argv[1].as_str().trim_start_matches("::");
+    let new_name = argv[2].as_str().trim_start_matches("::");
 
     if !interp.has_command(old_name) {
-        return molt_err!("can't rename \"{}\": command doesn't exist", old_name);
+        return molt_err!("can't rename \"{}\": command doesn't exist", argv[1]);
     }
 
     // NEXT, rename or remove the command.

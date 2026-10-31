@@ -274,3 +274,27 @@ fn string_is_accepts_class_abbreviations_and_info_frames() {
     ]);
     fails(&["string is nosuchclass 5", "string is a 5"]);
 }
+
+#[test]
+fn rename_accepts_fully_qualified_names() {
+    check(&[
+        (
+            "proc greet {} {return hi}; rename ::greet ::real_greet; real_greet",
+            "hi",
+        ),
+        (
+            "proc greet {} {return wrapped-[::real_greet]}; greet",
+            "wrapped-hi",
+        ),
+    ]);
+    fails(&["rename ::nosuch ::other"]);
+}
+
+#[test]
+fn boolean_literals_are_case_insensitive() {
+    check(&[
+        ("expr {ON}", "1"),
+        ("expr {False || YES}", "1"),
+        ("expr {!Off}", "1"),
+    ]);
+}
