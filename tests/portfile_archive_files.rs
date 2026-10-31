@@ -4,7 +4,7 @@ use port_rs::{
 };
 use std::collections::BTreeMap;
 fn session() -> Session {
-    Session::open("name app; version 1; set portvariants +ssl; set portarchivetype tbz2; set os.platform darwin; set os.subplatform macosx; set os.major 24; set os.arch arm; set configure.build_arch arm64; set portdbpath /custom/db", &BTreeMap::new(), &PortSpec::named("app"), PortGroups::default()).unwrap()
+    Session::open("name app; version 1; variant ssl {}; default_variants +ssl; set portarchivetype tbz2; set os.platform darwin; set os.subplatform macosx; set os.major 24; set os.arch arm; set configure.build_arch arm64; set portdbpath /custom/db", &BTreeMap::new(), &PortSpec::named("app"), PortGroups::default()).unwrap()
 }
 #[test]
 fn image_names_use_live_platform_architectures_variants_and_archive_type() {
@@ -107,4 +107,32 @@ fn empty_sites_leave_lists_untouched_and_errors_propagate() {
     );
     assert_eq!(s.scalar("urls").unwrap(), "{malformed");
     assert!(s.invoke("get_portimage_name", &["extra"]).is_err());
+}
+
+#[test]
+fn evaluated_variant_globals_match_archive_identity_and_filter_requested_inputs() {
+    let mut spec = PortSpec::named("app");
+    for modifier in ["+zlib", "-debug", "+missing", "-unknown"] {
+        spec.parse_modifier(modifier).unwrap();
+    }
+    let mut s = Session::open("name app; version 1; variant zlib requires ssl {}; variant ssl {}; variant debug {}; variant defaulted {}; default_variants +defaulted; set portvariants stale; set requested_variants stale", &BTreeMap::new(), &spec, PortGroups::default()).unwrap();
+    assert_eq!(s.scalar("portvariants").unwrap(), "+defaulted+ssl+zlib");
+    assert_eq!(s.scalar("requested_variants").unwrap(), "+zlib-debug");
+    assert_eq!(
+        s.active_variants().unwrap(),
+        s.scalar("portvariants").unwrap()
+    );
+    assert_eq!(
+        s.metadata().port.get("canonical_active_variants"),
+        "+defaulted+ssl+zlib"
+    );
+    let mut empty = Session::open(
+        "name app; version 1",
+        &BTreeMap::new(),
+        &PortSpec::named("app"),
+        PortGroups::default(),
+    )
+    .unwrap();
+    assert_eq!(empty.scalar("portvariants").unwrap(), "");
+    assert_eq!(empty.scalar("requested_variants").unwrap(), "");
 }

@@ -130,6 +130,29 @@ pub(super) fn apply(interp: &mut Interp, id: ContextID) -> MoltResult {
     for script in scripts {
         interp.eval(&script)?;
     }
+    // PortSystem publishes these only after selected variant bodies succeed.
+    // Requested variants exclude implicit requirements/defaults and undeclared
+    // options, while portvariants records the actual evaluated positive set.
+    let state = interp.context::<State>(id);
+    let active = state
+        .active
+        .iter()
+        .map(|name| format!("+{name}"))
+        .collect::<String>();
+    let mut requested = String::new();
+    for enabled in [true, false] {
+        for (name, choice) in &state.requested {
+            if *choice == enabled
+                && state.variants.contains_key(name)
+                && (!enabled || state.active.contains(name))
+            {
+                requested.push(if enabled { '+' } else { '-' });
+                requested.push_str(name);
+            }
+        }
+    }
+    interp.set_scalar("portvariants", active.into())?;
+    interp.set_scalar("requested_variants", requested.into())?;
     Ok(Value::empty())
 }
 

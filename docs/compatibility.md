@@ -1686,10 +1686,19 @@ lifecycle; target registration alone does not perform downloads or enable instal
 Native `get_portimage_name` and `_get_archive_platform` now expose live archive
 coordinates to Portfile runtime code, including platform independence, canonical
 architectures, explicit archive type, and the upstream long-variant hash fallback.
-They require initialized `portvariants` and `portarchivetype` globals.
+They read `portvariants` and `portarchivetype` from the initialized runtime.
 `portarchivefetch::checkarchivefiles` derives candidate filenames by archive tag,
 deduplicates types in first-seen order, sets the incoming/verified path, and
 appends to both the global archive list and caller's URL list. These commands do
 not create directories, download data, or imply support for decoding every named
 archive format. Tests cover live changes, caller-local variables, repeated calls,
 empty sites, malformed lists, and filename limits.
+
+Successful variant evaluation now publishes the canonical `portvariants` and
+`requested_variants` globals at the same stage as upstream. The active string
+includes evaluated defaults and requirements; the requested string retains only
+explicit choices for declared variants, with positive choices before negative
+choices. Values set by Portfile code before variant evaluation are replaced by
+the evaluated result. Startup configuration supplies `portarchivetype` as tbz2
+by default or the first Tcl-list element of its configured value. Invalid lists
+fail during startup, while explicitly empty values remain empty as upstream.

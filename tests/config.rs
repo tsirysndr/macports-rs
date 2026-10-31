@@ -204,3 +204,42 @@ fn context_combines_configuration_environment_and_missing_build_user_fallback() 
         .is_err()
     );
 }
+
+#[test]
+fn archive_type_startup_default_and_first_list_element_match_macports() {
+    use std::collections::BTreeMap;
+    for (setting, expected) in [(None, "tbz2"), (Some("txz tbz2"), "txz"), (Some(""), "")] {
+        let mut config = Config::default();
+        if let Some(value) = setting {
+            config
+                .apply(&format!("portarchivetype {value}"), |path| Ok(path.into()))
+                .unwrap();
+        }
+        let context = port_rs::config::Context::new(
+            &config,
+            BTreeMap::from([("prefix".into(), "/opt/local".into())]),
+            &BTreeMap::new(),
+            501,
+            &Default::default(),
+        )
+        .unwrap();
+        assert_eq!(context.variables["portarchivetype"], expected);
+    }
+    let mut config = Config::default();
+    config
+        .apply("portarchivetype {broken", |path| Ok(path.into()))
+        .unwrap();
+    assert!(
+        port_rs::config::Context::new(
+            &config,
+            BTreeMap::from([("prefix".into(), "/opt/local".into())]),
+            &BTreeMap::new(),
+            501,
+            &Default::default()
+        )
+        .err()
+        .unwrap()
+        .to_string()
+        .contains("portarchivetype")
+    );
+}

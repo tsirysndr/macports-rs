@@ -48,6 +48,15 @@ impl Context {
         system_proxies: &Settings,
     ) -> Result<Self> {
         variables.extend(config.values().clone());
+        let archive_type = match variables.get("portarchivetype") {
+            Some(value) => crate::tcl_list::parse(value)
+                .context("invalid portarchivetype list")?
+                .into_iter()
+                .next()
+                .unwrap_or_default(),
+            None => "tbz2".into(),
+        };
+        variables.insert("portarchivetype".into(), archive_type);
         let prefix = variables
             .get("prefix")
             .context("startup prefix is missing")?
