@@ -12,6 +12,20 @@ installs, upgrades, snapshots, sync, lint and installer packages, with the
 Test it against a separate prefix (see `PORTSRC` in the guide) before using it
 on an existing MacPorts installation.
 
+## Install
+
+On macOS (Apple Silicon or Intel), install the latest release with:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/tsirysndr/macports-rs/main/install.sh | sh
+```
+
+This installs `port` into `/usr/local/bin` (using sudo when needed) after
+checking the download against its published SHA-256. Set `PORT_RS_VERSION` to
+install a specific tag, or `PORT_RS_INSTALL_DIR` to choose another directory.
+If MacPorts is also installed, whichever `port` comes first in `PATH` runs.
+`port selfupdate` later replaces the binary with newer releases.
+
 ## Quick start
 
 Use macOS (Apple Silicon or Intel) with the stable Rust toolchain and Xcode
