@@ -204,3 +204,32 @@ fn glob_matches_files_with_types_tails_and_braces() {
     fails(&[&format!("glob {dir}/*.zip")]);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn logical_operators_accept_boolean_words() {
+    check(&[
+        ("expr {yes && 1}", "1"),
+        ("expr {1 && no}", "0"),
+        ("expr {false || on}", "1"),
+        ("expr {!yes}", "0"),
+        ("expr {!off}", "1"),
+        ("set b true; expr {$b ? \"t\" : \"f\"}", "t"),
+    ]);
+    fails(&["expr {abc && 1}", "expr {!abc}"]);
+}
+
+#[test]
+fn foreach_and_lmap_iterate_several_lists_in_parallel() {
+    check(&[
+        (
+            "set r {}; foreach a {1 2 3} b {x y} {lappend r $a$b}; set r",
+            "1x 2y 3",
+        ),
+        (
+            "set r {}; foreach {a b} {1 2 3 4} c {x y} {lappend r $a$b$c}; set r",
+            "12x 34y",
+        ),
+        ("lmap a {1 2} b {3 4} {expr {$a + $b}}", "4 6"),
+    ]);
+    fails(&["foreach a {1} b {}", "foreach {} {1} {}"]);
+}

@@ -420,64 +420,46 @@ pub fn cmd_for(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult 
 ///
 /// * In Standard TCL, `foreach` can loop over several lists at the same time.
 pub fn cmd_foreach(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
-    check_args(1, argv, 4, 4, "varList list body")?;
-
-    let var_list = &*argv[1].as_list()?;
-    let list = &*argv[2].as_list()?;
-    let body = &argv[3];
-
-    let mut i = 0;
-
-    while i < list.len() {
-        for var in var_list {
-            if i < list.len() {
-                interp.set_var(var, list[i].clone())?;
-                i += 1;
-            } else {
-                interp.set_var(var, Value::empty())?;
-            }
-        }
-
-        let result = interp.eval_value(body);
-
-        if let Err(exception) = result {
-            match exception.code() {
-                ResultCode::Break => break,
-                ResultCode::Continue => (),
-                _ => return Err(exception),
-            }
-        }
-    }
-
-    molt_ok!()
+    iterate(interp, argv, false).map(|_| Value::empty())
 }
 
-/// # lmap *varList* *list* *body*
-///
-/// Like `foreach`, but collects each body result; `continue` skips an item.
-pub fn cmd_lmap(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
-    check_args(1, argv, 4, 4, "varList list body")?;
-
-    let var_list = &*argv[1].as_list()?;
-    let list = &*argv[2].as_list()?;
-    let body = &argv[3];
-    if var_list.is_empty() {
-        return molt_err!("lmap varlist is empty");
+/// Shared `foreach`/`lmap` driver for one or more `varList list` pairs.
+fn iterate(interp: &mut Interp, argv: &[Value], collect: bool) -> Result<Vec<Value>, Exception> {
+    if argv.len() < 4 || !argv.len().is_multiple_of(2) {
+        return Err(Exception::molt_err(Value::from(format!(
+            "wrong # args: should be \"{} varList list ?varList list ...? command\"",
+            argv[0]
+        ))));
     }
-
+    let mut groups = Vec::new();
+    let mut rounds = 0;
+    for pair in argv[1..argv.len() - 1].chunks(2) {
+        let vars = pair[0].as_list()?.to_vec();
+        if vars.is_empty() {
+            return molt_err!("{} varlist is empty", argv[0]);
+        }
+        let values = pair[1].as_list()?.to_vec();
+        rounds = rounds.max(values.len().div_ceil(vars.len()));
+        groups.push((vars, values));
+    }
+    let body = &argv[argv.len() - 1];
     let mut results = Vec::new();
-    let mut i = 0;
-    while i < list.len() {
-        for var in var_list {
-            if i < list.len() {
-                interp.set_var(var, list[i].clone())?;
-                i += 1;
-            } else {
-                interp.set_var(var, Value::empty())?;
+    for round in 0..rounds {
+        for (vars, values) in &groups {
+            for (offset, var) in vars.iter().enumerate() {
+                let value = values
+                    .get(round * vars.len() + offset)
+                    .cloned()
+                    .unwrap_or_else(Value::empty);
+                interp.set_var(var, value)?;
             }
         }
         match interp.eval_value(body) {
-            Ok(value) => results.push(value),
+            Ok(value) => {
+                if collect {
+                    results.push(value);
+                }
+            }
             Err(exception) => match exception.code() {
                 ResultCode::Break => break,
                 ResultCode::Continue => (),
@@ -485,8 +467,14 @@ pub fn cmd_lmap(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult
             },
         }
     }
+    Ok(results)
+}
 
-    molt_ok!(Value::from(results))
+/// # lmap *varList* *list* *body*
+///
+/// Like `foreach`, but collects each body result; `continue` skips an item.
+pub fn cmd_lmap(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
+    iterate(interp, argv, true).map(Value::from)
 }
 
 /// # apply *func* ?*arg* ...?

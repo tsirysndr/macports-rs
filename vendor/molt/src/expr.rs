@@ -40,6 +40,17 @@ pub(crate) struct Datum {
     str: String,
 }
 
+/// Tcl boolean words (yes/no/true/false/on/off) as integer data.
+fn boolean_word(value: &Datum) -> Option<Datum> {
+    if value.vtype != Type::String {
+        return None;
+    }
+    Value::from(value.str.as_str())
+        .as_bool()
+        .ok()
+        .map(|flag| Datum::int(if flag { 1 } else { 0 }))
+}
+
 impl Datum {
     fn none() -> Self {
         Self {
@@ -364,9 +375,10 @@ fn expr_get_value(interp: &mut Interp, info: &mut ExprInfo, prec: i32) -> DatumR
                                     value = Datum::int(0);
                                 }
                             }
-                            _ => {
-                                return illegal_type(value.vtype, operator);
-                            }
+                            _ => match boolean_word(&value) {
+                                Some(flag) => value = Datum::int(1 - flag.int),
+                                None => return illegal_type(value.vtype, operator),
+                            },
                         }
                     }
                     BIT_NOT => {
@@ -428,12 +440,11 @@ fn expr_get_value(interp: &mut Interp, info: &mut ExprInfo, prec: i32) -> DatumR
                         value = Datum::int(1);
                     }
                 }
-                Type::String => {
-                    if info.no_eval == 0 {
-                        return illegal_type(value.vtype, operator);
-                    }
-                    value = Datum::int(0);
-                }
+                Type::String => match boolean_word(&value) {
+                    Some(flag) => value = flag,
+                    None if info.no_eval == 0 => return illegal_type(value.vtype, operator),
+                    None => value = Datum::int(0),
+                },
                 _ => {}
             }
 
@@ -570,7 +581,10 @@ fn expr_get_value(interp: &mut Interp, info: &mut ExprInfo, prec: i32) -> DatumR
                     return illegal_type(value.vtype, operator);
                 }
                 if value2.vtype == Type::String {
-                    return illegal_type(value2.vtype, operator);
+                    match boolean_word(&value2) {
+                        Some(flag) => value2 = flag,
+                        None => return illegal_type(value2.vtype, operator),
+                    }
                 }
             }
 

@@ -2,7 +2,7 @@
 
 test foreach-1.1 {foreach argument error} {
     foreach
-} -error {wrong # args: should be "foreach varList list body"}
+} -error {wrong # args: should be "foreach varList list ?varList list ...? command"}
 
 test foreach-1.2 {error in body} {
     foreach x {1 2 3} {
