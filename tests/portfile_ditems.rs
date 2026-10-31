@@ -51,11 +51,11 @@ fn unique_append_keeps_its_native_cache_and_delete_removes_it() {
         if {[ditem_key $item] ne ""} {error deleted}
         if {![catch {ditem_key $item name}]} {error missing}
         ditem_key $item values fresh
-        notes [ditem_append_unique $item values final]
+        long_description [ditem_append_unique $item values final]
     "#)
     .unwrap();
     assert_eq!(result.port.get("description"), "a b c");
-    assert_eq!(result.port.get("notes"), "fresh final");
+    assert_eq!(result.port.get("long_description"), "fresh final");
 }
 
 #[test]
@@ -119,11 +119,11 @@ fn user_procedures_import_globals_at_invocation_and_preserve_errors() {
         build {error expected-failure}
         set handler [ditem_key ${org.macports.build} procedure]
         if {![catch {$handler ignored} message]} {error missing-error}
-        notes $message
+        long_description $message
     "#)
     .unwrap();
     assert_eq!(result.port.get("description"), "available later");
-    assert_eq!(result.port.get("notes"), "expected-failure");
+    assert_eq!(result.port.get("long_description"), "expected-failure");
 }
 
 #[test]

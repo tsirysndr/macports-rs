@@ -186,10 +186,8 @@ fn option(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
         super::variants::defaults(interp, id, &argv[1..])?;
     }
 
-    let value = if matches!(
-        name,
-        "description" | "long_description" | "notes" | "homepage"
-    ) {
+    // Notes stay a list of paragraphs, as upstream's handle_option stores them.
+    let value = if matches!(name, "description" | "long_description" | "homepage") {
         Value::from(
             values
                 .iter()

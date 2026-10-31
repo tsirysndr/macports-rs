@@ -65,6 +65,11 @@ pub(super) fn run(
             .get("portdbpath")
             .context("portdbpath is not configured")?,
     );
+    // A MacPorts prefix always exists once base is installed; create it so a
+    // fresh standalone prefix is writable for install and activation.
+    if let Some(prefix) = host.context.variables.get("prefix") {
+        fs::create_dir_all(prefix).with_context(|| format!("cannot create prefix {prefix}"))?;
+    }
     let software = portdbpath.join("software");
     fs::create_dir_all(&software)
         .with_context(|| format!("cannot create {}", software.display()))?;
@@ -73,11 +78,9 @@ pub(super) fn run(
     if let Some(parent) = registry_path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let mut writer = if registry_path.exists() {
-        Writer::open(&registry_path)?
-    } else {
-        Writer::create(&registry_path)?
-    };
+    if !registry_path.exists() {
+        drop(Writer::create(&registry_path)?);
+    }
     let staging = tempfile::Builder::new()
         .prefix("port-rs-install.")
         .tempdir_in(&portdbpath)
@@ -86,6 +89,7 @@ pub(super) fn run(
     let worker =
         crate::install::mirror_worker::MirrorWorker::new(host.context.mirror_timings.clone(), 8)?;
 
+    let mut notes = Vec::new();
     for item in &items {
         match item.action {
             Action::AlreadyActive => continue,
@@ -112,6 +116,8 @@ pub(super) fn run(
         label.set(crate::build::Phase::Destroot);
         let portfile =
             fs::read_to_string(Path::new(&session.scalar("portpath")?).join("Portfile"))?;
+        // Hold the registry write lock only while this port installs.
+        let mut writer = Writer::open(&registry_path)?;
         let mut installer = Installer {
             store: &store,
             registry: &mut writer,
@@ -141,6 +147,18 @@ pub(super) fn run(
                 VerifiedArchive::local(fs::File::open(&output)?)
             },
         )?;
+        notes.extend(session.take_notifications());
+    }
+    if !notes.is_empty() && !quiet {
+        writeln!(out, "--->  Some of the ports you installed have notes:")?;
+        for (port, text) in notes {
+            writeln!(out, "  {port} has the following notes:")?;
+            for note in tcl_list::parse(&text).unwrap_or_else(|_| vec![text.clone()]) {
+                for line in note.trim_matches('\n').lines() {
+                    writeln!(out, "    {}", line.trim_start())?;
+                }
+            }
+        }
     }
     Ok(())
 }

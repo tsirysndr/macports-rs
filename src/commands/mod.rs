@@ -13,6 +13,7 @@ mod local;
 mod location;
 mod outdated;
 mod phase;
+mod portcmds;
 mod provides;
 mod search;
 mod size;
@@ -70,6 +71,30 @@ pub enum Command {
     Variants(variants::Variants),
     /// Download files concurrently from a checksummed JSON manifest (Rust extension)
     Download(download::Download),
+    /// Print a port's Portfile
+    Cat(portcmds::Ports),
+    /// Edit a port's Portfile with $MP_EDITOR, $VISUAL or $EDITOR
+    Edit(portcmds::Ports),
+    /// Print the path to a port's directory
+    Dir(portcmds::Ports),
+    /// Print the path to a port's work directory, if it exists
+    Work(portcmds::Ports),
+    /// Print the file URL of a port's directory
+    Url(portcmds::Ports),
+    /// Print the path to a port's Portfile
+    File(portcmds::Ports),
+    /// Print the path to a port's main build log
+    Logfile(portcmds::Ports),
+    /// Open a port's homepage in the default browser
+    Gohome(portcmds::Ports),
+    /// Show a port's notes
+    Notes(portcmds::Ports),
+    /// Mark installed ports as requested
+    Setrequested(portcmds::Ports),
+    /// Mark installed ports as unrequested
+    Unsetrequested(portcmds::Ports),
+    /// Mark installed ports as unrequested
+    Setunrequested(portcmds::Ports),
     /// Activate an installed, inactive port image
     Activate(lifecycle::Lifecycle),
     /// Deactivate an active port image, removing its files from the prefix
@@ -202,6 +227,56 @@ impl Session {
                 quiet,
                 &root,
             )?;
+        } else if let Command::Setrequested(_)
+        | Command::Unsetrequested(_)
+        | Command::Setunrequested(_) = command
+        {
+            let path = registry_file
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| PathBuf::from(crate::registry::DEFAULT_PATH));
+            match command {
+                Command::Setrequested(args) => portcmds::set_requested(&path, args, true)?,
+                Command::Unsetrequested(args) | Command::Setunrequested(args) => {
+                    portcmds::set_requested(&path, args, false)?
+                }
+                _ => unreachable!(),
+            }
+        } else if let Command::Cat(_)
+        | Command::Edit(_)
+        | Command::Dir(_)
+        | Command::Work(_)
+        | Command::Url(_)
+        | Command::File(_)
+        | Command::Logfile(_)
+        | Command::Gohome(_) = command
+        {
+            let (action, args) = match command {
+                Command::Cat(args) => ("cat", args),
+                Command::Edit(args) => ("edit", args),
+                Command::Dir(args) => ("dir", args),
+                Command::Work(args) => ("work", args),
+                Command::Url(args) => ("url", args),
+                Command::File(args) => ("file", args),
+                Command::Logfile(args) => ("logfile", args),
+                Command::Gohome(args) => ("gohome", args),
+                _ => unreachable!(),
+            };
+            let root = local::root(index_file, false, action)?.unwrap();
+            portcmds::run(
+                &mut out,
+                self.index(index_file, quiet)?,
+                action,
+                args,
+                &root,
+            )?;
+        } else if let Command::Notes(args) = command {
+            let root = local::root(index_file, false, "notes").ok().flatten();
+            portcmds::notes(
+                &mut out,
+                self.index(index_file, quiet)?,
+                args,
+                root.as_deref(),
+            )?;
         } else if let Command::Activate(_) | Command::Deactivate(_) | Command::Uninstall(_) =
             command
         {
@@ -292,6 +367,18 @@ impl Session {
                 | Command::Version
                 | Command::Platform
                 | Command::Download(_)
+                | Command::Cat(_)
+                | Command::Edit(_)
+                | Command::Dir(_)
+                | Command::Work(_)
+                | Command::Url(_)
+                | Command::File(_)
+                | Command::Logfile(_)
+                | Command::Gohome(_)
+                | Command::Notes(_)
+                | Command::Setrequested(_)
+                | Command::Unsetrequested(_)
+                | Command::Setunrequested(_)
                 | Command::Activate(_)
                 | Command::Deactivate(_)
                 | Command::Uninstall(_)

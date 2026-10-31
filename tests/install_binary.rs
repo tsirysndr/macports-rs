@@ -543,11 +543,11 @@ async fn batch_downloads_concurrently_then_installs_dependencies_in_order() {
                     .unwrap();
                 assert_eq!(
                     sessions[0].take_notifications(),
-                    vec![("base".into(), "base ready".into())]
+                    vec![("base".into(), "{base ready}".into())]
                 );
                 assert_eq!(
                     sessions[1].take_notifications(),
-                    vec![("app".into(), "app ready".into())]
+                    vec![("app".into(), "{app ready}".into())]
                 );
                 results
                     .into_iter()
@@ -787,7 +787,7 @@ fn registration_and_activation_run_in_separate_hook_boundaries() {
             );
             assert_eq!(
                 session.take_notifications(),
-                vec![("app".into(), "app is ready".into())]
+                vec![("app".into(), "{app is ready}".into())]
             );
             drop(cached);
             assert_eq!(fs::read_dir(work.path()).unwrap().count(), 0);
@@ -834,7 +834,7 @@ fn registration_and_activation_run_in_separate_hook_boundaries() {
             assert!(location.is_file());
             assert_eq!(
                 session.take_notifications(),
-                vec![("app".into(), "app is ready".into())]
+                vec![("app".into(), "{app is ready}".into())]
             );
         }
     }

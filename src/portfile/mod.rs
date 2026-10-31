@@ -39,6 +39,7 @@ mod startupitem;
 pub use destroot_libtool::LibtoolCleanup;
 use stage_context::StageContext;
 pub use utilities::MACPORTS_BASE_VERSION;
+mod builtin_callbacks;
 mod checksum_runtime;
 mod compilers;
 mod diagnostics;
@@ -406,6 +407,7 @@ fn open(
     startupitem::initialize(&mut interp, id).map_err(failure)?;
     source_epoch::install(&mut interp, id).map_err(failure)?;
     option_procs::install(&mut interp, id).map_err(failure)?;
+    builtin_callbacks::install(&mut interp, id);
     build_phase::install(&mut interp, id);
     test_phase::install(&mut interp, id);
     configure_phase::install(&mut interp, id);
