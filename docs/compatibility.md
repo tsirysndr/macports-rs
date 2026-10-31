@@ -1806,3 +1806,11 @@ state disabled and no prerequisite, startup callback, or runtime package. Its
 bodies use the existing deferred target dispatch. This fills the graph root;
 it does not replace the host startup/configuration or dependency traversal that
 the full CLI installation driver still needs to arrange.
+
+`Session::target_order` snapshots the live prerequisite order for a provided
+target (or the whole graph for empty/all selection), reusing native dlist hard
+and soft dependency selection without running callbacks. Synthetic completion
+state is scoped away from Portfile variables. Unknown targets, missing hard
+requirements, and cycles fail before execution. The host must still prepare
+runtime context and account for graph changes made by subsequently run hooks;
+this read-only ordering API is not `eval_targets` execution.

@@ -267,3 +267,65 @@ fn numeric_equal(value: &Value, expected: i64) -> bool {
             .as_float()
             .is_ok_and(|number| number == expected as f64)
 }
+
+impl Session {
+    /// Snapshot a target's prerequisite order without executing callbacks.
+    /// Uses the live registered graph and PortSystem hard/soft dependency rules.
+    /// The host must prepare runtime packages and execution context before
+    /// running returned handles; hooks may require replanning if they edit it.
+    pub fn target_order(&mut self, target: &str) -> Result<Vec<String>> {
+        check_supported(&mut self.interp, self.id)?;
+        let all = self
+            .interp
+            .scalar("portutil::targets")
+            .map_err(failure)?
+            .as_list()
+            .map_err(failure)?
+            .to_vec();
+        let mut items = if target.is_empty() {
+            all
+        } else {
+            let matches = search(&mut self.interp, self.id, &all, "provides", &target.into())
+                .map_err(failure)?;
+            if let Some(first) = matches.first() {
+                command(
+                    &mut self.interp,
+                    self.id,
+                    &[
+                        "dlist_append_dependents".into(),
+                        all.into(),
+                        first.clone(),
+                        Value::empty(),
+                    ],
+                )
+                .map_err(failure)?
+                .as_list()
+                .map_err(failure)?
+                .to_vec()
+            } else {
+                ensure!(target == "all", "unknown target: {target}");
+                all
+            }
+        };
+        // Keep synthetic success bookkeeping out of Portfile variables.
+        self.interp.push_scope();
+        let result = (|| -> Result<Vec<String>> {
+            self.interp.array_set("statusdict", &[]).map_err(failure)?;
+            let mut ordered = Vec::with_capacity(items.len());
+            while !items.is_empty() {
+                let item =
+                    next(&mut self.interp, self.id, &items, "statusdict").map_err(failure)?;
+                ensure!(
+                    !item.as_str().is_empty(),
+                    "target {target} has unmet or cyclic dependencies"
+                );
+                mark(&mut self.interp, self.id, &item, true).map_err(failure)?;
+                items.retain(|pending| pending != &item);
+                ordered.push(item.to_string());
+            }
+            Ok(ordered)
+        })();
+        self.interp.pop_scope();
+        result
+    }
+}
