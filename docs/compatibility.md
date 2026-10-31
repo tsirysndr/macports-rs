@@ -1973,3 +1973,12 @@ pending-host reservations, allowing later retries. Tests cover concurrency,
 shared-batch deduplication, failed probes, cache reuse and cancellation. The
 interpreter's asynchronous probe/wait callbacks and persistent cache loading
 remain unfinished.
+
+The shared mirror cache now provides `wait_for_url`, an asynchronous equivalent
+of the host-specific ping wait. It returns immediately for fresh, preferred or
+blacklisted hosts and hostless URLs, and waits through stale results until a
+fresh measurement arrives. Notifications wake every interested session without
+waiting for unrelated probes; registration precedes cache inspection to avoid
+lost wakeups. Tests exercise multiple waiters, stale updates, immediate returns,
+and an actual probe batch whose second host never completes. Interpreter worker
+callbacks and persistent cache loading remain unfinished.

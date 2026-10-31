@@ -8,7 +8,7 @@ use std::{
 };
 
 #[derive(Clone, Default)]
-pub struct MirrorTimings(Arc<Mutex<Cache>>);
+pub struct MirrorTimings(Arc<Mutex<Cache>>, Arc<tokio::sync::Notify>);
 #[derive(Default)]
 struct Cache {
     blacklist: Vec<Glob>,
@@ -29,11 +29,14 @@ impl MirrorTimings {
         ))
     }
     pub fn new(blacklist: &[String], preferred: &[String]) -> Self {
-        Self(Arc::new(Mutex::new(Cache {
-            blacklist: blacklist.iter().map(|p| Glob::new(p, false)).collect(),
-            preferred: preferred.iter().map(|p| Glob::new(p, false)).collect(),
-            ..Cache::default()
-        })))
+        Self(
+            Arc::new(Mutex::new(Cache {
+                blacklist: blacklist.iter().map(|p| Glob::new(p, false)).collect(),
+                preferred: preferred.iter().map(|p| Glob::new(p, false)).collect(),
+                ..Cache::default()
+            })),
+            Arc::new(tokio::sync::Notify::new()),
+        )
     }
     /// Record a measurement or restore a timestamped persistent cache entry.
     pub fn record(&self, host: &str, milliseconds: f64, measured: SystemTime) -> Result<()> {
@@ -46,6 +49,7 @@ impl MirrorTimings {
             .expect("mirror timing cache")
             .times
             .insert(host.to_owned(), (milliseconds, measured));
+        self.1.notify_waiters();
         Ok(())
     }
     /// Status matches MacPorts: -2 blacklisted, -1 unknown, 0 stale,
@@ -53,6 +57,26 @@ impl MirrorTimings {
     pub fn lookup(&self, host: &str, now: SystemTime) -> (i64, Option<f64>) {
         let cache = self.0.lock().expect("mirror timing cache");
         cache.lookup(host, now)
+    }
+    /// Wait for this URL's host to be fresh or excluded by host policy.
+    /// Like upstream, the caller starts probes separately. This future may be
+    /// cancelled by dropping it; no blocking thread or cache reservation is held.
+    pub async fn wait_for_url(&self, url: &str) -> Result<()> {
+        let (_, Some(host)) = parts(url)? else {
+            return Ok(());
+        };
+        loop {
+            // Register before inspecting the cache, so a result arriving between
+            // the status check and await cannot be lost. notify_waiters wakes all
+            // sessions waiting on the same host, unlike a single stored permit.
+            let changed = self.1.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if !matches!(self.lookup(&host, SystemTime::now()).0, -1 | 0) {
+                return Ok(());
+            }
+            changed.await;
+        }
     }
     pub fn compare(&self, a: &str, b: &str, now: SystemTime) -> Result<i64> {
         let a = parts(a)?;
@@ -266,5 +290,69 @@ mod tests {
                 .is_err()
         );
         assert!(cache.probe_urls(&urls, 0).await.is_err());
+    }
+}
+
+#[cfg(test)]
+mod wait_tests {
+    use super::*;
+    use futures_util::poll;
+
+    #[tokio::test]
+    async fn wakes_all_matching_waiters_without_waiting_for_other_hosts() {
+        let cache = MirrorTimings::default();
+        cache.record("fast", 20.0, SystemTime::UNIX_EPOCH).unwrap();
+        let one = cache.wait_for_url("http://fast/a");
+        let two = cache.wait_for_url("https://fast/b");
+        let slow = cache.wait_for_url("https://slow/");
+        tokio::pin!(one, two, slow);
+        assert!(poll!(&mut one).is_pending());
+        assert!(poll!(&mut two).is_pending());
+        assert!(poll!(&mut slow).is_pending());
+        // A stale update is a notification, but must not satisfy the wait.
+        cache.record("fast", 5.0, SystemTime::UNIX_EPOCH).unwrap();
+        assert!(poll!(&mut one).is_pending());
+        cache.record("fast", 2.0, SystemTime::now()).unwrap();
+        assert!(poll!(&mut one).is_ready());
+        assert!(poll!(&mut two).is_ready());
+        assert!(poll!(&mut slow).is_pending());
+        cache.record("slow", 10000.0, SystemTime::now()).unwrap();
+        slow.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn policy_and_cached_results_do_not_require_a_running_probe() {
+        let cache = MirrorTimings::new(&["blocked".into()], &["preferred".into()]);
+        cache.record("fresh", 3.0, SystemTime::now()).unwrap();
+        for url in [
+            "http://blocked/",
+            "http://preferred/",
+            "http://fresh/",
+            "file:///tmp/source",
+            "relative",
+        ] {
+            let waiter = cache.wait_for_url(url);
+            tokio::pin!(waiter);
+            assert!(matches!(poll!(&mut waiter), std::task::Poll::Ready(Ok(()))));
+        }
+        assert!(cache.wait_for_url("http://[invalid").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn actual_batch_results_release_waiters_before_batch_completion() {
+        let cache = MirrorTimings::default();
+        let urls = vec!["http://first/".into(), "http://second/".into()];
+        let batch = cache.probe_with(&urls, 2, |host, _| async move {
+            if host == "second" {
+                std::future::pending::<()>().await;
+            }
+            Ok(2.0)
+        });
+        let waiter = cache.wait_for_url("http://first/");
+        tokio::pin!(batch, waiter);
+        assert!(poll!(&mut waiter).is_pending());
+        assert!(poll!(&mut batch).is_pending());
+        assert!(poll!(&mut waiter).is_ready());
+        assert_eq!(cache.lookup("second", SystemTime::now()).0, -1);
     }
 }
