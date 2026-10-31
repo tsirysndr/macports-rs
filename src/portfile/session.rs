@@ -30,7 +30,7 @@ impl Session {
         requested: &PortSpec,
         groups: PortGroups,
     ) -> Result<Self> {
-        super::open(source, variables, requested, groups, None)
+        super::open(source, variables, requested, groups, None, None)
     }
 
     /// Evaluate with an explicit initial environment available to the Portfile
@@ -43,7 +43,34 @@ impl Session {
         groups: PortGroups,
         environment: &BTreeMap<String, String>,
     ) -> Result<Self> {
-        super::open(source, variables, requested, groups, Some(environment))
+        super::open(
+            source,
+            variables,
+            requested,
+            groups,
+            Some(environment),
+            None,
+        )
+    }
+
+    /// Install lazy archive-site resolution before evaluating options, variants,
+    /// and PortGroups. Explicit Portfile and command-line values take precedence.
+    pub fn open_with_archive_sites(
+        source: &str,
+        variables: &BTreeMap<String, String>,
+        requested: &PortSpec,
+        groups: PortGroups,
+        environment: &BTreeMap<String, String>,
+        archives: ArchiveSites,
+    ) -> Result<Self> {
+        super::open(
+            source,
+            variables,
+            requested,
+            groups,
+            Some(environment),
+            Some(archives),
+        )
     }
 
     /// Snapshot taken after initial evaluation and variant application. Later

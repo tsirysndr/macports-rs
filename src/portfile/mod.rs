@@ -3,6 +3,8 @@
 //! PortSystem. Unsupported commands fail; deferred build hooks are retained.
 use crate::accounts;
 mod architecture;
+mod archive_defaults;
+pub use archive_defaults::ArchiveSites;
 mod binaries;
 mod build_defaults;
 mod build_phase;
@@ -50,7 +52,10 @@ mod session;
 mod state_open;
 pub use session::Session;
 mod source;
-pub use source::{evaluate_from_tree, open_from_tree, open_from_tree_with_environment};
+pub use source::{
+    evaluate_from_tree, open_from_tree, open_from_tree_with_archive_sites,
+    open_from_tree_with_environment,
+};
 mod system;
 pub use system::SystemRequest;
 mod target_execution;
@@ -96,6 +101,7 @@ pub struct Evaluation {
 }
 #[derive(Default)]
 struct State {
+    archive_sites: Option<ArchiveSites>,
     groups: PortGroups,
     progress: Option<crate::progress::Progress>,
     warned: BTreeSet<String>,
@@ -167,6 +173,7 @@ fn open(
     requested: &PortSpec,
     groups: PortGroups,
     environment: Option<&BTreeMap<String, String>>,
+    archive_sites: Option<ArchiveSites>,
 ) -> Result<Session> {
     let mut interp = Interp::new();
     interp.set_recursion_limit(128);
@@ -179,6 +186,7 @@ fn open(
         interp.array_set("env", &values).map_err(failure)?;
     }
     let id = interp.save_context(State {
+        archive_sites,
         creation_mask: crate::source::startup_creation_mask(),
         groups,
         selected: requested.variants.clone(),
@@ -239,6 +247,7 @@ fn open(
     interp.add_context_command("PortGroup", groups::command, id);
     interp.add_context_command("platform", platform::command, id);
     defaults::install(&mut interp, id).map_err(failure)?;
+    archive_defaults::install(&mut interp, id).map_err(failure)?;
     build_settings::install(&mut interp, id).map_err(failure)?;
     build_phase::install(&mut interp, id);
     test_phase::install(&mut interp, id);

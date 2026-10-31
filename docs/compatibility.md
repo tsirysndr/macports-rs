@@ -1615,9 +1615,7 @@ uses the compatible selection's default references; an explicitly empty list
 means no archive candidates. Prepared requests retain their exact site references
 for trust-key selection. Named tbz2/Signify classes are supported; literal archive
 URLs and other archive/signature formats still require additional resolution.
-Installing the dynamic archive_sites default before Portfile evaluation (including
-append/prepend against that default) and the complete install target lifecycle
-remain unfinished.
+The complete install target lifecycle remains unfinished.
 
 Archive-site discovery now resolves the live `archive_sites.listpath` and
 `archive_sites.listfile` within the caller-selected tree, with no fallback to
@@ -1636,3 +1634,13 @@ named Signify sites. URL entries never add trust keys. Without named signature
 metadata, upstream defaults to rmd160, which remains explicitly unsupported by
 the native Signify transport. Mixed signature formats and other archive formats
 still require the corresponding verification and extraction implementations.
+
+Callers can now supply an `ArchiveSites` resolver when opening either an in-memory
+or local-tree Portfile session. It installs the lazy `archive_sites` default before
+Portfile/PortGroup evaluation, using live resource path and filename options.
+Append/prepend resolve that default before modifying it; explicit assignments and
+command-line overrides bypass resolution. Unmodified defaults track later resource
+option changes. Resolver errors propagate as Portfile evaluation errors. The
+install scheduler still needs to supply the configured resolver and initialize
+the full PortSystem lifecycle; ordinary metadata sessions retain their existing
+behavior when no resolver is supplied.
