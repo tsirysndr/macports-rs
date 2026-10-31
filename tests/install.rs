@@ -736,6 +736,15 @@ fn local_install_resolves_configured_archive_defaults_before_portfile_mutations(
         archive_sites-append extra::tbz2
         if {${archive_sites} ne "macports_archives::tbz2 configured::tbz2 extra::tbz2"} {error "incorrect archive defaults: ${archive_sites}"}
         revision 5
+        archive_sites configured::tbz2
+        # No variants in this fixture; runtime normally publishes this after evaluation.
+        set portvariants {}
+        portarchivefetch::checkfiles prepared_urls
+        if {[llength $prepared_urls] != 2} {error wrong-candidates}
+        if {[set portfetch::urlmap(tbz2)] ne "https://custom/"} {error wrong-configured-urls}
+        set resource [portarchivefetch::get_full_archive_sites_path]
+        if {[portarchivefetch::get_archive_site_archivetype $resource configured] ne "tbz2"} {error wrong-archive-type}
+        if {[portarchivefetch::get_archive_site_urls $resource unknown] ne ""} {error unknown-site}
     "#,
     );
     let before = std::fs::read(f.dir.path().join("registry.db")).unwrap();

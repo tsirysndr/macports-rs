@@ -82,8 +82,9 @@ impl Paths {
         let root = tree.to_path_buf();
         // Shared by every dependency session: resource evaluation and warnings
         // happen once per resource location during this install plan.
-        let cache = RefCell::new(BTreeMap::<(String, String), Vec<String>>::new());
-        Ok(ArchiveSites::new(move |listpath, listfile| {
+        let cache =
+            RefCell::new(BTreeMap::<(String, String), (String, std::rc::Rc<Selection>)>::new());
+        Ok(ArchiveSites::with_resources(move |listpath, listfile| {
             let key = (listpath.to_owned(), listfile.to_owned());
             if let Some(defaults) = cache.borrow().get(&key) {
                 return Ok(defaults.clone());
@@ -105,11 +106,16 @@ impl Paths {
                 |path| paths.normalize(path),
                 |kind| kind == "tbz2",
             )?;
-            for warning in selected.warnings {
-                progress.warning(&warning);
+            for warning in &selected.warnings {
+                progress.warning(warning);
             }
-            cache.borrow_mut().insert(key, selected.defaults.clone());
-            Ok(selected.defaults)
+            let resource = resource
+                .to_str()
+                .ok_or_else(|| anyhow::anyhow!("archive resource path is not UTF-8"))?
+                .to_owned();
+            let result = (resource, std::rc::Rc::new(selected));
+            cache.borrow_mut().insert(key, result.clone());
+            Ok(result)
         }))
     }
 }

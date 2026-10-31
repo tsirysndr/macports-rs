@@ -1874,3 +1874,12 @@ upstream does; malformed existing lists remain errors. Archive `checkfiles`
 connects this builder to native candidate bookkeeping without losing caller-local
 URL variables. Resource getters remain a host integration requirement (tests
 supply literal-path-aware getters); network dispatch remains unfinished.
+
+Configured `ArchiveSites` now shares cached compatible selections with native
+resource-path, URL, archive-type, signature-type, and public-key getters. Runtime
+`checkfiles` can therefore use the configured active-tree mirror data without
+script stubs. The simple defaults-only resolver remains available; runtime
+resource getters require the richer provider. Getters currently accept only the
+active resource selection and reject a mismatched path. CLI preview coverage
+exercises configured getters, URL mapping, and candidate bookkeeping with the
+fixture's variant identity supplied explicitly; no network work runs in previews.
