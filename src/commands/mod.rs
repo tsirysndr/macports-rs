@@ -10,6 +10,7 @@ mod inspect;
 mod install;
 mod install_exec;
 mod installed;
+mod launchd;
 mod lifecycle;
 mod local;
 mod location;
@@ -94,6 +95,12 @@ pub enum Command {
     Log(portcmds::Log),
     /// List a port's distfiles with their checksums and download URLs
     Distfiles(portcmds::Ports),
+    /// Load a port's startup items with launchctl
+    Load(portcmds::Ports),
+    /// Unload a port's startup items with launchctl
+    Unload(portcmds::Ports),
+    /// Unload and load a port's startup items again
+    Reload(portcmds::Ports),
     /// Open a port's homepage in the default browser
     Gohome(portcmds::Ports),
     /// Show a port's notes
@@ -322,6 +329,21 @@ impl Session {
                 args,
                 &root,
             )?;
+        } else if let Command::Load(_) | Command::Unload(_) | Command::Reload(_) = command {
+            let (action, args) = match command {
+                Command::Load(args) => ("load", args),
+                Command::Unload(args) => ("unload", args),
+                Command::Reload(args) => ("reload", args),
+                _ => unreachable!(),
+            };
+            let root = local::root(index_file, false, action)?.unwrap();
+            launchd::run(
+                self.index(index_file, quiet)?,
+                &args.ports,
+                action,
+                quiet,
+                &root,
+            )?;
         } else if let Command::Distfiles(args) = command {
             let root = local::root(index_file, false, "distfiles")?.unwrap();
             distfiles::run(
@@ -477,6 +499,9 @@ impl Session {
                 | Command::Select(_)
                 | Command::Log(_)
                 | Command::Distfiles(_)
+                | Command::Load(_)
+                | Command::Unload(_)
+                | Command::Reload(_)
                 | Command::Selfupdate { .. }
                 | Command::Location(_)
                 | Command::Space(_)

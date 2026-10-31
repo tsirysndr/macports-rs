@@ -223,3 +223,24 @@ fn distfiles_lists_paths_checksums_and_urls_in_site_order() {
     );
     assert!(output.ends_with("--->  Distfiles for lib\n"), "{output}");
 }
+
+#[test]
+fn load_requires_an_installed_plist_and_ignores_ports_without_startup_items() {
+    let tree = Tree::new();
+    let text = portfile("svc", "1", "").replace(
+        "build {}",
+        "startupitem.create yes\nstartupitem.location LaunchAgents\nstartupitem.executable /usr/bin/true\nbuild {}",
+    );
+    let directory = tree.root.join("ports/devel/svc");
+    fs::create_dir_all(&directory).unwrap();
+    fs::write(directory.join("Portfile"), text).unwrap();
+    tree.port("lib", "1", "");
+    tree.ok(&["load", "lib"]);
+    let output = tree.run(&["load", "svc"]);
+    assert!(!output.status.success());
+    let error = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        error.contains("Launchd plist /Library/LaunchAgents/org.macports.svc.plist was not found"),
+        "{error}"
+    );
+}
