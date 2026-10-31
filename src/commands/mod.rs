@@ -17,6 +17,7 @@ mod phase;
 mod portcmds;
 mod provides;
 mod search;
+mod select;
 mod size;
 mod space;
 mod sync;
@@ -126,6 +127,8 @@ pub enum Command {
     Clean(clean::Clean),
     /// Update the ports trees listed in sources.conf
     Sync,
+    /// Choose among alternative versions installed for a select group
+    Select(select::Select),
     /// Update the ports trees; port-rs itself is not replaced
     Selfupdate {
         /// Skip updating the ports trees
@@ -175,6 +178,13 @@ impl Session {
         }
 
         match command {
+            Command::Select(args) => {
+                let stdout = io::stdout();
+                let mut out = io::BufWriter::new(stdout.lock());
+                select::run(&mut out, args, quiet)?;
+                out.flush()?;
+                return Ok(());
+            }
             Command::Sync => {
                 self.catalog = None;
                 return sync::run(quiet, false);
@@ -447,6 +457,7 @@ impl Session {
                 | Command::Clean(_)
                 | Command::Upgrade(_)
                 | Command::Sync
+                | Command::Select(_)
                 | Command::Selfupdate { .. }
                 | Command::Location(_)
                 | Command::Space(_)

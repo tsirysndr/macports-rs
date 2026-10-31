@@ -113,8 +113,8 @@ impl Host {
     }
 }
 
-/// The registry selected by macports.conf (`portdbpath`, or `${prefix}/var/macports`).
-pub(super) fn configured_registry() -> Option<PathBuf> {
+/// macports.conf as layered upstream (system file, ~/.macports, PORTSRC).
+pub(super) fn configuration() -> Option<crate::config::Config> {
     let environment: BTreeMap<String, String> = std::env::vars().collect();
     // SAFETY: getuid has no arguments and does not mutate process state.
     let uid = unsafe { libc::getuid() };
@@ -125,7 +125,18 @@ pub(super) fn configured_registry() -> Option<PathBuf> {
         uid,
     )
     .ok()?;
-    let config = paths.load().ok()?;
+    paths.load().ok()
+}
+
+pub(super) fn configured_prefix() -> PathBuf {
+    configuration()
+        .and_then(|config| config.get("prefix").map(PathBuf::from))
+        .unwrap_or_else(|| PathBuf::from("/opt/local"))
+}
+
+/// The registry selected by macports.conf (`portdbpath`, or `${prefix}/var/macports`).
+pub(super) fn configured_registry() -> Option<PathBuf> {
+    let config = configuration()?;
     let database = match config.get("portdbpath") {
         Some(path) => PathBuf::from(path),
         None => PathBuf::from(config.get("prefix")?).join("var/macports"),
