@@ -2,6 +2,7 @@
 use std::path::PathBuf;
 pub mod checksum;
 mod download;
+pub mod package;
 pub use download::run as download;
 /// Per-port `fetch.*` transport options.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

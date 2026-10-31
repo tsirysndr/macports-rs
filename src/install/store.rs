@@ -115,11 +115,14 @@ impl Store {
                 self.root
                     .publish_file(&relative, &mut archive.reader()?, 0o644)?,
             );
-            stored.files.push(self.root.publish_file(
-                &signature_relative,
-                &mut archive.signature().as_bytes(),
-                0o644,
-            )?);
+            // Locally built images carry no signature sidecar, as upstream.
+            if !archive.signature().is_empty() {
+                stored.files.push(self.root.publish_file(
+                    &signature_relative,
+                    &mut archive.signature().as_bytes(),
+                    0o644,
+                )?);
+            }
             Ok(())
         })();
         if let Err(error) = result {

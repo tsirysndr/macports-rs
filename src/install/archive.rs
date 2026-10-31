@@ -53,6 +53,25 @@ impl VerifiedArchive {
             signature: signature.to_owned(),
         })
     }
+    /// A port image built locally from a destroot. It is trusted because this
+    /// process produced it, so there is no signature; its digest still binds
+    /// later preparation to these exact bytes.
+    pub fn local(mut file: File) -> Result<Self> {
+        use sha2::{Digest, Sha256};
+        file.seek(SeekFrom::Start(0))?;
+        let mut hasher = Sha256::new();
+        let bytes = io::copy(&mut file, &mut hasher)?;
+        file.seek(SeekFrom::Start(0))?;
+        Ok(Self {
+            file,
+            verification: Verification {
+                key_id: [0; 8],
+                bytes,
+                sha256: hasher.finalize().into(),
+            },
+            signature: String::new(),
+        })
+    }
     pub fn verification(&self) -> &Verification {
         &self.verification
     }
