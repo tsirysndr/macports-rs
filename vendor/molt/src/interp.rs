@@ -697,6 +697,8 @@ impl Interp {
         interp.add_command("expr", commands::cmd_expr);
         interp.add_command("for", commands::cmd_for);
         interp.add_command("foreach", commands::cmd_foreach);
+        interp.add_command("lmap", commands::cmd_lmap);
+        interp.add_command("apply", commands::cmd_apply);
         interp.add_command("global", commands::cmd_global);
         interp.add_command("namespace", commands::cmd_namespace);
         interp.add_command("variable", commands::cmd_variable);
@@ -2286,6 +2288,25 @@ struct Procedure {
     /// The procedure's body string, as a Value.  As such, it retains both its
     /// string value, as needed for introspection, and its parsed Script.
     body: Value,
+}
+
+impl Interp {
+    /// Evaluate an anonymous procedure, as Tcl's `apply` does. `argv[0]` is
+    /// the lambda value itself, used for wrong-argument messages.
+    pub(crate) fn apply_lambda(
+        &mut self,
+        parms: MoltList,
+        body: Value,
+        namespace: &str,
+        argv: &[Value],
+    ) -> MoltResult {
+        Procedure {
+            namespace: namespace.into(),
+            parms,
+            body,
+        }
+        .execute(self, argv)
+    }
 }
 
 impl Procedure {

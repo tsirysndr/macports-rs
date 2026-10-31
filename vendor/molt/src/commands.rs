@@ -448,6 +448,68 @@ pub fn cmd_foreach(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltRes
     molt_ok!()
 }
 
+/// # lmap *varList* *list* *body*
+///
+/// Like `foreach`, but collects each body result; `continue` skips an item.
+pub fn cmd_lmap(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(1, argv, 4, 4, "varList list body")?;
+
+    let var_list = &*argv[1].as_list()?;
+    let list = &*argv[2].as_list()?;
+    let body = &argv[3];
+    if var_list.is_empty() {
+        return molt_err!("lmap varlist is empty");
+    }
+
+    let mut results = Vec::new();
+    let mut i = 0;
+    while i < list.len() {
+        for var in var_list {
+            if i < list.len() {
+                interp.set_var(var, list[i].clone())?;
+                i += 1;
+            } else {
+                interp.set_var(var, Value::empty())?;
+            }
+        }
+        match interp.eval_value(body) {
+            Ok(value) => results.push(value),
+            Err(exception) => match exception.code() {
+                ResultCode::Break => break,
+                ResultCode::Continue => (),
+                _ => return Err(exception),
+            },
+        }
+    }
+
+    molt_ok!(Value::from(results))
+}
+
+/// # apply *func* ?*arg* ...?
+///
+/// Calls an anonymous procedure `{args body ?namespace?}`.
+pub fn cmd_apply(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(1, argv, 2, 0, "lambdaExpr ?arg ...?")?;
+    let lambda = argv[1].as_list()?;
+    if lambda.len() < 2 || lambda.len() > 3 {
+        return molt_err!("can't interpret \"{}\" as a lambda expression", argv[1]);
+    }
+    let parms = lambda[0].as_list()?.to_vec();
+    for parm in &parms {
+        let spec = parm.as_list()?;
+        if spec.is_empty() || spec.len() > 2 {
+            return molt_err!("bad argument specifier \"{}\"", parm);
+        }
+    }
+    let namespace = lambda
+        .get(2)
+        .map(|name| name.as_str().trim_start_matches("::").to_string())
+        .unwrap_or_default();
+    let mut call = vec![Value::from(format!("apply {}", argv[1]))];
+    call.extend_from_slice(&argv[2..]);
+    interp.apply_lambda(parms, lambda[1].clone(), &namespace, &call)
+}
+
 /// # global ?*varName* ...?
 ///
 /// Appends any number of values to a variable's value, which need not

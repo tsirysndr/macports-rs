@@ -45,3 +45,6 @@ The upstream source and tests remain available to verify interpreter behavior.
 - Tcl backslash-newline handling: `\<newline>` plus following spaces/tabs becomes
   one space in bare, quoted and braced words, and separates words in commands,
   so multi-line Portfile options no longer gain a literal newline element.
+
+- `lmap` (single variable-list form, with `continue`/`break`) and `apply` for
+  anonymous procedures, as used by ports-tree compiler selection resources.
