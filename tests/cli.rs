@@ -157,7 +157,9 @@ fn selectors_are_deduplicated_and_unknown_names_fail() {
         "curl\ncurlish\n"
     );
     assert!(!fixture.run(&["list", "missing"]).status.success());
-    assert!(!fixture.run(&["list", "installed"]).status.success());
+    // Nothing is installed, so the pseudo-portname selects nothing.
+    let installed = fixture.run(&["list", "installed"]);
+    assert!(installed.status.success() && installed.stdout.is_empty());
 }
 #[test]
 fn install_without_a_local_portfile_fails_before_writing_anything() {

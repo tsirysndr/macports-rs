@@ -157,7 +157,10 @@ fn run() -> anyhow::Result<bool> {
     let mut session = commands::Session::default();
     let base_end = 1 + cli::leading_count(&args[1..]);
     let base: Vec<OsString> = args[..base_end].to_vec();
-    let has_action = base_end < args.len();
+    let asks_clap = base[1..]
+        .iter()
+        .any(|arg| matches!(arg.to_str(), Some("--help" | "-h" | "--version" | "-V")));
+    let has_action = base_end < args.len() || asks_clap;
     let mut ok = true;
     if has_action {
         ok = run_line(&mut session, args.clone());
