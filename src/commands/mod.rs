@@ -19,10 +19,12 @@ mod phase;
 mod portcmds;
 mod provides;
 mod reclaim;
+mod restore;
 mod rev_upgrade;
 mod search;
 mod select;
 mod size;
+mod snapshot;
 mod space;
 mod sync;
 mod system;
@@ -97,6 +99,12 @@ pub enum Command {
     Log(portcmds::Log),
     /// List a port's distfiles with their checksums and download URLs
     Distfiles(portcmds::Ports),
+    /// Record, list, compare, export or import registry snapshots
+    Snapshot(snapshot::SnapshotArgs),
+    /// Reinstall the ports recorded in a snapshot
+    Restore(restore::Restore),
+    /// Snapshot, uninstall and reinstall all ports for a new OS or architecture
+    Migrate(restore::Migrate),
     /// Rebuild ports whose binaries have broken library linkage
     #[command(name = "rev-upgrade")]
     RevUpgrade(rev_upgrade::RevUpgrade),
@@ -338,6 +346,29 @@ impl Session {
                 args,
                 &root,
             )?;
+        } else if let Command::Snapshot(args) = command {
+            let path = registry_file
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| PathBuf::from(crate::registry::DEFAULT_PATH));
+            snapshot::run(&mut out, &path, args, quiet)?;
+        } else if let Command::Restore(_) | Command::Migrate(_) = command {
+            let action = if matches!(command, Command::Restore(_)) {
+                "restore"
+            } else {
+                "migrate"
+            };
+            let root = local::root(index_file, false, action)?.unwrap();
+            let path = registry_file
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| PathBuf::from(crate::registry::DEFAULT_PATH));
+            let index = self.index(index_file, quiet)?;
+            match command {
+                Command::Restore(args) => restore::run(&mut out, index, &path, args, quiet, &root)?,
+                Command::Migrate(args) => {
+                    restore::migrate(&mut out, index, &path, args, quiet, &root)?
+                }
+                _ => unreachable!(),
+            }
         } else if let Command::RevUpgrade(args) = command {
             let root = local::root(index_file, false, "rev-upgrade")?.unwrap();
             let path = registry_file
@@ -543,6 +574,9 @@ impl Session {
                 | Command::Distfiles(_)
                 | Command::Reclaim(_)
                 | Command::RevUpgrade(_)
+                | Command::Snapshot(_)
+                | Command::Restore(_)
+                | Command::Migrate(_)
                 | Command::Load(_)
                 | Command::Unload(_)
                 | Command::Reload(_)

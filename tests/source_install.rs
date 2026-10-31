@@ -46,11 +46,12 @@ impl Tree {
         fs::write(
             root.join("macports.conf"),
             format!(
-                "prefix {0}/prefix\nportdbpath {0}/db\napplications_dir {0}/prefix/Applications\nframeworks_dir {0}/prefix/Library/Frameworks\nplace_worksymlink no\n",
+                "prefix {0}/prefix\nportdbpath {0}/db\napplications_dir {0}/prefix/Applications\nframeworks_dir {0}/prefix/Library/Frameworks\nplace_worksymlink no\nsources_conf {0}/sources.conf\n",
                 root.display()
             ),
         )
         .unwrap();
+        fs::write(root.join("sources.conf"), "").unwrap();
         let tree = Self { _temp: temp, root };
         tree.port("lib", "1", "");
         tree.port("app", "1", "depends_lib port:lib");
@@ -314,6 +315,9 @@ fn reclaim_removes_inactive_and_unneeded_ports_and_unused_files() {
             .is_ok()
     );
 
+    tree.ok(&["snapshot"]);
+    tree.ok(&["snapshot", "--note", "recent"]);
+    age_first_snapshot(&tree.root.join("db/registry/registry.db"));
     tree.ok(&["setunrequested", "app"]);
     let output = tree.run(&["reclaim"]);
     let progress = String::from_utf8_lossy(&output.stderr);
@@ -322,6 +326,11 @@ fn reclaim_removes_inactive_and_unneeded_ports_and_unused_files() {
     assert!(app < lib, "{progress}");
     assert!(tree.ok(&["installed"]).contains("No ports are installed"));
 
+    let list = tree.ok(&["snapshot", "--list"]);
+    assert!(
+        list.contains("recent") && !list.contains("snapshot created for migration"),
+        "{list}"
+    );
     tree.ok(&["reclaim", "--disable-reminders"]);
     assert_eq!(read(&tree.root.join("db/last_reclaim")), "disabled\n");
 }
@@ -386,4 +395,113 @@ fn failing_phases_name_the_target_and_point_to_the_log() {
         "{log}"
     );
     assert!(log.contains("Error: Failed to build broken"), "{log}");
+}
+
+#[test]
+fn snapshots_record_compare_export_and_restore_installed_ports() {
+    let tree = Tree::new();
+    assert!(
+        tree.ok(&["snapshot", "--list"])
+            .starts_with("There are no snapshots.")
+    );
+    tree.ok(&["install", "app"]);
+    tree.ok(&["snapshot", "--note", "before", "cleanup"]);
+    let list = tree.ok(&["snapshot", "--list"]);
+    let lines: Vec<&str> = list.lines().collect();
+    assert_eq!(
+        lines[0].split_whitespace().collect::<Vec<_>>(),
+        ["ID", "Created", "Note"]
+    );
+    assert!(
+        lines[2].starts_with(" 1  ") && lines[2].ends_with("before cleanup"),
+        "{list}"
+    );
+    assert!(
+        tree.ok(&["snapshot", "--diff", "1"])
+            .ends_with("The current state and the specified snapshot match.\n")
+    );
+
+    let exported = tree.ok(&["snapshot", "--export", "1"]);
+    let json: serde_json::Value = serde_json::from_str(&exported).unwrap();
+    assert_eq!(json["metadata"]["type"], "org.macports/snapshot/v1");
+    assert_eq!(json["metadata"]["note"], "before cleanup");
+    let ports = json["ports"].as_array().unwrap();
+    assert_eq!(ports.len(), 2);
+    assert_eq!(ports[0]["port_name"], "app");
+    assert_eq!(ports[0]["requested"], 1);
+    assert!(
+        ports[1]["port_files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f.as_str().unwrap().ends_with("share/lib/version"))
+    );
+
+    tree.ok(&["uninstall", "app"]);
+    tree.ok(&["uninstall", "lib"]);
+    let diff = tree.ok(&["snapshot", "--diff", "1", "--all"]);
+    assert!(
+        diff.contains(
+            "The following ports are in the snapshot but not installed:\n - app \n - lib \n"
+        ),
+        "{diff}"
+    );
+
+    let file = tree.root.join("snapshot.json");
+    fs::write(&file, &exported).unwrap();
+    assert!(
+        tree.ok(&["snapshot", "--import", file.to_str().unwrap()])
+            .starts_with("Snapshot successfully imported with ID 2.")
+    );
+    tree.ok(&["snapshot", "--delete", "1"]);
+    assert!(!tree.run(&["snapshot", "--delete", "1"]).status.success());
+    let multiple = tree.run(&["snapshot", "--list", "--create"]);
+    assert!(String::from_utf8_lossy(&multiple.stderr).contains("Only one of the --list"));
+
+    let restored = tree.run(&["restore", "--last"]);
+    assert!(
+        restored.status.success(),
+        "{}",
+        String::from_utf8_lossy(&restored.stderr)
+    );
+    let progress = String::from_utf8_lossy(&restored.stderr);
+    assert!(
+        progress.contains("===>  Restoring port 1 of 1: app")
+            && progress.contains("Migration finished.\n"),
+        "{progress}"
+    );
+    let list = tree.ok(&["installed"]);
+    assert!(
+        list.contains("app @1_0 (active)") && list.contains("lib @1_0 (active)"),
+        "{list}"
+    );
+    let requested = tree.ok(&["installed", "requested"]);
+    assert!(
+        requested.contains("app @1_0") && !requested.contains("lib @1_0"),
+        "{requested}"
+    );
+
+    let migrated = tree.run(&["migrate"]);
+    assert!(
+        migrated.status.success(),
+        "{}",
+        String::from_utf8_lossy(&migrated.stderr)
+    );
+    let progress = String::from_utf8_lossy(&migrated.stderr);
+    assert!(
+        progress.contains("Done: Snapshot '3'") && progress.contains("Restoring ports..."),
+        "{progress}"
+    );
+    assert!(tree.ok(&["installed"]).contains("app @1_0 (active)"));
+}
+
+/// Age the first snapshot past reclaim's 30-day limit.
+fn age_first_snapshot(database: &Path) {
+    rusqlite::Connection::open(database)
+        .unwrap()
+        .execute(
+            "UPDATE snapshots SET created_at='2000-01-01 00:00:00' WHERE id=1",
+            [],
+        )
+        .unwrap();
 }

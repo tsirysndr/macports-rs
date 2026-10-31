@@ -222,6 +222,50 @@ fn uninstall(
     Ok(())
 }
 
+/// Delete registry snapshots older than 30 days.
+fn remove_snapshots(registry_path: &Path, progress: &Progress) -> Result<()> {
+    let Some(registry) = Registry::open(Some(registry_path))? else {
+        return Ok(());
+    };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|time| time.as_secs() as i64)
+        .unwrap_or(0);
+    let old: Vec<_> = registry
+        .snapshots()?
+        .into_iter()
+        .filter(|snapshot| {
+            super::snapshot::utc_seconds(&snapshot.created_at)
+                .is_some_and(|created| now - created > 2_592_000)
+        })
+        .collect();
+    drop(registry);
+    if old.is_empty() {
+        progress.log("info", "No registry snapshots older than 30 days to delete");
+        return Ok(());
+    }
+    let listing: Vec<String> = old
+        .iter()
+        .map(|snapshot| {
+            format!(
+                "{} {}",
+                super::snapshot::local_time(&snapshot.created_at),
+                snapshot.note
+            )
+        })
+        .collect();
+    progress.message("Registry snapshots older than 30 days found:");
+    if confirm("Would you like to delete them?", &listing) {
+        let mut writer = crate::registry::write::Writer::open(registry_path)?;
+        let mut transaction = writer.transaction()?;
+        for snapshot in &old {
+            transaction.delete_snapshot(snapshot.id)?;
+        }
+        transaction.commit()?;
+    }
+    Ok(())
+}
+
 pub(super) fn run(
     index: &Index,
     registry_path: &Path,
@@ -437,6 +481,12 @@ pub(super) fn run(
         ) {
             delete_children(&ccache, &progress);
         }
+    }
+
+    if args.dry_run {
+        progress.message("Deleting snapshots... (dry run)");
+    } else {
+        remove_snapshots(registry_path, &progress)?;
     }
 
     if !args.dry_run {

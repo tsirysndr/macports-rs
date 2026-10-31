@@ -146,6 +146,9 @@ pub struct WriteTransaction<'a> {
     transaction: Transaction<'a>,
 }
 impl WriteTransaction<'_> {
+    pub(super) fn connection(&self) -> &rusqlite::Connection {
+        &self.transaction
+    }
     pub fn entries(&self) -> Result<Vec<Entry>> {
         read_entries(&self.transaction)
     }

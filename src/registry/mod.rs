@@ -4,6 +4,7 @@ pub mod expression;
 mod leaves;
 pub mod path;
 mod selection;
+pub mod snapshot;
 pub(crate) mod version;
 pub mod write;
 use anyhow::{Context, Result, ensure};

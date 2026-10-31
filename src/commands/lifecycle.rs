@@ -137,6 +137,14 @@ pub(super) fn deactivate(path: &Path, args: Lifecycle, progress: &Progress) -> R
     Ok(())
 }
 
+/// Deactivate one active image without the dependents check.
+pub(super) fn deactivate_entry(path: &Path, entry: &Entry, progress: &Progress) -> Result<()> {
+    let snapshot = snapshot(path)?;
+    progress.phase(&format!("Deactivating {}", label(entry)));
+    let mut writer = open_writer(path)?;
+    deactivation::deactivate(&mut writer, entry.id, &snapshot.files[&entry.id])
+}
+
 pub(super) fn uninstall(path: &Path, args: Lifecycle, progress: &Progress) -> Result<()> {
     for spec in registry::specifications(&args.ports)? {
         let snapshot = snapshot(path)?;
