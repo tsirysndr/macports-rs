@@ -290,7 +290,11 @@ pub(super) fn run(
         );
     }
     if args.list {
-        let snapshots = reader(path)?.snapshots()?;
+        let snapshots = if path.exists() {
+            reader(path)?.snapshots()?
+        } else {
+            Vec::new()
+        };
         if snapshots.is_empty() {
             if !quiet {
                 writeln!(
