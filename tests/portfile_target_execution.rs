@@ -144,7 +144,7 @@ fn postrun_failure_is_retryable_and_caught_unsupported_commands_never_complete()
             .unwrap(),
         "0"
     );
-    s.invoke("proc", &["finish", "name", "catch {exec must-not-run}"])
+    s.invoke("proc", &["finish", "name", "catch {socket must-not-run 1}"])
         .unwrap();
     assert!(s.execute_target(&item, Some(&fd), false).is_err());
     drop(s);

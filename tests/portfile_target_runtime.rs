@@ -180,7 +180,7 @@ fn caught_unsupported_operation_still_releases_owned_lock() {
     let tmp = tempfile::tempdir().unwrap();
     let (mut s, _) = session(tmp.path());
     let item = s.scalar("item").unwrap();
-    s.invoke("proc", &["body", "name", "catch {exec must-not-run}"])
+    s.invoke("proc", &["body", "name", "catch {socket must-not-run 1}"])
         .unwrap();
     assert!(s.run_prepared_target(&item, false).is_err());
     // Check while the poisoned session is still alive: Drop alone is too late.

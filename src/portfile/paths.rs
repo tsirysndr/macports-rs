@@ -62,6 +62,13 @@ fn file(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     if operation == "delete" {
         return file_delete::command(interp, id, argv);
     }
+    if operation == "copy" {
+        return file_copy::command(interp, id, argv);
+    }
+    if operation == "nativename" {
+        check_args(2, argv, 3, 3, "name")?;
+        return Ok(argv[2].clone());
+    }
     if operation == "mkdir" {
         return filesystem_mutations::mkdir(interp, id, argv);
     }

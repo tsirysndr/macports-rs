@@ -9,6 +9,13 @@ pub(super) fn install(interp: &mut Interp, id: ContextID) -> MoltResult {
     interp.add_context_command("port::run_callbacks", run_callbacks, id);
     interp.add_context_command("universal_setup", universal_setup, id);
     interp.add_context_command("variant_delete", variant_delete, id);
+    interp.add_context_command("options_export", options_export, id);
+    interp.add_context_command("options::export", export, id);
+    interp.context::<State>(id).option_procs.extend(
+        EXPORTED
+            .iter()
+            .map(|name| ((*name).to_string(), vec!["options::export".to_string()])),
+    );
     for name in [
         "universal_variant",
         "use_configure",
@@ -133,6 +140,65 @@ const UPSTREAM_DEFAULTS: &[(&str, &str)] = &[
     ("portsandbox_active", "0"),
     ("portsandbox_profile", ""),
 ];
+
+/// Options mirrored into the PortInfo array, as upstream `options_export` does.
+const EXPORTED: [&str; 27] = [
+    "name",
+    "version",
+    "revision",
+    "epoch",
+    "categories",
+    "maintainers",
+    "platforms",
+    "description",
+    "long_description",
+    "notes",
+    "homepage",
+    "license",
+    "provides",
+    "conflicts",
+    "replaced_by",
+    "installs_libs",
+    "license_noconflict",
+    "patchfiles",
+    "known_fail",
+    "depends_fetch",
+    "depends_extract",
+    "depends_patch",
+    "depends_build",
+    "depends_lib",
+    "depends_run",
+    "depends_test",
+    "subport",
+];
+
+fn options_export(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
+    let state = interp.context::<State>(id);
+    for option in &argv[1..] {
+        state
+            .option_procs
+            .entry(option.to_string())
+            .or_default()
+            .push("options::export".into());
+    }
+    Ok(Value::empty())
+}
+
+fn export(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(1, argv, 3, 4, "option action ?value?")?;
+    let option = argv[1].as_str();
+    interp.with_global_scope(|interp| {
+        match argv[2].as_str() {
+            "set" => {
+                let value = argv.get(3).cloned().unwrap_or_else(Value::empty);
+                interp.set_element("PortInfo", option, value)?;
+            }
+            "delete" => interp.unset_element("PortInfo", option),
+            _ => {}
+        }
+        Ok(Value::empty())
+    })
+}
 
 fn option_proc(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 2, 0, "option ?proc ...?")?;

@@ -112,7 +112,10 @@ fn invocation_arguments_remain_data_and_errors_do_not_leak_local_scope() {
 
 #[test]
 fn caught_unsupported_operations_and_failed_group_imports_remain_fatal() {
-    for body in ["catch {exec must-not-run}", "catch {PortGroup missing 1.0}"] {
+    for body in [
+        "catch {socket must-not-run 1}",
+        "catch {PortGroup missing 1.0}",
+    ] {
         let mut session = open(&format!("name app; version 1; proc bad {{}} {{{body}}}"));
         assert!(session.invoke("bad", &[]).is_err());
         assert!(session.invoke("set", &["version", "2"]).is_err());

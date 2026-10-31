@@ -152,7 +152,12 @@ fn retains_hooks_without_executing_their_bodies() {
 }
 #[test]
 fn unsupported_commands_cannot_be_hidden_by_catch() {
-    for command in ["source /etc/passwd", "exec anything", "exit", "puts hello"] {
+    for command in [
+        "source /etc/passwd",
+        "socket anything 1",
+        "exit",
+        "puts hello",
+    ] {
         let source = format!("name app; version 1; catch {{{command}}}");
         let error = evaluate(&source, &[]).unwrap_err_text();
         assert!(error.contains("unsupported"), "{error}");

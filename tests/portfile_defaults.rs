@@ -130,7 +130,7 @@ fn circular_defaults_fail_without_poisoning_subsequent_reads() {
 fn errors_during_final_default_resolution_are_not_silently_dropped() {
     assert!(run("options custom; default custom {$missing_variable}").is_err());
     assert!(run("options custom; default custom {[error broken]}").is_err());
-    assert!(run("options custom; default custom {[catch {exec forbidden}]}").is_err());
+    assert!(run("options custom; default custom {[catch {socket forbidden 1}]}").is_err());
 }
 #[test]
 fn extraction_formats_behave_like_radio_buttons_and_honor_explicit_suffix() {

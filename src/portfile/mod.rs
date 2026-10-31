@@ -43,6 +43,7 @@ mod compilers;
 mod diagnostics;
 mod ditems;
 mod dlist;
+mod exec;
 mod extract_phase;
 mod fetch_dns;
 mod fetch_files;
@@ -53,6 +54,7 @@ mod fetch_runtime;
 mod fetch_selection;
 mod fetch_sites;
 mod fetch_start;
+mod file_copy;
 mod file_delete;
 mod file_link;
 mod file_normalize;
@@ -73,6 +75,7 @@ mod platform;
 mod registry_lookup;
 mod session;
 mod state_open;
+mod user_commands;
 pub use session::Session;
 mod source;
 pub use source::{
@@ -235,8 +238,8 @@ fn open(
         ..State::default()
     });
     for command in [
-        "source", "exit", "puts", "parse", "pdump", "pclear", "exec", "open", "socket", "load",
-        "default", "platform", "system",
+        "source", "exit", "puts", "parse", "pdump", "pclear", "open", "socket", "load", "default",
+        "platform", "system",
     ] {
         interp.add_context_command(command, commands::unsupported, id);
     }
@@ -282,6 +285,8 @@ fn open(
     fetch_runtime::install(&mut interp, id);
     fetch_requests::install(&mut interp, id);
     diagnostics::install(&mut interp, id);
+    user_commands::install(&mut interp, id);
+    exec::install(&mut interp, id);
     checksum_runtime::install(&mut interp, id);
     extract_phase::install(&mut interp, id);
     patch_phase::install(&mut interp, id);
