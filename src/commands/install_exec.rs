@@ -33,8 +33,20 @@ pub(super) fn run(
     quiet: bool,
     root: &Path,
 ) -> Result<()> {
+    let specs = query::specifications(index, ports)?;
+    run_specs(out, index, registry_file, specs, quiet, root)
+}
+
+/// Install already parsed specifications (with explicit variants).
+pub(super) fn run_specs(
+    out: &mut impl Write,
+    index: &Index,
+    registry_file: Option<&Path>,
+    mut specs: Vec<PortSpec>,
+    quiet: bool,
+    root: &Path,
+) -> Result<()> {
     let host = super::local::Host::new(root, registry_file, quiet)?;
-    let mut specs = query::specifications(index, ports)?;
     for spec in &mut specs {
         host.context.variants.apply(spec);
     }
@@ -118,6 +130,23 @@ pub(super) fn run(
             fs::read_to_string(Path::new(&session.scalar("portpath")?).join("Portfile"))?;
         // Hold the registry write lock only while this port installs.
         let mut writer = Writer::open(&registry_path)?;
+        // As upstream activation does, retire another active version first.
+        if let Some(reader) = crate::registry::Registry::open(Some(&registry_path))? {
+            let active = reader
+                .entries()?
+                .into_iter()
+                .find(|entry| entry.active && entry.name.eq_ignore_ascii_case(&item.port.name));
+            if let Some(active) = active {
+                let files = reader.files(&active)?;
+                drop(reader);
+                host.progress.phase(&format!(
+                    "Deactivating {} @{}",
+                    active.name,
+                    active.full_version()
+                ));
+                install::deactivation::deactivate(&mut writer, active.id, &files)?;
+            }
+        }
         let mut installer = Installer {
             store: &store,
             registry: &mut writer,

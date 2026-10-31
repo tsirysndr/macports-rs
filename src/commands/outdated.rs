@@ -156,3 +156,54 @@ fn compare(entry: &Entry, port: &Port) -> Result<(Ordering, String)> {
     }
     Ok((order, reason))
 }
+
+/// Active registry entries older than the index (or built for another
+/// platform), as `port outdated` reports them, for `port upgrade`.
+pub(super) fn outdated_entries(
+    path: Option<&Path>,
+    ports: &[String],
+    index: &Index,
+) -> Result<Vec<Entry>> {
+    let registry = registry::Registry::open(path)?;
+    let entries = registry
+        .as_ref()
+        .map(registry::Registry::entries)
+        .transpose()?
+        .unwrap_or_default();
+    let selected: Vec<_> = registry::expression::select(
+        &entries,
+        ports,
+        registry::expression::Missing::Empty,
+        registry.as_ref(),
+        || Ok(registry::expression::obsolete_names(&entries, index)),
+    )?
+    .into_iter()
+    .filter(|entry| entry.active)
+    .collect();
+    let mut result = Vec::new();
+    let mut platform = None;
+    for entry in selected {
+        let Some(port) = index.lookup(&entry.name) else {
+            continue;
+        };
+        let (mut order, _) = compare(entry, port)?;
+        if order == Ordering::Equal
+            && !matches!(entry.platform.as_str(), "any" | "" | "0")
+            && !matches!(entry.os_major.as_str(), "" | "0" | "any")
+        {
+            if platform.is_none() {
+                platform = Some(source::detect_platform()?);
+            }
+            let host = platform.as_ref().unwrap();
+            if entry.platform != "darwin"
+                || entry.os_major.parse::<u32>().ok() != Some(host.darwin_major)
+            {
+                order = Ordering::Less;
+            }
+        }
+        if order == Ordering::Less {
+            result.push(entry.clone());
+        }
+    }
+    Ok(result)
+}

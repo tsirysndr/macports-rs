@@ -20,6 +20,7 @@ mod search;
 mod size;
 mod space;
 mod system;
+mod upgrade;
 mod variants;
 
 use anyhow::{Context, Result, bail};
@@ -96,6 +97,8 @@ pub enum Command {
     Unsetrequested(portcmds::Ports),
     /// Mark installed ports as unrequested
     Setunrequested(portcmds::Ports),
+    /// Rebuild and activate newer versions of outdated installed ports
+    Upgrade(upgrade::Upgrade),
     /// Activate an installed, inactive port image
     Activate(lifecycle::Lifecycle),
     /// Deactivate an active port image, removing its files from the prefix
@@ -276,6 +279,19 @@ impl Session {
                 args,
                 &root,
             )?;
+        } else if let Command::Upgrade(args) = command {
+            let root = local::root(index_file, false, "upgrade")?.unwrap();
+            let path = registry_file
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| PathBuf::from(crate::registry::DEFAULT_PATH));
+            upgrade::run(
+                &mut out,
+                self.index(index_file, quiet)?,
+                &path,
+                args,
+                quiet,
+                &root,
+            )?;
         } else if let Command::Clean(args) = command {
             let root = local::root(index_file, false, "clean")?.unwrap();
             clean::run(self.index(index_file, quiet)?, args, quiet, &root)?;
@@ -401,6 +417,7 @@ impl Session {
                 | Command::Destroot(_)
                 | Command::Test(_)
                 | Command::Clean(_)
+                | Command::Upgrade(_)
                 | Command::Location(_)
                 | Command::Space(_)
                 | Command::Deps(_)

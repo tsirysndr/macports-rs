@@ -163,34 +163,49 @@ pub(super) fn uninstall(path: &Path, args: Lifecycle, progress: &Progress) -> Re
         }
         for entry in matches {
             check_dependents(&snapshot, entry, false, args.force, "uninstall", progress)?;
-            let mut writer = open_writer(path)?;
-            if entry.active {
-                progress.phase(&format!("Deactivating {}", label(entry)));
-                deactivation::deactivate(&mut writer, entry.id, &snapshot.files[&entry.id])?;
-            }
-            progress.phase(&format!("Uninstalling {}", label(entry)));
-            let mut transaction = writer.transaction()?;
-            transaction.remove(entry.id)?;
-            transaction.commit()?;
-            let location = PathBuf::from(&snapshot.locations[&entry.id]);
-            for file in [
-                location.clone(),
-                PathBuf::from(format!("{}.sig", location.display())),
-            ] {
-                match fs::remove_file(&file) {
-                    Ok(()) => {}
-                    Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-                    Err(err) => {
-                        progress.warning(&format!("cannot remove {}: {err}", file.display()))
-                    }
-                }
-            }
-            if let Some(directory) = location.parent()
-                && fs::read_dir(directory).is_ok_and(|mut entries| entries.next().is_none())
-            {
-                let _ = fs::remove_dir(directory);
-            }
+            remove_image(path, &snapshot, entry, progress)?;
         }
+    }
+    Ok(())
+}
+
+/// Uninstall one registered image (deactivating it first), without the
+/// dependent check, for callers such as `upgrade -u`.
+pub(super) fn uninstall_entry(path: &Path, entry: &Entry, progress: &Progress) -> Result<()> {
+    let snapshot = snapshot(path)?;
+    remove_image(path, &snapshot, entry, progress)
+}
+
+fn remove_image(
+    path: &Path,
+    snapshot: &Snapshot,
+    entry: &Entry,
+    progress: &Progress,
+) -> Result<()> {
+    let mut writer = open_writer(path)?;
+    if entry.active {
+        progress.phase(&format!("Deactivating {}", label(entry)));
+        deactivation::deactivate(&mut writer, entry.id, &snapshot.files[&entry.id])?;
+    }
+    progress.phase(&format!("Uninstalling {}", label(entry)));
+    let mut transaction = writer.transaction()?;
+    transaction.remove(entry.id)?;
+    transaction.commit()?;
+    let location = PathBuf::from(&snapshot.locations[&entry.id]);
+    for file in [
+        location.clone(),
+        PathBuf::from(format!("{}.sig", location.display())),
+    ] {
+        match fs::remove_file(&file) {
+            Ok(()) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => progress.warning(&format!("cannot remove {}: {err}", file.display())),
+        }
+    }
+    if let Some(directory) = location.parent()
+        && fs::read_dir(directory).is_ok_and(|mut entries| entries.next().is_none())
+    {
+        let _ = fs::remove_dir(directory);
     }
     Ok(())
 }

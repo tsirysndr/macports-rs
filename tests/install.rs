@@ -93,7 +93,7 @@ fn active_and_inactive_matching_images_have_distinct_actions() {
     );
 }
 #[test]
-fn conflicting_active_images_fail_without_partial_plan() {
+fn active_dependencies_of_any_version_satisfy_but_requested_ports_are_replaced() {
     let f = Fixture::new(&[
         ("app", "version 1 depends_run port:base"),
         ("base", "version 2"),
@@ -102,10 +102,14 @@ fn conflicting_active_images_fail_without_partial_plan() {
         .unwrap()
         .execute_batch("INSERT INTO ports VALUES(1,'base','1',0,'','installed')")
         .unwrap();
-    let output = f.run(&["-y", "install", "app"]);
-    assert!(!output.status.success());
-    assert!(output.stdout.is_empty());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("already active with a different"));
+    assert_eq!(
+        stdout(f.run(&["-qy", "install", "app"])),
+        "active   base @2_0 (dependency)\ninstall  app @1_0 (requested)\n"
+    );
+    assert_eq!(
+        stdout(f.run(&["-qy", "install", "base"])),
+        "install  base @2_0 (requested)\n"
+    );
 }
 #[test]
 fn missing_dependencies_cycles_and_providers_fail_before_output() {
@@ -241,9 +245,10 @@ fn image_matching_checks_epoch_as_well_as_version() {
     );
     db.execute_batch("UPDATE ports SET state='installed',epoch=1")
         .unwrap();
-    let result = f.run(&["-y", "install", "app"]);
-    assert!(!result.status.success());
-    assert!(result.stdout.is_empty());
+    assert_eq!(
+        stdout(f.run(&["-qy", "install", "app"])),
+        "install  app @1_0 (requested)\n"
+    );
 }
 
 #[test]

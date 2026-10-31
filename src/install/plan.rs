@@ -187,15 +187,15 @@ pub(super) fn plan_providers<'a>(
                 let active = candidates.iter().copied().find(|entry| entry.active);
                 let action = if !selection.resolved {
                     Action::Resolve
-                } else if let Some(active) = active {
-                    ensure!(
-                        matches(&active),
-                        "{} @{} is already active with a different version, epoch, or variants; upgrades and replacement activation are not implemented",
-                        active.name,
-                        active.full_version()
-                    );
+                } else if active.is_some_and(|active| matches(&active))
+                    // An active dependency of any version satisfies a port:
+                    // dependency; only requested ports are replaced.
+                    || (active.is_some() && !requested.contains_key(&port.name))
+                {
                     Action::AlreadyActive
                 } else if candidates.iter().any(matches) {
+                    // Includes replacing a different active version, which
+                    // activation deactivates first, as upstream does.
                     Action::Activate
                 } else {
                     Action::Install

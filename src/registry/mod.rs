@@ -12,7 +12,7 @@ pub use selection::specifications;
 use std::{collections::HashSet, path::Path, time::Duration};
 
 pub const DEFAULT_PATH: &str = "/opt/local/var/macports/registry/registry.db";
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Entry {
     pub id: i64,
     pub epoch: String,
