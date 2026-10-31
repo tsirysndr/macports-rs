@@ -39,10 +39,40 @@ pub(super) fn install(interp: &mut Interp, id: ContextID) -> MoltResult {
         "archive",
         "unarchive",
         "clean",
+        "livecheck",
+        "distcheck",
+        "distfiles",
+        "lint",
+        "mirror",
+        "load",
+        "unload",
+        "reload",
+        "pkg",
+        "mpkg",
+        "dmg",
+        "mdmg",
+        "bump",
     ] {
         // Current PortSystem target metadata. Archive/unarchive are retained
         // legacy script declarations, not standalone targets in current base.
-        let handle = if !matches!(phase, "archive" | "unarchive") {
+        let handle = if !matches!(
+            phase,
+            "archive"
+                | "unarchive"
+                | "livecheck"
+                | "distcheck"
+                | "distfiles"
+                | "lint"
+                | "mirror"
+                | "load"
+                | "unload"
+                | "reload"
+                | "pkg"
+                | "mpkg"
+                | "dmg"
+                | "mdmg"
+                | "bump"
+        ) {
             let name = format!("org.macports.{phase}");
             let handle =
                 ditems::new_target(interp, id, &name, &format!("port{phase}::{phase}_main"))?;

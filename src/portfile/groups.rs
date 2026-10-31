@@ -170,7 +170,21 @@ fn import(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
             .to_string()
         })
         .collect::<Vec<_>>();
+    let path = interp
+        .context::<State>(id)
+        .loaded_groups
+        .last()
+        .and_then(|group| group.path.as_ref())
+        .map(|path| path.to_string_lossy().into_owned());
     global(interp, "PortInfo");
     interp.set_element("PortInfo", "portgroups", list(records))?;
-    interp.eval(&source)
+    // Like `source`, a group's top-level `return` ends only that group.
+    let result = match &path {
+        Some(path) => interp.eval_file(path, &source),
+        None => interp.eval(&source),
+    };
+    match result {
+        Err(exception) if exception.code() == molt::ResultCode::Return => Ok(exception.value()),
+        other => other,
+    }
 }
