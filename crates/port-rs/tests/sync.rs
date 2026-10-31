@@ -75,5 +75,30 @@ fn sync_pulls_file_sources_skips_nosync_and_selects_the_default_tree() {
     );
     let after = port(&["info", "--version", "zlib"]);
     assert_eq!(String::from_utf8_lossy(&after.stdout), "version: 2\n");
-    assert!(port(&["selfupdate", "--nosync"]).status.success());
+    // A local release endpoint with no published releases.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let releases = format!("http://{}/latest", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        use std::io::{Read, Write};
+        for stream in listener.incoming().flatten() {
+            let mut stream = stream;
+            let _ = stream.read(&mut [0; 4096]);
+            let _ = stream.write_all(
+                b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            );
+        }
+    });
+    let updated = Command::new(env!("CARGO_BIN_EXE_port"))
+        .args(["selfupdate", "--nosync"])
+        .current_dir(&root)
+        .env("PORTSRC", root.join("macports.conf"))
+        .env("HOME", &root)
+        .env("PORT_RS_RELEASES_URL", &releases)
+        .output()
+        .unwrap();
+    assert!(
+        updated.status.success(),
+        "{}",
+        String::from_utf8_lossy(&updated.stderr)
+    );
 }
