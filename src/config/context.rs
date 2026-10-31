@@ -80,6 +80,34 @@ impl Context {
         variables
             .entry("ccache_dir".into())
             .or_insert_with(|| format!("{portdbpath}/build/.ccache"));
+        let darwin_major = variables
+            .get("os.major")
+            .and_then(|value| value.parse::<u32>().ok())
+            .unwrap_or(0);
+        for (name, value) in [
+            ("configureccache", "no"),
+            ("configuredistcc", "no"),
+            ("configurepipe", "yes"),
+            ("buildnicevalue", "0"),
+            ("buildmakejobs", "0"),
+            ("ccache_size", "2G"),
+            ("revupgrade_autorun", "yes"),
+            ("revupgrade_mode", "rebuild"),
+            (
+                "delete_la_files",
+                if darwin_major >= 13 { "yes" } else { "no" },
+            ),
+            (
+                "cxx_stdlib",
+                if darwin_major >= 10 {
+                    "libc++"
+                } else {
+                    "libstdc++"
+                },
+            ),
+        ] {
+            variables.entry(name.into()).or_insert_with(|| value.into());
+        }
         for name in ["prefix", "frameworks_dir", "applications_dir"] {
             variables.insert(format!("{name}_frozen"), variables[name].clone());
         }

@@ -14,6 +14,17 @@ const FORMATS: &[(&str, &str)] = &[
 pub(super) fn install(interp: &mut Interp, id: ContextID) -> MoltResult {
     interp.set_global_scalar_hooks(id, read, changed);
     interp.add_context_command("default", command, id);
+    interp.add_context_command("port_rs::toolchain", toolchain, id);
+    for name in [
+        "developer_dir",
+        "xcodeversion",
+        "xcodebuildcmd",
+        "xcodecltversion",
+    ] {
+        if !interp.var_exists(&Value::from(name)) {
+            register(interp, id, name, &format!("[port_rs::toolchain {name}]"))?;
+        }
+    }
     for (name, template) in [
         ("add_users", ""),
         ("global_mirror_site", "macports_distfiles"),
@@ -150,4 +161,25 @@ fn format_changed(
     })();
     interp.context::<State>(id).changing_format = false;
     result
+}
+
+/// Host toolchain facts that upstream computes lazily through variable traces.
+fn toolchain(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(1, argv, 2, 2, "name")?;
+    use crate::source::toolchain;
+    Ok(match argv[1].as_str() {
+        "developer_dir" => {
+            let major = interp
+                .scalar("os.major")
+                .ok()
+                .and_then(|value| value.as_str().parse().ok())
+                .unwrap_or(0);
+            toolchain::developer_dir(major)
+        }
+        "xcodeversion" => toolchain::xcode_version(),
+        "xcodebuildcmd" => toolchain::xcodebuild_command(),
+        "xcodecltversion" => toolchain::clt_version(),
+        other => return Err(error(format!("unknown toolchain fact {other}"))),
+    }
+    .into())
 }

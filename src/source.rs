@@ -9,6 +9,7 @@ use std::{
 use tokio::io::AsyncWriteExt;
 mod host;
 mod startup;
+pub mod toolchain;
 pub use host::{BuildHost, detect_build_host};
 pub use startup::{capture_creation_mask_before_threads, startup_creation_mask};
 
