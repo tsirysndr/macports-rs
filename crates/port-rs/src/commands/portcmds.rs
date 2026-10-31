@@ -136,7 +136,7 @@ pub(super) fn set_requested(registry_path: &Path, args: Ports, requested: bool) 
         .context("no ports are installed")?
         .entries()?;
     let mut writer = Writer::open(registry_path)?;
-    for spec in registry::specifications(&args.ports)? {
+    for spec in registry::expanded_specifications(&args.ports)? {
         let version = spec.composite_version();
         let matches: Vec<_> = entries
             .iter()

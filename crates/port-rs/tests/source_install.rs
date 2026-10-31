@@ -683,16 +683,18 @@ fn mirror_fetches_verified_distfiles_and_records_them() {
     let good = tree.root.join("db/distfiles/good/good-1.tar.gz");
     assert_eq!(read(&good), "0123456789");
     assert!(!tree.root.join("db/distfiles/private").exists());
+    let map = port_rs::filemap::Filemap::load(&tree.root.join("db/distfiles_mirror.db")).unwrap();
     assert_eq!(
-        read(&tree.root.join("db/distfiles_mirror.txt")),
-        format!("{}\n", good.display())
+        map.entries(),
+        [(good.to_string_lossy().into_owned(), "1".to_string())]
     );
     let bad = tree.run(&["mirror", "bad"]);
     assert!(!bad.status.success());
     assert!(String::from_utf8_lossy(&bad.stderr).contains("portmirror: checksum failed"));
     assert!(!tree.root.join("db/distfiles/bad/bad-1.tar.gz").exists());
     tree.ok(&["mirror", "--new", "private"]);
-    assert_eq!(read(&tree.root.join("db/distfiles_mirror.txt")), "");
+    let map = port_rs::filemap::Filemap::load(&tree.root.join("db/distfiles_mirror.db")).unwrap();
+    assert!(map.entries().is_empty());
 }
 
 #[test]

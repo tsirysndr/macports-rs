@@ -1,7 +1,19 @@
 use crate::spec::{PortSpec, is_modifier};
 use anyhow::{Context, Result, ensure};
 
+/// Installed-port specifications. Pseudo-portnames stay names here: the
+/// registry expression evaluator gives them their meaning.
 pub fn specifications(tokens: &[String]) -> Result<Vec<PortSpec>> {
+    parse(tokens, false)
+}
+
+/// Like `specifications`, with pseudo-portnames (`inactive`, `leaves`,
+/// `current`, ...) expanded, for actions that take a plain list of images.
+pub fn expanded_specifications(tokens: &[String]) -> Result<Vec<PortSpec>> {
+    parse(tokens, true)
+}
+
+fn parse(tokens: &[String], expand: bool) -> Result<Vec<PortSpec>> {
     let mut specs: Vec<PortSpec> = Vec::new();
     for token in tokens {
         if is_modifier(token) {
@@ -9,7 +21,8 @@ pub fn specifications(tokens: &[String]) -> Result<Vec<PortSpec>> {
                 .last_mut()
                 .context("port modifier must follow an installed port selector")?
                 .parse_modifier(token)?;
-        } else if crate::query::is_pseudo(token)
+        } else if expand
+            && crate::query::is_pseudo(token)
             && let Some(expanded) = crate::query::resolve_pseudo(token, true)?
         {
             specs.extend(expanded);

@@ -1226,6 +1226,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "libc",
+ "libsqlite3-sys",
  "port-core",
  "sea-query",
  "sea-query-binder",

@@ -16,7 +16,7 @@ use db::{
     schema::{Dependencies, Files, Ports},
 };
 use sea_query::{Alias, Expr, Func, Order, Query};
-pub use selection::specifications;
+pub use selection::{expanded_specifications, specifications};
 use sqlx::Row as _;
 use std::{cell::RefCell, collections::HashSet, path::Path};
 
@@ -200,7 +200,10 @@ impl Registry {
             .select_one(&statement)
             .with_context(context)?
             .with_context(context)?;
-        row.try_get(0).with_context(context)
+        // sqlx decodes NULL text as an empty string; a missing location is an error.
+        row.try_get::<Option<String>, _>(0)
+            .with_context(context)?
+            .with_context(context)
     }
     pub fn files(&self, entry: &Entry) -> Result<Vec<String>> {
         let column = if entry.active {

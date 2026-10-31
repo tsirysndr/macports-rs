@@ -9,6 +9,7 @@ description = "MacPorts registry access for port-rs"
 [dependencies]
 anyhow.workspace = true
 libc.workspace = true
+libsqlite3-sys.workspace = true
 port-core.workspace = true
 sea-query.workspace = true
 sea-query-binder.workspace = true

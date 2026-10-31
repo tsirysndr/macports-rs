@@ -805,12 +805,32 @@ fn action_ambiguity_includes_unimplemented_upstream_commands() {
 #[test]
 fn exact_actions_win_unique_prefixes_expand_and_shell_only_actions_fail() {
     let fixture = Fixture::new();
-    let output = fixture.run(&["selfupd", "--nosync"]);
+    // A local release endpoint with no published releases.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let releases = format!("http://{}/latest", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        use std::io::{Read, Write};
+        for stream in listener.incoming().flatten() {
+            let mut stream = stream;
+            let _ = stream.read(&mut [0; 4096]);
+            let _ = stream.write_all(
+                b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            );
+        }
+    });
+    let output = Command::new(env!("CARGO_BIN_EXE_port"))
+        .args(["selfupd", "--nosync"])
+        .current_dir(fixture.directory.path())
+        .env("HOME", fixture.directory.path().join("home"))
+        .env("PORT_RS_RELEASES_URL", &releases)
+        .output()
+        .unwrap();
     assert!(
         output.status.success(),
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("No port-rs releases are published"));
     let output = fixture.run(&["usag", "select"]);
     assert!(String::from_utf8_lossy(&output.stderr).starts_with("Usage: port select"));
     // `cd` only works in the interactive shell, which this CLI does not have.

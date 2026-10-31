@@ -23,7 +23,14 @@ pub(super) fn run(
     root: &Path,
 ) -> Result<()> {
     let options = crate::options::get();
-    let mut outdated = super::outdated::outdated_entries(Some(registry_path), &args.ports, index)?;
+    // `outdated` selects every outdated port; the registry alone cannot.
+    let selectors: Vec<String> = args
+        .ports
+        .iter()
+        .filter(|token| token.as_str() != "outdated")
+        .cloned()
+        .collect();
+    let mut outdated = super::outdated::outdated_entries(Some(registry_path), &selectors, index)?;
     if options.dependents {
         outdated.extend(outdated_dependents(registry_path, index, &outdated)?);
     }

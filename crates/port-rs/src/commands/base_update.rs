@@ -109,7 +109,14 @@ fn replace(executable: &Path, binary: &[u8]) -> Result<()> {
 pub(super) fn update(progress: &Progress) -> Result<bool> {
     progress.phase("Updating port-rs base");
     let current = env!("CARGO_PKG_VERSION");
-    let (version, assets) = latest()?;
+    let (version, assets) = match latest() {
+        Ok(release) => release,
+        Err(error) if error.to_string().contains("HTTP 404") => {
+            progress.message("No port-rs releases are published; port-rs base was not changed");
+            return Ok(false);
+        }
+        Err(error) => return Err(error),
+    };
     if crate::registry::compare_versions(&version, current).is_le() {
         progress.message(&format!(
             "port-rs base is already the latest version ({current})"

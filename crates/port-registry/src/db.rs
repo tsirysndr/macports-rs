@@ -92,6 +92,9 @@ pub mod schema {
     }
 }
 
+const SQLITE_DBCONFIG_DQS_DML: std::ffi::c_int = 1013;
+const SQLITE_DBCONFIG_DQS_DDL: std::ffi::c_int = 1014;
+
 /// How to open a database.
 pub enum Mode {
     ReadOnly,
@@ -156,8 +159,28 @@ impl Database {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()?;
-        let connection = block(&runtime, options.connect())
+        let mut connection = block(&runtime, options.connect())
             .with_context(|| format!("cannot open registry {}", path.display()))?;
+        // Unknown double-quoted identifiers must be errors, not string
+        // literals: statements quote every column name.
+        block(&runtime, async {
+            let mut handle = connection.lock_handle().await?;
+            let database = handle.as_raw_handle().as_ptr();
+            for option in [SQLITE_DBCONFIG_DQS_DML, SQLITE_DBCONFIG_DQS_DDL] {
+                // SAFETY: the handle is locked and open; the option takes an
+                // int and an optional out-pointer.
+                let status = unsafe {
+                    libsqlite3_sys::sqlite3_db_config(
+                        database,
+                        option,
+                        0 as std::ffi::c_int,
+                        std::ptr::null_mut::<std::ffi::c_int>(),
+                    )
+                };
+                anyhow::ensure!(status == 0, "cannot configure SQLite ({status})");
+            }
+            anyhow::Ok(())
+        })?;
         Ok(Self {
             connection: Some(connection),
             runtime,

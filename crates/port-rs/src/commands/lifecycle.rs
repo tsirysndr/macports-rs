@@ -120,7 +120,7 @@ fn open_writer(path: &Path) -> Result<Writer> {
 }
 
 pub(super) fn deactivate(path: &Path, args: Lifecycle, progress: &Progress) -> Result<()> {
-    for spec in registry::specifications(&args.ports)? {
+    for spec in registry::expanded_specifications(&args.ports)? {
         let snapshot = snapshot(path)?;
         let matches = matching(&snapshot.entries, &spec);
         let Some(active) = matches.iter().find(|entry| entry.active) else {
@@ -153,7 +153,7 @@ pub(super) fn deactivate_entry(path: &Path, entry: &Entry, progress: &Progress) 
 }
 
 pub(super) fn uninstall(path: &Path, args: Lifecycle, progress: &Progress) -> Result<()> {
-    for spec in registry::specifications(&args.ports)? {
+    for spec in registry::expanded_specifications(&args.ports)? {
         let snapshot = snapshot(path)?;
         let matches = matching(&snapshot.entries, &spec);
         ensure!(
@@ -238,7 +238,7 @@ pub(super) fn activate(
     progress: &Progress,
     staging: &Path,
 ) -> Result<()> {
-    for spec in registry::specifications(&args.ports)? {
+    for spec in registry::expanded_specifications(&args.ports)? {
         let snapshot = snapshot(path)?;
         let matches = matching(&snapshot.entries, &spec);
         ensure!(
