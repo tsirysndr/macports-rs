@@ -13,6 +13,24 @@ pub struct Paths {
     pub portsrc: Option<PathBuf>,
 }
 impl Paths {
+    /// Combine keys from the live archive-site references with pubkeys.conf.
+    pub fn archive_site_keys(
+        &self,
+        config: &Config,
+        selection: &crate::install::sites::Selection,
+        references: &[String],
+        archive_type: &str,
+    ) -> Result<crate::install::pubkeys::Trust> {
+        let path = config
+            .get("pubkeys_conf")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                self.absolute(&self.configuration_directory)
+                    .join("pubkeys.conf")
+            });
+        let keys = selection.key_paths(references, archive_type, "sig");
+        crate::install::pubkeys::load_signify_paths(&path, &self.working_directory, &keys)
+    }
     pub fn archive_sites(
         &self,
         config: &Config,

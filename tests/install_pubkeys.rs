@@ -87,3 +87,105 @@ fn configuration_path_override_selects_the_trust_file() {
             .is_empty()
     );
 }
+
+#[test]
+fn selected_site_keys_and_configured_keys_share_deduplication_and_authenticate() {
+    use port_rs::{
+        config::{Config, Paths},
+        install::sites::{Layout, Selection, Sites, resource::Resource},
+    };
+    let root = tempfile::tempdir().unwrap();
+    let key = KeyPair::from_seed(Seed::new([43; 32]));
+    std::fs::write(root.path().join("site.key"), envelope(key.pk.as_ref())).unwrap();
+    std::fs::write(
+        root.path().join("configured.pub"),
+        include_str!("../src/install/keys/macports-archives-2025.pub"),
+    )
+    .unwrap();
+    std::fs::write(
+        root.path().join("pubkeys.conf"),
+        "configured.pub\nconfigured.pub\nmissing.pub\n",
+    )
+    .unwrap();
+    let source = include_str!("fixtures/archive-sites/archive_sites.tcl").replace(
+        "/opt/local/share/macports/keys/archives/macports-archives-2025.pub",
+        "site.key",
+    );
+    let tree = Resource::evaluate(&source, "darwin", 24)
+        .unwrap()
+        .sites()
+        .unwrap();
+    let installation = Layout {
+        prefix: "/opt/local".into(),
+        applications_dir: "/Applications/MacPorts".into(),
+        frameworks_dir: "/opt/local/Library/Frameworks".into(),
+        cxx_stdlib: "libc++".into(),
+        delete_la_files: "yes".into(),
+    };
+    let selection = Selection::new(
+        tree,
+        Sites::default(),
+        &installation,
+        |p| Ok(p.into()),
+        |_| true,
+    )
+    .unwrap();
+    let references = vec![
+        "macports_archives::tbz2".into(),
+        "macports_archives:subdir:tbz2".into(),
+        "https://mirror/:tbz2".into(),
+    ];
+    assert_eq!(
+        selection.key_paths(&references, "tbz2", "sig"),
+        [std::path::PathBuf::from("site.key")]
+    );
+    assert!(selection.key_paths(&references, "txz", "sig").is_empty());
+    assert!(
+        selection
+            .key_paths(&references, "tbz2", "rmd160")
+            .is_empty()
+    );
+    let paths = Paths {
+        configuration_directory: root.path().to_owned(),
+        working_directory: root.path().to_owned(),
+        user_home: None,
+        portsrc: None,
+    };
+    let trust = paths
+        .archive_site_keys(&Config::default(), &selection, &references, "tbz2")
+        .unwrap();
+    assert_eq!(trust.keys.len(), 2);
+    assert_eq!(trust.warnings.len(), 1);
+    let bytes = b"archive authenticated by selected site";
+    let signature = envelope(key.sk.sign(bytes, None).as_ref());
+    assert!(signature::verify(bytes.as_slice(), &signature, &trust.keys).is_ok());
+    let wrong_type = paths
+        .archive_site_keys(&Config::default(), &selection, &references, "txz")
+        .unwrap();
+    assert!(signature::verify(bytes.as_slice(), &signature, &wrong_type.keys).is_err());
+    std::fs::remove_file(root.path().join("pubkeys.conf")).unwrap();
+    assert_eq!(
+        paths
+            .archive_site_keys(&Config::default(), &selection, &references, "tbz2")
+            .unwrap()
+            .keys
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn site_and_config_paths_are_deduplicated_before_reading() {
+    let root = tempfile::tempdir().unwrap();
+    let config = root.path().join("pubkeys.conf");
+    std::fs::write(
+        root.path().join("key.pub"),
+        include_str!("../src/install/keys/macports-archives-2025.pub"),
+    )
+    .unwrap();
+    std::fs::write(&config, "key.pub\nbad.pub\n").unwrap();
+    let paths = vec!["key.pub".into(), "key.pub".into(), "bad.pub".into()];
+    let trust = pubkeys::load_signify_paths(&config, root.path(), &paths).unwrap();
+    assert_eq!(trust.keys.len(), 1);
+    assert_eq!(trust.warnings.len(), 1);
+}

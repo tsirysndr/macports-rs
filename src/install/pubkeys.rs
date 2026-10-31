@@ -17,6 +17,21 @@ pub struct Trust {
 /// Legacy .pem entries apply to .rmd160 signatures and are not selected here.
 /// Relative entries are relative to startup cwd, not the configuration directory.
 pub fn load_signify(config: &Path, cwd: &Path, site_keys: Vec<TrustedKey>) -> Result<Trust> {
+    load(config, cwd, site_keys, &[])
+}
+
+/// Read selected local site-key paths and pubkeys.conf in one deduplicated pass.
+/// Site keys are selected by signature type, so their filenames need not end in .pub.
+pub fn load_signify_paths(config: &Path, cwd: &Path, site_paths: &[PathBuf]) -> Result<Trust> {
+    load(config, cwd, Vec::new(), site_paths)
+}
+
+fn load(
+    config: &Path,
+    cwd: &Path,
+    site_keys: Vec<TrustedKey>,
+    site_paths: &[PathBuf],
+) -> Result<Trust> {
     ensure!(
         cwd.is_absolute(),
         "startup working directory must be absolute"
@@ -27,6 +42,10 @@ pub fn load_signify(config: &Path, cwd: &Path, site_keys: Vec<TrustedKey>) -> Re
         keys: site_keys,
         warnings: Vec::new(),
     };
+    let mut paths = HashSet::new();
+    for path in site_paths {
+        load_key(absolute(cwd, path), &mut paths, &mut trust)?;
+    }
     let metadata = match std::fs::metadata(&config) {
         Ok(metadata) if metadata.is_file() => metadata,
         Ok(_) => return Ok(trust),
@@ -35,30 +54,34 @@ pub fn load_signify(config: &Path, cwd: &Path, site_keys: Vec<TrustedKey>) -> Re
     };
     ensure!(metadata.len() <= 1024 * 1024, "pubkeys.conf exceeds 1 MiB");
     let source = read_bounded(&config, 1024 * 1024)?;
-    let mut paths = HashSet::new();
     for line in source.lines().map(str::trim) {
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
         let path = absolute(cwd, Path::new(line));
-        if path.extension().is_none_or(|extension| extension != "pub")
-            || !paths.insert(path.clone())
-        {
+        if path.extension().is_none_or(|extension| extension != "pub") {
             continue;
         }
-        let key = read_bounded(&path, 4096).and_then(|text| TrustedKey::parse(&text));
-        match key {
-            Ok(key) => {
-                ensure!(trust.keys.len() < 64, "too many Signify trust keys");
-                trust.keys.push(key);
-            }
-            Err(error) => trust.warnings.push(format!(
-                "cannot load archive public key {}: {error:#}",
-                path.display()
-            )),
-        }
+        load_key(path, &mut paths, &mut trust)?;
     }
     Ok(trust)
+}
+fn load_key(path: PathBuf, paths: &mut HashSet<PathBuf>, trust: &mut Trust) -> Result<()> {
+    if !paths.insert(path.clone()) {
+        return Ok(());
+    }
+    let key = read_bounded(&path, 4096).and_then(|text| TrustedKey::parse(&text));
+    match key {
+        Ok(key) => {
+            ensure!(trust.keys.len() < 64, "too many Signify trust keys");
+            trust.keys.push(key);
+        }
+        Err(error) => trust.warnings.push(format!(
+            "cannot load archive public key {}: {error:#}",
+            path.display()
+        )),
+    }
+    Ok(())
 }
 fn absolute(cwd: &Path, path: &Path) -> PathBuf {
     if path.is_absolute() {

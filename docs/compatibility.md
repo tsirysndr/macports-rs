@@ -1596,4 +1596,13 @@ values. Mirror expansion follows portlib tag splitting, `nosubdir`/`mirror` rule
 and first-only `$name` substitution; archive subdirectories are appended separately.
 The resulting requests use the existing ordered parallel fetch transport. Other
 archive/signature formats are explicitly rejected by this builder. Automatic
-selection, site-key loading, and installation command wiring remain pending.
+selection and installation command wiring remain pending.
+
+Startup trust loading now combines selected site-key paths with `pubkeys.conf`.
+Site keys are chosen from the live archive-site references by archive tag and
+signature type, using effective configured overrides. Literal URLs and unknown
+classes supply no keys. Duplicate paths are read once across both sources; invalid
+keys warn without hiding valid alternatives, and missing `pubkeys.conf` preserves
+site keys. Signify site keys need not have a `.pub` filename, while configuration
+entries retain upstream extension filtering. Tests authenticate with a selected
+site key and reject that key when the archive tag does not match.

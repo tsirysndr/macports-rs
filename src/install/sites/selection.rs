@@ -1,6 +1,9 @@
 use super::{Layout, Site, Sites};
 use anyhow::Result;
-use std::collections::BTreeMap;
+use std::{
+    collections::{BTreeMap, HashSet},
+    path::PathBuf,
+};
 
 /// Compatible default references and their effective metadata for one ports tree.
 #[derive(Debug)]
@@ -12,6 +15,32 @@ pub struct Selection {
 }
 
 impl Selection {
+    /// Select site keys using the requested archive/signature tags, as upstream
+    /// verify_signature does. Literal URLs and unknown classes have no site key.
+    pub fn key_paths(
+        &self,
+        references: &[String],
+        archive_type: &str,
+        signature_type: &str,
+    ) -> Vec<PathBuf> {
+        let mut seen = HashSet::new();
+        references
+            .iter()
+            .filter_map(|reference| {
+                let name = reference.split(':').next()?;
+                let tag = reference.rsplit(':').next()?;
+                if tag != archive_type {
+                    return None;
+                }
+                let site = self.get(name)?;
+                if site.signature_type != signature_type {
+                    return None;
+                }
+                let path = site.public_key.as_ref().filter(|path| !path.is_empty())?;
+                seen.insert(path.clone()).then(|| PathBuf::from(path))
+            })
+            .collect()
+    }
     pub fn new(
         tree: Sites,
         configured: Sites,
