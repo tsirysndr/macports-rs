@@ -97,6 +97,28 @@ impl Registry {
             .optional()
             .with_context(|| format!("cannot look up registry owner for {path}"))
     }
+    /// Active files flagged as Mach-O or ar binaries, for rev-upgrade.
+    pub fn active_binaries(&self) -> Result<Vec<String>> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT COALESCE(actual_path, path) FROM files WHERE active=1 AND binary=1")
+            .context("cannot read registry binaries")?;
+        Ok(statement
+            .query_map([], |row| row.get(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+    /// Installed ports built against the other C++ standard library.
+    pub fn cxx_stdlib_mismatches(&self, wrong: &str) -> Result<Vec<i64>> {
+        let mut statement = match self.connection.prepare(
+            "SELECT id FROM ports WHERE state='installed' AND cxx_stdlib_overridden=0 AND cxx_stdlib=?1",
+        ) {
+            Ok(statement) => statement,
+            Err(_) => return Ok(Vec::new()),
+        };
+        Ok(statement
+            .query_map([wrong], |row| row.get(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?)
+    }
     pub fn dependent_edges(&self) -> Result<Vec<(String, i64)>> {
         let mut statement = self.connection.prepare(
             "SELECT dependencies.name, dependencies.id FROM dependencies JOIN ports ON ports.id=dependencies.id WHERE ports.state IN ('installed', 'imaged')"

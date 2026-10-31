@@ -19,6 +19,7 @@ mod phase;
 mod portcmds;
 mod provides;
 mod reclaim;
+mod rev_upgrade;
 mod search;
 mod select;
 mod size;
@@ -96,6 +97,9 @@ pub enum Command {
     Log(portcmds::Log),
     /// List a port's distfiles with their checksums and download URLs
     Distfiles(portcmds::Ports),
+    /// Rebuild ports whose binaries have broken library linkage
+    #[command(name = "rev-upgrade")]
+    RevUpgrade(rev_upgrade::RevUpgrade),
     /// Uninstall unneeded and inactive ports and delete unused files
     Reclaim(reclaim::Reclaim),
     /// Build ports and store their images without activating them
@@ -334,6 +338,19 @@ impl Session {
                 args,
                 &root,
             )?;
+        } else if let Command::RevUpgrade(args) = command {
+            let root = local::root(index_file, false, "rev-upgrade")?.unwrap();
+            let path = registry_file
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| PathBuf::from(crate::registry::DEFAULT_PATH));
+            rev_upgrade::run(
+                &mut out,
+                self.index(index_file, quiet)?,
+                &path,
+                args,
+                quiet,
+                &root,
+            )?;
         } else if let Command::Reclaim(args) = command {
             let root = local::root(index_file, false, "reclaim")?.unwrap();
             let path = registry_file
@@ -525,6 +542,7 @@ impl Session {
                 | Command::Log(_)
                 | Command::Distfiles(_)
                 | Command::Reclaim(_)
+                | Command::RevUpgrade(_)
                 | Command::Load(_)
                 | Command::Unload(_)
                 | Command::Reload(_)

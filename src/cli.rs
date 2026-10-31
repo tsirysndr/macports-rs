@@ -79,10 +79,12 @@ impl Cli {
             install.dry_run = cli.dry_run;
         } else if let Command::Reclaim(reclaim) = &mut cli.command {
             reclaim.dry_run = cli.dry_run;
+        } else if let Command::RevUpgrade(revupgrade) = &mut cli.command {
+            revupgrade.dry_run = cli.dry_run;
         } else {
             anyhow::ensure!(
                 !cli.dry_run,
-                "-y/--dry-run is currently supported only for install and reclaim"
+                "-y/--dry-run is currently supported only for install, reclaim and rev-upgrade"
             );
         }
         Ok(cli)

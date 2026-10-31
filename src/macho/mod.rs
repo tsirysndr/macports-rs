@@ -44,9 +44,88 @@ pub fn linked_libraries(reader: &mut (impl Read + Seek)) -> Result<BTreeSet<Stri
         remaining: 1_000_000,
         cpus: BTreeSet::new(),
         libraries: BTreeSet::new(),
+        slices: Vec::new(),
     };
     parser.parse(0, length, 0)?;
     Ok(parser.libraries)
+}
+
+/// A dylib load command (or the library's own `LC_ID_DYLIB`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Dylib {
+    pub command: u32,
+    pub name: String,
+    pub current: u32,
+    pub compatibility: u32,
+}
+pub const LC_ID_DYLIB: u32 = 0xd;
+pub const LC_LOAD_WEAK_DYLIB: u32 = 0x8000_0018;
+
+/// One architecture of a Mach-O file, as libmachista reports it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Slice {
+    pub cpu: u32,
+    pub id: Option<Dylib>,
+    pub loads: Vec<Dylib>,
+}
+impl Slice {
+    pub fn architecture(&self) -> Result<&'static str> {
+        cpu_name(self.cpu)
+    }
+}
+
+/// Slices of a Mach-O or fat file; `None` for other data, including static
+/// archives, which libmachista rejects as not Mach-O.
+pub fn slices(reader: &mut (impl Read + Seek)) -> Result<Option<Vec<Slice>>> {
+    let length = reader.seek(SeekFrom::End(0))?;
+    if length >= 8 {
+        let mut magic = [0; 8];
+        reader.seek(SeekFrom::Start(0))?;
+        reader.read_exact(&mut magic)?;
+        if &magic == b"!<arch>\n" {
+            return Ok(None);
+        }
+    }
+    let mut parser = Parser {
+        reader,
+        remaining: 1_000_000,
+        cpus: BTreeSet::new(),
+        libraries: BTreeSet::new(),
+        slices: Vec::new(),
+    };
+    if !parser.parse(0, length, 0)? {
+        return Ok(None);
+    }
+    Ok(Some(parser.slices))
+}
+
+/// Render a packed dylib version (xxxx.yy.zz) as libmachista does.
+pub fn format_version(version: u32) -> String {
+    let (major, minor, patch) = (version >> 16, (version >> 8) & 0xff, version & 0xff);
+    if patch == 0 {
+        format!("{major}.{minor}")
+    } else {
+        format!("{major}.{minor}.{patch}")
+    }
+}
+
+fn cpu_name(cpu: u32) -> Result<&'static str> {
+    Ok(match cpu {
+        7 => "i386",
+        0x0100_0007 => "x86_64",
+        12 => "arm",
+        0x0100_000c => "arm64",
+        0x0200_000c => "arm64_32",
+        18 => "ppc",
+        0x0100_0012 => "ppc64",
+        6 => "m68k",
+        10 => "m98k",
+        11 => "hppa",
+        13 => "m88k",
+        14 => "sparc",
+        15 => "i860",
+        _ => bail!("unknown Mach-O CPU type {cpu:#x}"),
+    })
 }
 
 pub fn architectures(reader: &mut (impl Read + Seek)) -> Result<BTreeSet<String>> {
@@ -56,6 +135,7 @@ pub fn architectures(reader: &mut (impl Read + Seek)) -> Result<BTreeSet<String>
         remaining: 1_000_000,
         cpus: BTreeSet::new(),
         libraries: BTreeSet::new(),
+        slices: Vec::new(),
     };
     parser.parse(0, length, 0)?;
     parser
@@ -88,6 +168,7 @@ struct Parser<'a, R> {
     remaining: usize,
     cpus: BTreeSet<u32>,
     libraries: BTreeSet<String>,
+    slices: Vec<Slice>,
 }
 
 /// LC_LOAD_DYLIB, LC_ID_DYLIB, LC_LOAD_WEAK_DYLIB, LC_REEXPORT_DYLIB,
@@ -133,6 +214,11 @@ impl<R: Read + Seek> Parser<'_, R> {
                 let commands = word(&header[16..20], little);
                 let size = word(&header[20..24], little) as u64;
                 let mut cursor = start + header_size;
+                let mut slice = Slice {
+                    cpu,
+                    id: None,
+                    loads: Vec::new(),
+                };
                 ensure!(size <= end - cursor, "truncated Mach-O load commands");
                 let limit = cursor + size;
                 ensure!(
@@ -147,7 +233,8 @@ impl<R: Read + Seek> Parser<'_, R> {
                         length >= 8 && length <= limit - cursor,
                         "invalid Mach-O load command size"
                     );
-                    if DYLIB_COMMANDS.contains(&word(&command[..4], little)) && length >= 12 {
+                    let kind = word(&command[..4], little);
+                    if DYLIB_COMMANDS.contains(&kind) && length >= 12 {
                         let offset = word(&self.read::<4>(cursor + 8, limit)?, little) as u64;
                         if offset >= 12 && offset < length {
                             let start = cursor + offset;
@@ -156,13 +243,31 @@ impl<R: Read + Seek> Parser<'_, R> {
                             self.reader.seek(SeekFrom::Start(start))?;
                             self.reader.read_exact(&mut name)?;
                             let end = name.iter().position(|b| *b == 0).unwrap_or(name.len());
-                            self.libraries
-                                .insert(String::from_utf8_lossy(&name[..end]).into_owned());
+                            let name = String::from_utf8_lossy(&name[..end]).into_owned();
+                            self.libraries.insert(name.clone());
+                            let (current, compatibility) = if length >= 24 && offset >= 24 {
+                                let versions = self.read::<8>(cursor + 16, limit)?;
+                                (word(&versions[..4], little), word(&versions[4..], little))
+                            } else {
+                                (0, 0)
+                            };
+                            let dylib = Dylib {
+                                command: kind,
+                                name,
+                                current,
+                                compatibility,
+                            };
+                            if kind == LC_ID_DYLIB {
+                                slice.id = Some(dylib);
+                            } else {
+                                slice.loads.push(dylib);
+                            }
                         }
                     }
                     cursor += length;
                 }
                 self.cpus.insert(cpu);
+                self.slices.push(slice);
             }
             0xcafebabe | 0xbebafeca | 0xcafebabf | 0xbfbafeca => {
                 let little = matches!(magic, 0xbebafeca | 0xbfbafeca);

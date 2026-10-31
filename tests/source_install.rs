@@ -325,3 +325,41 @@ fn reclaim_removes_inactive_and_unneeded_ports_and_unused_files() {
     tree.ok(&["reclaim", "--disable-reminders"]);
     assert_eq!(read(&tree.root.join("db/last_reclaim")), "disabled\n");
 }
+
+#[test]
+fn rev_upgrade_reports_and_retries_ports_with_missing_libraries() {
+    let tree = Tree::new();
+    let text = portfile("linked", "1", "").replace(
+        "system \"echo linked-1",
+        "xinstall -d ${destroot}${prefix}/bin\n    copy /bin/echo ${destroot}${prefix}/bin/echoer\n    system \"/usr/bin/install_name_tool -change /usr/lib/libSystem.B.dylib /no/z.dylib ${destroot}${prefix}/bin/echoer 2>/dev/null\"\n    system \"echo linked-1",
+    );
+    let directory = tree.root.join("ports/devel/linked");
+    fs::create_dir_all(&directory).unwrap();
+    fs::write(directory.join("Portfile"), text).unwrap();
+    tree.port("lib", "1", "");
+    tree.ok(&["install", "lib", "linked"]);
+    let clean = tree.run(&["rev-upgrade"]);
+    let progress = String::from_utf8_lossy(&clean.stderr);
+    assert!(progress.contains("Found 1 broken file"), "{progress}");
+
+    let report = tree.ok(&["-y", "rev-upgrade"]);
+    assert_eq!(
+        report,
+        format!(
+            "     linked @1_0\n         {}\n",
+            tree.file("bin/echoer").display()
+        )
+    );
+    assert!(!clean.status.success());
+    assert!(
+        String::from_utf8_lossy(&clean.stderr)
+            .contains("Port linked still broken after rebuilding 3 times"),
+        "{progress}"
+    );
+    assert_eq!(
+        progress.matches("Uninstalling linked @1_0").count(),
+        3,
+        "{progress}"
+    );
+    assert!(tree.ok(&["installed"]).contains("linked @1_0 (active)"));
+}
