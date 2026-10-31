@@ -117,6 +117,11 @@ impl RegisteredImage<'_, '_> {
 
     #[cfg(target_os = "macos")]
     pub fn activate(self) -> Result<InstalledImage> {
+        self.activate_inner(true)
+    }
+
+    #[cfg(target_os = "macos")]
+    fn activate_inner(self, announce_completion: bool) -> Result<InstalledImage> {
         let Self {
             installer,
             id,
@@ -134,7 +139,9 @@ impl RegisteredImage<'_, '_> {
             "could not activate registered image {name} (id {id}, archive {}); retained for retry",
             location.display()
         ))?;
-        installer.progress.phase(&format!("Installed {label}"));
+        if announce_completion {
+            installer.progress.phase(&format!("Installed {label}"));
+        }
         Ok(InstalledImage { id, location })
     }
 }

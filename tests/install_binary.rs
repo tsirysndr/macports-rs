@@ -493,7 +493,8 @@ fn registration_and_activation_run_in_separate_hook_boundaries() {
         portfile::{PortGroups, Session},
         spec::PortSpec,
     };
-    for fail_after_install in [false, true] {
+    for failure_phase in ["none", "install", "activate"] {
+        let fail_after_install = failure_phase == "install";
         let software = tempfile::tempdir().unwrap();
         let work = tempfile::tempdir().unwrap();
         let root = tempfile::tempdir().unwrap();
@@ -535,6 +536,7 @@ fn registration_and_activation_run_in_separate_hook_boundaries() {
                 if {![file exists $payload]} {error "payload not activated"}
                 lappend events post-activate
                 notes "app is ready"
+                if {$fail_after_activate} {error "post-activate failure"}
             }
         "#;
         fs::write(runtime.path().join("Portfile"), source).unwrap();
@@ -562,6 +564,15 @@ fn registration_and_activation_run_in_separate_hook_boundaries() {
                 (
                     "payload".into(),
                     root.path().join("opt/local/app").to_str().unwrap().into(),
+                ),
+                (
+                    "fail_after_activate".into(),
+                    if failure_phase == "activate" {
+                        "1"
+                    } else {
+                        "0"
+                    }
+                    .into(),
                 ),
                 (
                     "fail_after_install".into(),
@@ -623,6 +634,29 @@ fn registration_and_activation_run_in_separate_hook_boundaries() {
                 session.scalar("events").unwrap(),
                 "pre-install post-install"
             );
+        } else if failure_phase == "activate" {
+            assert!(
+                result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("post-activate failure")
+            );
+            assert_eq!(
+                db.query_row("SELECT state FROM ports", [], |r| r.get::<_, String>(0))
+                    .unwrap(),
+                "installed"
+            );
+            assert!(root.path().join("opt/local/app").is_file());
+            let location: String = db
+                .query_row("SELECT location FROM ports", [], |r| r.get(0))
+                .unwrap();
+            assert!(std::path::Path::new(&location).is_file());
+            assert_eq!(fs::read_dir(work.path()).unwrap().count(), 0);
+            assert_eq!(
+                session.scalar("events").unwrap(),
+                "pre-install post-install pre-activate post-activate"
+            );
+            assert!(session.take_notifications().is_empty());
         } else {
             let outcome = result.unwrap();
             assert_eq!(outcome.install, port_rs::portfile::TargetOutcome::Completed);

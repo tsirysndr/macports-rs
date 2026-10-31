@@ -1769,6 +1769,8 @@ Dry runs and custom install bodies skip that factory. The result distinguishes
 phase outcomes from an image actually activated by the native backend. A custom
 install followed by native activation still requires registry-image recovery and
 fails explicitly when no pending image exists. Failures after registration retain
-the inactive archive; failures after activation do not undo installed payloads.
+the inactive archive; failures after activation do not undo installed payloads. The final Installed message is emitted
+only after activation hooks finish successfully; failed post-activate hooks retain
+the installed image and do not publish completion notes.
 Dependency preparation, archivefetch, execution context, and the ordinary CLI
 install driver remain separate unfinished integration work.

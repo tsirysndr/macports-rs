@@ -31,6 +31,7 @@ impl Installer<'_> {
         session.set_progress(self.progress.clone());
         let install_target = session.scalar("org.macports.install")?;
         let mut pending = None;
+        let progress = self.progress.clone();
         let install = session.run_prepared_target_with_native_body(
             &install_target,
             dry_run,
@@ -50,10 +51,18 @@ impl Installer<'_> {
                 let registered = pending.take().context(
                     "native activation needs a registered binary image; custom or skipped install requires registry image recovery"
                 )?;
-                image = Some(registered.activate()?);
+                image = Some(registered.activate_inner(false)?);
                 Ok(())
             },
         )?;
+        if image.is_some() {
+            progress.phase(&format!(
+                "Installed {} @{}{}",
+                item.port.name,
+                item.port.version(),
+                item.variants
+            ));
+        }
         Ok(LifecycleResult {
             install,
             activate,
