@@ -694,3 +694,46 @@ fn mirror_fetches_verified_distfiles_and_records_them() {
     tree.ok(&["mirror", "--new", "private"]);
     assert_eq!(read(&tree.root.join("db/distfiles_mirror.txt")), "");
 }
+
+#[test]
+fn bump_rewrites_stale_checksums_and_resets_the_revision() {
+    let tree = Tree::new();
+    let url = serve("0123456789");
+    let stale = "1111111111111111111111111111111111111111111111111111111111111111";
+    let text = portfile("bumped", "2", "").replace(
+        "distfiles\n",
+        &format!("revision 3\nmaster_sites {url}\ndistfiles bumped-2.tar.gz\nchecksums sha256 {stale} \\\n          size 10\n"),
+    );
+    let directory = tree.root.join("ports/devel/bumped");
+    fs::create_dir_all(&directory).unwrap();
+    fs::write(directory.join("Portfile"), &text).unwrap();
+    tree.port("lib", "1", "");
+
+    let patched = tree.ok(&["bump", "--patch", "bumped"]);
+    assert!(
+        patched.contains("Portfile.patch successfully created"),
+        "{patched}"
+    );
+    let patch = read(&directory.join("Portfile.patch"));
+    assert!(
+        patch.contains("-revision 3") && patch.contains("+revision 0"),
+        "{patch}"
+    );
+    assert_eq!(read(&directory.join("Portfile")), text);
+
+    let output = tree.ok(&["bump", "bumped"]);
+    let sha = "84d89877f0d4041efb6bf91a16f0248f2fd573e6af05c19f96bedb9f882f7882";
+    assert_eq!(
+        output,
+        format!(
+            "We will bump these:\nOld sha256:  {stale}\nNew sha256:  {sha}\nOld size:    10\nNew size:    10\nChecksums successfully bumped. Suggested commit message:\n        bumped: update to 2\n"
+        )
+    );
+    let updated = read(&directory.join("Portfile"));
+    assert!(
+        updated.contains(&format!("checksums sha256 {sha} \\\n          size 10")),
+        "{updated}"
+    );
+    assert!(updated.contains("revision 0\n"));
+    assert_eq!(tree.ok(&["bump", "bumped"]), "No changes needed.\n");
+}

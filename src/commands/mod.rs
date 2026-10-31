@@ -1,4 +1,5 @@
 //! CLI dispatch. Each action owns its options and presentation in a separate module.
+mod bump;
 mod clean;
 mod contents;
 mod dependencies;
@@ -105,6 +106,8 @@ pub enum Command {
     Distfiles(portcmds::Ports),
     /// Show the command syntax, or the usage of the given actions
     Usage { topics: Vec<String> },
+    /// Update a Portfile's checksums to match freshly fetched distfiles
+    Bump(bump::Bump),
     /// Fetch and verify distfiles for mirroring
     Mirror(mirror::Mirror),
     /// Check that mirrors still serve each port's distfiles
@@ -361,6 +364,9 @@ impl Session {
                 args,
                 &root,
             )?;
+        } else if let Command::Bump(args) = command {
+            let root = local::root(index_file, false, "bump")?.unwrap();
+            bump::run(&mut out, self.index(index_file, quiet)?, args, quiet, &root)?;
         } else if let Command::Mirror(args) = command {
             let root = local::root(index_file, false, "mirror")?.unwrap();
             mirror::run(self.index(index_file, quiet)?, args, quiet, &root)?;
@@ -619,6 +625,7 @@ impl Session {
                 | Command::Livecheck(_)
                 | Command::Distcheck(_)
                 | Command::Mirror(_)
+                | Command::Bump(_)
                 | Command::Restore(_)
                 | Command::Migrate(_)
                 | Command::Load(_)
