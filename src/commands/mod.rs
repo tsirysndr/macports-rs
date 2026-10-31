@@ -12,6 +12,7 @@ mod install_exec;
 mod installed;
 mod launchd;
 mod lifecycle;
+mod lint;
 mod local;
 mod location;
 mod outdated;
@@ -101,6 +102,8 @@ pub enum Command {
     Distfiles(portcmds::Ports),
     /// Show the command syntax, or the usage of the given actions
     Usage { topics: Vec<String> },
+    /// Check Portfiles against MacPorts conventions
+    Lint(lint::Lint),
     /// Record, list, compare, export or import registry snapshots
     Snapshot(snapshot::SnapshotArgs),
     /// Reinstall the ports recorded in a snapshot
@@ -349,6 +352,9 @@ impl Session {
                 args,
                 &root,
             )?;
+        } else if let Command::Lint(args) = command {
+            let root = local::root(index_file, false, "lint")?.unwrap();
+            lint::run(self.index(index_file, quiet)?, args, quiet, &root)?;
         } else if let Command::Snapshot(args) = command {
             let path = registry_file
                 .map(Path::to_path_buf)
@@ -579,6 +585,7 @@ impl Session {
                 | Command::Reclaim(_)
                 | Command::RevUpgrade(_)
                 | Command::Snapshot(_)
+                | Command::Lint(_)
                 | Command::Restore(_)
                 | Command::Migrate(_)
                 | Command::Load(_)

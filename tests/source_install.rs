@@ -505,3 +505,47 @@ fn age_first_snapshot(database: &Path) {
         )
         .unwrap();
 }
+
+#[test]
+fn lint_reports_errors_and_warnings_like_portlint() {
+    let tree = Tree::new();
+    let clean = tree.run(&["lint", "lib"]);
+    let progress = String::from_utf8_lossy(&clean.stderr);
+    assert!(
+        progress.contains("--->  Verifying Portfile for lib"),
+        "{progress}"
+    );
+    assert!(
+        progress.contains("--->  0 errors and 1 warnings found."),
+        "{progress}"
+    );
+    assert!(progress.contains("Warning: Unnecessary platforms line as darwin is the default"));
+
+    let text = "PortSystem 1.0\nname flawed\nversion 1.0\ncategories other\nplatforms darwin\nlicense GPL3\nmaintainers someone@example.org\ndescription flawed\nlong_description flawed\nhomepage https://example.org\nmaster_sites https://example.org/\nchecksums md5 0123456789abcdef0123456789abcdef\ndepends_lib port:missing\nvariant extra {}\nconfigure {}\nbuild { system \"cp /opt/local/x y\" }   \n";
+    let directory = tree.root.join("ports/devel/flawed");
+    fs::create_dir_all(&directory).unwrap();
+    fs::write(directory.join("Portfile"), text).unwrap();
+    tree.port("lib", "1", "");
+    let output = tree.run(&["lint", "--nitpick", "flawed"]);
+    assert!(!output.status.success());
+    let progress = String::from_utf8_lossy(&output.stderr);
+    for expected in [
+        "Error: Line 16 hardcodes /opt/local, use ${prefix} instead",
+        "Warning: Line 15 should say \"use_configure no\" instead of declaring an empty configure phase",
+        "Warning: Line 16 has trailing whitespace before newline",
+        "Warning: Line 2 should be a newline (after PortSystem)",
+        "Error: invalid license 'GPL3': missing hyphen before version",
+        "Warning: Maintainer email address should be obfuscated as example.org:someone",
+        "Error: Unknown dependency: missing",
+        "Warning: Variant extra does not have a description",
+        "Warning: missing recommended checksum type: rmd160",
+        "Warning: checksum type is insecure on its own: md5",
+        "Error: Portfile parent directory devel does not match primary category other",
+    ] {
+        assert!(
+            progress.contains(expected),
+            "missing {expected:?} in\n{progress}"
+        );
+    }
+    assert!(progress.contains("--->  4 errors and"), "{progress}");
+}

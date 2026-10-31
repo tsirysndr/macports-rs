@@ -41,10 +41,16 @@ pub(super) fn declare(interp: &mut Interp, id: ContextID, argv: &[Value]) -> Mol
         return Err(error("invalid variant name"));
     }
     variant.description = description.join(" ");
-    if variant.description.is_empty() {
+    let described = !variant.description.is_empty();
+    if !described {
         variant.description = global_description(interp, id, name);
     }
     let state = interp.context::<State>(id);
+    if described {
+        state.described_variants.insert(name.into());
+    } else {
+        state.described_variants.remove(name);
+    }
     if !state.variants.contains_key(name) {
         state.order.push(name.into());
     }
@@ -225,4 +231,37 @@ fn global_description(interp: &mut Interp, id: ContextID, name: &str) -> String 
         table
     });
     descriptions.get(name).cloned().unwrap_or_default()
+}
+
+/// A declared variant as `port lint` inspects it.
+pub struct Declaration {
+    pub name: String,
+    pub description: String,
+    /// The Portfile gave its own description rather than inheriting one.
+    pub described: bool,
+    /// The description `variant_descriptions.conf` gives this name.
+    pub global_description: String,
+    pub conflicts: Vec<String>,
+}
+
+impl Session {
+    /// Declared variants in declaration order.
+    pub fn variant_declarations(&mut self) -> Vec<Declaration> {
+        let order = self.interp.context::<State>(self.id).order.clone();
+        order
+            .into_iter()
+            .filter_map(|name| {
+                let global_description = global_description(&mut self.interp, self.id, &name);
+                let state = self.interp.context::<State>(self.id);
+                let variant = state.variants.get(&name)?;
+                Some(Declaration {
+                    described: state.described_variants.contains(&name),
+                    description: variant.description.clone(),
+                    conflicts: variant.conflicts.clone(),
+                    global_description,
+                    name,
+                })
+            })
+            .collect()
+    }
 }

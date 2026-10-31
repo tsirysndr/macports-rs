@@ -81,6 +81,7 @@ mod source_epoch;
 mod state_open;
 mod user_commands;
 pub use session::Session;
+pub use variants::Declaration;
 mod source;
 pub use source::{
     evaluate_from_tree, open_from_tree, open_from_tree_with_archive_sites,
@@ -163,6 +164,8 @@ struct State {
     overrides: BTreeSet<String>,
     variants: BTreeMap<String, Variant>,
     order: Vec<String>,
+    /// Variants whose Portfile declaration carried its own description.
+    described_variants: BTreeSet<String>,
     selected: BTreeMap<String, bool>,
     requested: BTreeMap<String, bool>,
     defaults: BTreeMap<String, bool>,
