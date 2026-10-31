@@ -1742,3 +1742,13 @@ inside native work, successful completion recording, failure without completion,
 released state locks, dry-run behavior without work-directory creation, and
 script overrides. The host still prepares runtime packages, dependencies, cwd,
 privileges, tracing/sandboxing, and logs before invoking this runner.
+
+Native `portinstall::install_start` now reports the evaluated port identity,
+checks prefix writability, and dispatches `handle_add_users` before pre-install
+hooks. The `add_users` option supports append/prepend and its empty default;
+group declarations dispatch `addgroup`/`existsgroup`, and user arguments remain
+literal words. Account creation primitives and privilege elevation still need
+native host implementations; they are not silently skipped. Binary installation
+integration tests now use this startup callback rather than a stub. Activation
+startup/finish callbacks remain stubbed in that test, so it does not establish
+complete production installation support.

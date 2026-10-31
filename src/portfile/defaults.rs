@@ -15,6 +15,7 @@ pub(super) fn install(interp: &mut Interp, id: ContextID) -> MoltResult {
     interp.set_global_scalar_hooks(id, read, changed);
     interp.add_context_command("default", command, id);
     for (name, template) in [
+        ("add_users", ""),
         ("distname", "${name}-${version}"),
         ("dist_subdir", "${name}"),
         ("archive.subdir", "${subport}"),

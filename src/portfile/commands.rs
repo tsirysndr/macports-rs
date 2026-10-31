@@ -7,6 +7,7 @@ pub(super) const OPTIONS: &[&str] = &[
     "epoch",
     "categories",
     "maintainers",
+    "add_users",
     "license",
     "description",
     "long_description",

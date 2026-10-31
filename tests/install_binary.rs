@@ -515,7 +515,6 @@ fn registration_and_activation_run_in_separate_hook_boundaries() {
         };
         let source = r#"
             name app; version 1; set events {}
-            proc portinstall::install_start args {}
             proc portactivate::activate_start args {}
             proc portactivate::activate_finish args {}
             pre-install {
@@ -575,6 +574,10 @@ fn registration_and_activation_run_in_separate_hook_boundaries() {
             PortGroups::default(),
         )
         .unwrap();
+        session.set_progress(Progress::new(true));
+        session
+            .invoke("set", &["prefix_frozen", root.path().to_str().unwrap()])
+            .unwrap();
         session
             .enable_system(&BTreeMap::new(), |_| panic!("no subprocess expected"))
             .unwrap();

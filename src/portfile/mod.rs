@@ -46,6 +46,7 @@ mod file_times;
 mod filesystem;
 mod filesystem_mutations;
 mod groups;
+mod install_start;
 mod paths;
 mod phase_start;
 mod platform;
@@ -234,6 +235,7 @@ fn open(
     workpath::install(&mut interp, id);
     build_state::install(&mut interp, id);
     phase_start::install(&mut interp, id);
+    install_start::install(&mut interp, id);
     destroot_finish::install(&mut interp, id);
     destroot_start::install(&mut interp, id);
     startupitem::install(&mut interp, id);
