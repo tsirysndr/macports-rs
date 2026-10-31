@@ -79,6 +79,7 @@ pub(super) const OPTIONS: &[&str] = &[
     "test.args",
     "test.env",
     "livecheck.url",
+    "distcheck.type",
     "livecheck.type",
     "livecheck.md5",
     "livecheck.regex",

@@ -626,3 +626,30 @@ fn livecheck_extracts_the_newest_version_with_the_port_regex() {
         "checked seems to have been updated (port version: 1.5, new version: 2.0)\n"
     );
 }
+
+#[test]
+fn distcheck_sizes_distfiles_and_reports_unavailable_ones() {
+    let tree = Tree::new();
+    let url = serve("0123456789");
+    for (name, sites, kind) in [
+        ("sized", url.as_str(), "filesize"),
+        ("gone", "http://127.0.0.1:9/", "moddate"),
+    ] {
+        let text = portfile(name, "1", "").replace(
+            "distfiles\n",
+            &format!("master_sites {sites}\ndistfiles {name}-1.tar.gz\ndistcheck.type {kind}\n"),
+        );
+        let directory = tree.root.join("ports/devel").join(name);
+        fs::create_dir_all(&directory).unwrap();
+        fs::write(directory.join("Portfile"), text).unwrap();
+    }
+    tree.port("lib", "1", "");
+    assert_eq!(tree.ok(&["distcheck", "sized"]), "sized: 10\n");
+    let gone = tree.run(&["distcheck", "gone"]);
+    assert!(
+        String::from_utf8_lossy(&gone.stderr)
+            .contains("Error: no mirror had gone-1.tar.gz for gone"),
+        "{}",
+        String::from_utf8_lossy(&gone.stderr)
+    );
+}

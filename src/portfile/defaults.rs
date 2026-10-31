@@ -28,6 +28,7 @@ pub(super) fn install(interp: &mut Interp, id: ContextID) -> MoltResult {
     for (name, template) in [
         ("add_users", ""),
         ("checksums", ""),
+        ("distcheck.type", "moddate"),
         ("livecheck.url", "$homepage"),
         ("livecheck.type", "default"),
         ("livecheck.md5", ""),
@@ -38,6 +39,10 @@ pub(super) fn install(interp: &mut Interp, id: ContextID) -> MoltResult {
         ("livecheck.version", "$version"),
         ("livecheck.ignore_sslcert", "no"),
         ("livecheck.compression", "yes"),
+        (
+            "livecheck.curloptions",
+            "[list --append-http-header {Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8}]",
+        ),
         ("license", "unknown"),
         ("global_mirror_site", "macports_distfiles"),
         ("fetch.type", "standard"),

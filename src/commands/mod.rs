@@ -3,6 +3,7 @@ mod clean;
 mod contents;
 mod dependencies;
 mod dependents;
+mod distcheck;
 mod distfiles;
 mod download;
 mod info;
@@ -103,6 +104,8 @@ pub enum Command {
     Distfiles(portcmds::Ports),
     /// Show the command syntax, or the usage of the given actions
     Usage { topics: Vec<String> },
+    /// Check that mirrors still serve each port's distfiles
+    Distcheck(portcmds::Ports),
     /// Check whether upstream released newer versions of ports
     Livecheck(portcmds::Ports),
     /// Check Portfiles against MacPorts conventions
@@ -355,6 +358,15 @@ impl Session {
                 args,
                 &root,
             )?;
+        } else if let Command::Distcheck(args) = command {
+            let root = local::root(index_file, false, "distcheck")?.unwrap();
+            distcheck::run(
+                &mut out,
+                self.index(index_file, quiet)?,
+                &args.ports,
+                quiet,
+                &root,
+            )?;
         } else if let Command::Livecheck(args) = command {
             let root = local::root(index_file, false, "livecheck")?.unwrap();
             livecheck::run(
@@ -599,6 +611,7 @@ impl Session {
                 | Command::Snapshot(_)
                 | Command::Lint(_)
                 | Command::Livecheck(_)
+                | Command::Distcheck(_)
                 | Command::Restore(_)
                 | Command::Migrate(_)
                 | Command::Load(_)
