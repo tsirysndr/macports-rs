@@ -314,3 +314,18 @@ fn renamed_native_commands_keep_their_registered_identity() {
 fn expr_concatenates_multiple_arguments() {
     check(&[("expr 1 + 2", "3"), ("set r 4; expr ${r} * 2 + 1", "9")]);
 }
+
+#[test]
+fn regexp_supports_lookahead_and_backreferences() {
+    check(&[
+        (
+            "regexp {openssl-((?!.*beta)3[^\"]+)\\.tar} {openssl-3.6.0.tar} -> v; set v",
+            "3.6.0",
+        ),
+        (
+            "regexp {openssl-((?!.*beta)3[^\"]+)\\.tar} {openssl-3.6.0-beta1.tar}",
+            "0",
+        ),
+        ("regsub -all {(a)\\1} aab x", "xb"),
+    ]);
+}

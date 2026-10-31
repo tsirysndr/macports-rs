@@ -24,5 +24,8 @@ repository = "https://github.com/wduquette/molt"
 [dependencies.regex]
 version = "1"
 
+[dependencies.fancy-regex]
+version = "0.11"
+
 [dependencies.indexmap]
 version = "1.3.0"

@@ -1,7 +1,40 @@
 //! `regexp` and `regsub`, translating Tcl advanced regular expressions to the
 //! `regex` crate where their syntax differs.
 use crate::{molt_err, molt_ok, ContextID, Exception, Interp, MoltInt, MoltResult, Value};
-use regex::Regex;
+
+/// A compiled pattern. Lookaround and backreferences, which Tcl's advanced
+/// regular expressions allow, fall back to a backtracking engine.
+pub(super) enum Pattern {
+    Linear(regex::Regex),
+    Backtracking(fancy_regex::Regex),
+}
+
+/// Byte ranges of the whole match and each group.
+type Groups = Vec<Option<(usize, usize)>>;
+
+impl Pattern {
+    fn captures_at(&self, text: &str, offset: usize) -> Option<Groups> {
+        match self {
+            Pattern::Linear(regex) => regex.captures_at(text, offset).map(|captures| {
+                (0..captures.len())
+                    .map(|index| captures.get(index).map(|m| (m.start(), m.end())))
+                    .collect()
+            }),
+            Pattern::Backtracking(regex) => regex
+                .captures_from_pos(text, offset)
+                .ok()
+                .flatten()
+                .map(|captures| {
+                    (0..captures.len())
+                        .map(|index| captures.get(index).map(|m| (m.start(), m.end())))
+                        .collect()
+                }),
+        }
+    }
+    pub(super) fn is_match(&self, text: &str) -> bool {
+        self.captures_at(text, 0).is_some()
+    }
+}
 
 /// Compile a Tcl pattern. Tcl's default matching lets `.` and negated
 /// brackets match newlines and anchors `^`/`$` only at string ends.
@@ -10,7 +43,7 @@ pub(super) fn compile(
     nocase: bool,
     expanded: bool,
     line: bool,
-) -> Result<Regex, Exception> {
+) -> Result<Pattern, Exception> {
     let mut translated = String::with_capacity(pattern.len() + 8);
     let mut characters = pattern.chars().peekable();
     while let Some(character) = characters.next() {
@@ -40,11 +73,17 @@ pub(super) fn compile(
     } else {
         flags.push('s');
     }
-    Regex::new(&format!("(?{flags}){translated}")).map_err(|err| {
-        Exception::molt_err(Value::from(format!(
-            "couldn't compile regular expression pattern: {err}"
-        )))
-    })
+    let source = format!("(?{flags}){translated}");
+    match regex::Regex::new(&source) {
+        Ok(regex) => Ok(Pattern::Linear(regex)),
+        Err(err) => fancy_regex::Regex::new(&source)
+            .map(Pattern::Backtracking)
+            .map_err(|_| {
+                Exception::molt_err(Value::from(format!(
+                    "couldn't compile regular expression pattern: {err}"
+                )))
+            }),
+    }
 }
 
 struct Options {
@@ -135,13 +174,13 @@ pub fn cmd_regexp(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResu
         return molt_err!("regexp match variables not allowed when using -inline");
     }
     let start = start_offset(text, &options.start)?;
-    let group = |captures: &regex::Captures, index: usize| -> Value {
-        match captures.get(index) {
-            Some(found) if options.indices => Value::from(vec![
-                Value::from(char_count(text, found.start())),
-                Value::from(char_count(text, found.end()) - 1),
+    let group = |captures: &Groups, index: usize| -> Value {
+        match captures.get(index).copied().flatten() {
+            Some((start, end)) if options.indices => Value::from(vec![
+                Value::from(char_count(text, start)),
+                Value::from(char_count(text, end) - 1),
             ]),
-            Some(found) => Value::from(found.as_str()),
+            Some((start, end)) => Value::from(&text[start..end]),
             None if options.indices => Value::from(vec![Value::from(-1), Value::from(-1)]),
             None => Value::empty(),
         }
@@ -152,18 +191,18 @@ pub fn cmd_regexp(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResu
         let Some(captures) = regex.captures_at(text, offset) else {
             break;
         };
-        let whole = captures.get(0).unwrap();
+        let (whole_start, whole_end) = captures[0].unwrap();
         matches.push(captures);
         if !options.all {
             break;
         }
-        offset = if whole.end() == whole.start() {
-            match text[whole.end()..].chars().next() {
-                Some(c) => whole.end() + c.len_utf8(),
+        offset = if whole_end == whole_start {
+            match text[whole_end..].chars().next() {
+                Some(c) => whole_end + c.len_utf8(),
                 None => break,
             }
         } else {
-            whole.end()
+            whole_end
         };
     }
     if options.inline {
@@ -196,17 +235,25 @@ pub fn cmd_regexp(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResu
     }
 }
 
-fn substitute(spec: &str, captures: &regex::Captures) -> String {
+fn substitute(spec: &str, text: &str, captures: &Groups) -> String {
+    let get = |index: usize| {
+        captures
+            .get(index)
+            .copied()
+            .flatten()
+            .map(|(start, end)| &text[start..end])
+            .unwrap_or("")
+    };
     let mut result = String::new();
     let mut characters = spec.chars().peekable();
     while let Some(character) = characters.next() {
         match character {
-            '&' => result.push_str(captures.get(0).map(|m| m.as_str()).unwrap_or("")),
+            '&' => result.push_str(get(0)),
             '\\' => match characters.peek().copied() {
                 Some(digit @ '0'..='9') => {
                     characters.next();
                     let index = digit.to_digit(10).unwrap() as usize;
-                    result.push_str(captures.get(index).map(|m| m.as_str()).unwrap_or(""));
+                    result.push_str(get(index));
                 }
                 Some(escaped @ ('&' | '\\')) => {
                     characters.next();
@@ -244,15 +291,15 @@ pub fn cmd_regsub(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResu
         let Some(captures) = regex.captures_at(text, offset) else {
             break;
         };
-        let whole = captures.get(0).unwrap();
-        result.push_str(&text[offset..whole.start()]);
-        result.push_str(&substitute(spec, &captures));
+        let (whole_start, whole_end) = captures[0].unwrap();
+        result.push_str(&text[offset..whole_start]);
+        result.push_str(&substitute(spec, text, &captures));
         count += 1;
-        if whole.end() == whole.start() {
-            match text[whole.end()..].chars().next() {
+        if whole_end == whole_start {
+            match text[whole_end..].chars().next() {
                 Some(c) => {
                     result.push(c);
-                    offset = whole.end() + c.len_utf8();
+                    offset = whole_end + c.len_utf8();
                 }
                 None => {
                     offset = text.len() + 1;
@@ -260,7 +307,7 @@ pub fn cmd_regsub(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResu
                 }
             }
         } else {
-            offset = whole.end();
+            offset = whole_end;
         }
         if !options.all {
             break;
