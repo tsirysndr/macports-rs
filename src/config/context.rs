@@ -93,6 +93,20 @@ impl Context {
             ("ccache_size", "2G"),
             ("revupgrade_autorun", "yes"),
             ("revupgrade_mode", "rebuild"),
+            ("destroot_umask", "022"),
+            ("clonebin_path", ""),
+            ("startupitem_type", "default"),
+            ("startupitem_install", "yes"),
+            ("startupitem_autostart", "yes"),
+            ("place_worksymlink", "yes"),
+            ("sandbox_enable", "yes"),
+            ("hfscompression", "yes"),
+            ("portautoclean", "yes"),
+            ("keeplogs", "no"),
+            ("portverbose", "no"),
+            ("rsync_server", "rsync.macports.org"),
+            ("rsync_dir", "macports/release/tarballs/base.tar"),
+            ("rsync_options", "-rtzvl --delete-after"),
             (
                 "delete_la_files",
                 if darwin_major >= 13 { "yes" } else { "no" },
@@ -108,6 +122,9 @@ impl Context {
         ] {
             variables.entry(name.into()).or_insert_with(|| value.into());
         }
+        variables
+            .entry("portsharepath".into())
+            .or_insert_with(|| format!("{prefix}/share/macports"));
         for name in ["prefix", "frameworks_dir", "applications_dir"] {
             variables.insert(format!("{name}_frozen"), variables[name].clone());
         }

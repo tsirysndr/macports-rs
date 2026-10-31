@@ -211,7 +211,9 @@ fn native_start_cleans_only_when_requested_and_saves_the_mask() {
 fn startup_failure_restores_mask_and_invalid_services_fail_before_cleanup() {
     let temp = tempfile::tempdir().unwrap();
     let (mut s, stage) = setup(temp.path());
-    fs::remove_file(temp.path().join("share/install/prefix.mtree")).unwrap();
+    let spec = temp.path().join("share/install/prefix.mtree");
+    fs::remove_file(&spec).unwrap();
+    fs::create_dir(&spec).unwrap();
     assert!(s.invoke("portdestroot::destroot_start", &[]).is_err());
     assert_eq!(s.invoke("umask", &["0077"]).unwrap(), "0077");
     put(&stage, "preserve", "payload");

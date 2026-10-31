@@ -71,7 +71,10 @@ fn epoch(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     let mut checks: Vec<(std::path::PathBuf, std::path::PathBuf)> =
         vec![(portdir.to_path_buf(), portdir.to_path_buf())];
     for group in &groups {
-        checks.push((group.clone(), group.parent().unwrap_or(portdir).to_path_buf()));
+        checks.push((
+            group.clone(),
+            group.parent().unwrap_or(portdir).to_path_buf(),
+        ));
     }
     let in_git = Path::new("/usr/bin/git").exists()
         && checks.iter().all(|(_, dir)| {
@@ -81,7 +84,8 @@ fn epoch(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     let mut resolved = false;
     if in_git {
         let clean = checks.iter().all(|(path, dir)| {
-            git(dir, &["status", "--porcelain", &path.to_string_lossy()]).is_some_and(|out| out.is_empty())
+            git(dir, &["status", "--porcelain", &path.to_string_lossy()])
+                .is_some_and(|out| out.is_empty())
         });
         if clean {
             resolved = true;

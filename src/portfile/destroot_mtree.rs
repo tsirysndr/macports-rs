@@ -31,11 +31,11 @@ impl StageContext<'_> {
         );
         let share = PathBuf::from(self.scalar("portsharepath")?).join("install");
         let prefix = stage_path(&root, &self.scalar("prefix")?)?;
-        let prefix_spec = DirectorySpec::parse(&fs::read_to_string(share.join("prefix.mtree"))?)?;
+        let prefix_spec = DirectorySpec::parse(&spec_text(&share, "prefix.mtree")?)?;
         let darwin = self.scalar("os.platform")? == "darwin";
         let platform = if darwin {
             Some((
-                DirectorySpec::parse(&fs::read_to_string(share.join("macosx.mtree"))?)?,
+                DirectorySpec::parse(&spec_text(&share, "macosx.mtree")?)?,
                 stage_path(&root, &self.scalar("applications_dir")?)?,
                 stage_path(&root, &self.scalar("frameworks_dir")?)?,
             ))
@@ -57,6 +57,20 @@ impl StageContext<'_> {
         Ok(())
     }
 }
+/// The installed MacPorts mtree spec, or the bundled upstream copy when the
+/// prefix has no MacPorts share directory.
+fn spec_text(share: &Path, name: &str) -> Result<String> {
+    match fs::read_to_string(share.join(name)) {
+        Ok(text) => Ok(text),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(match name {
+            "prefix.mtree" => include_str!("../build/mtree_specs/prefix.mtree"),
+            _ => include_str!("../build/mtree_specs/macosx.mtree"),
+        }
+        .to_string()),
+        Err(err) => Err(err.into()),
+    }
+}
+
 pub(super) fn stage_path(root: &Path, value: &str) -> Result<PathBuf> {
     let input = Path::new(value);
     ensure!(

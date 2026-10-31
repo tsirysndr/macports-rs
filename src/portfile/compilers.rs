@@ -1535,7 +1535,12 @@ fn tool_path(_: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
 /// Lines of the tree's per-SDK implicit function declaration whitelist.
 fn whitelist(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 2, 2, "sdk_version")?;
-    let Some(root) = interp.context::<State>(id).groups.resource_directory.clone() else {
+    let Some(root) = interp
+        .context::<State>(id)
+        .groups
+        .resource_directory
+        .clone()
+    else {
         return Ok(Value::empty());
     };
     let path = root.join(format!(

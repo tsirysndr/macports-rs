@@ -35,6 +35,7 @@ pub(super) fn register_paths(interp: &mut Interp, id: ContextID) -> MoltResult {
         ("destdir", "destroot"),
         ("destpath", "${workpath}/${destdir}"),
         ("destroot", "$destpath"),
+        ("worksymlink", "[file normalize [file join $portpath work]]"),
     ] {
         if !interp.var_exists(&name.into()) {
             defaults::register(interp, id, name, value)?;
@@ -137,6 +138,9 @@ pub(super) fn register_execution(interp: &mut Interp, id: ContextID) -> MoltResu
         ("destroot.violate_mtree", "no"),
         ("destroot.dir", "${build.dir}"),
         ("destroot.cmd", "${build.cmd}"),
+        ("destroot.delete_la_files", "${delete_la_files}"),
+        ("destroot.nice", "${buildnicevalue}"),
+        ("build.nice", "${buildnicevalue}"),
     ] {
         if !interp.var_exists(&name.into()) {
             defaults::register(interp, id, name, value)?;

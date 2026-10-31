@@ -27,7 +27,10 @@ pub(super) fn install(interp: &mut Interp, id: ContextID) -> MoltResult {
     {
         commands::register(interp, id, name);
     }
-    interp.set_scalar("portchecksum::checksum_types", "md5 sha1 rmd160 sha256 size".into())?;
+    interp.set_scalar(
+        "portchecksum::checksum_types",
+        "md5 sha1 rmd160 sha256 size".into(),
+    )?;
     for (name, value) in UPSTREAM_DEFAULTS {
         if !interp.var_exists(&(*name).into()) {
             defaults::register(interp, id, name, value)?;

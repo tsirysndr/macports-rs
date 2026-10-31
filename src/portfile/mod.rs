@@ -41,7 +41,6 @@ use stage_context::StageContext;
 mod checksum_runtime;
 mod compilers;
 mod diagnostics;
-mod source_epoch;
 mod ditems;
 mod dlist;
 mod exec;
@@ -75,6 +74,7 @@ mod phase_start;
 mod platform;
 mod registry_lookup;
 mod session;
+mod source_epoch;
 mod state_open;
 mod user_commands;
 pub use session::Session;
@@ -173,20 +173,72 @@ struct State {
 }
 /// Configuration values upstream copies into each port's `system_options`.
 const SYSTEM_OPTIONS: &[&str] = &[
-    "portdbpath", "porturl", "portpath", "portbuildpath", "auto_path", "prefix",
-    "prefix_frozen", "portsharepath", "registry.path", "registry.format", "user_home",
-    "user_path", "user_ssh_auth_sock", "portarchivetype", "portarchive_hfscompression",
-    "archivefetch_pubkeys", "portautoclean", "portimage_mode", "porttrace", "keeplogs",
-    "portverbose", "destroot_umask", "rsync_server", "rsync_options", "rsync_dir",
-    "startupitem_autostart", "startupitem_type", "startupitem_install", "place_worksymlink",
-    "macportsuser", "sudo_user", "configureccache", "ccache_dir", "ccache_size",
-    "configuredistcc", "configurepipe", "buildnicevalue", "buildmakejobs", "applications_dir",
-    "applications_dir_frozen", "current_phase", "frameworks_dir", "frameworks_dir_frozen",
-    "developer_dir", "universal_archs", "build_arch", "os_arch", "os_endian", "os_version",
-    "os_major", "os_minor", "os_platform", "os_subplatform", "macos_version",
-    "macos_version_major", "macosx_version", "macosx_sdk_version", "macosx_deployment_target",
-    "packagemaker_path", "default_compilers", "sandbox_enable", "sandbox_network",
-    "delete_la_files", "cxx_stdlib", "pkg_post_unarchive_deletions", "clonebin_path",
+    "portdbpath",
+    "porturl",
+    "portpath",
+    "portbuildpath",
+    "auto_path",
+    "prefix",
+    "prefix_frozen",
+    "portsharepath",
+    "registry.path",
+    "registry.format",
+    "user_home",
+    "user_path",
+    "user_ssh_auth_sock",
+    "portarchivetype",
+    "portarchive_hfscompression",
+    "archivefetch_pubkeys",
+    "portautoclean",
+    "portimage_mode",
+    "porttrace",
+    "keeplogs",
+    "portverbose",
+    "destroot_umask",
+    "rsync_server",
+    "rsync_options",
+    "rsync_dir",
+    "startupitem_autostart",
+    "startupitem_type",
+    "startupitem_install",
+    "place_worksymlink",
+    "macportsuser",
+    "sudo_user",
+    "configureccache",
+    "ccache_dir",
+    "ccache_size",
+    "configuredistcc",
+    "configurepipe",
+    "buildnicevalue",
+    "buildmakejobs",
+    "applications_dir",
+    "applications_dir_frozen",
+    "current_phase",
+    "frameworks_dir",
+    "frameworks_dir_frozen",
+    "developer_dir",
+    "universal_archs",
+    "build_arch",
+    "os_arch",
+    "os_endian",
+    "os_version",
+    "os_major",
+    "os_minor",
+    "os_platform",
+    "os_subplatform",
+    "macos_version",
+    "macos_version_major",
+    "macosx_version",
+    "macosx_sdk_version",
+    "macosx_deployment_target",
+    "packagemaker_path",
+    "default_compilers",
+    "sandbox_enable",
+    "sandbox_network",
+    "delete_la_files",
+    "cxx_stdlib",
+    "pkg_post_unarchive_deletions",
+    "clonebin_path",
     "macosx_sdk_path",
 ];
 
