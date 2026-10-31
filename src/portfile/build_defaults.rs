@@ -16,6 +16,19 @@ pub(super) fn initialize(interp: &mut Interp, id: ContextID) -> MoltResult {
     // developer_dir belong to the execution configuration. Explicit Portfile
     // values and command-line overrides survive default registration.
     for (name, value) in [
+        (
+            "portbuildpath",
+            "[file join $portdbpath build [string map {/ _} $portpath]]",
+        ),
+        (
+            "subbuildpath",
+            "[file normalize [file join $portbuildpath [expr {$subport ne {} ? $subport : [file tail $portpath]}]]]",
+        ),
+        (
+            "workpath",
+            "[file normalize [file join $subbuildpath work]]",
+        ),
+        ("distpath", "[file join $portdbpath distfiles $dist_subdir]"),
         ("worksrcdir", "$distname"),
         ("worksrcpath", "[file join $workpath [join $worksrcdir]]"),
         ("filesdir", "files"),
