@@ -66,6 +66,8 @@ pub(crate) struct Scope {
     map: HashMap<String, Var>,
     namespace: String,
     namespace_frame: bool,
+    /// The words of the procedure call that created this frame, if any.
+    call: Option<crate::types::Value>,
 }
 
 impl Scope {
@@ -75,6 +77,7 @@ impl Scope {
             map: HashMap::new(),
             namespace: String::new(),
             namespace_frame: false,
+            call: None,
         }
     }
 }
@@ -166,6 +169,12 @@ impl ScopeStack {
         frame.namespace = namespace;
         frame.namespace_frame = true;
         self.stack.push(frame);
+    }
+    pub(crate) fn set_call(&mut self, call: crate::types::Value) {
+        self.stack.last_mut().unwrap().call = Some(call);
+    }
+    pub(crate) fn call_at(&self, level: usize) -> Option<crate::types::Value> {
+        self.stack.get(level).and_then(|scope| scope.call.clone())
     }
     pub(crate) fn set_namespace(&mut self, namespace: &str) {
         self.stack.last_mut().unwrap().namespace = namespace.into();

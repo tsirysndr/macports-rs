@@ -523,6 +523,9 @@ pub struct Interp {
 
     // Profile Map
     profile_map: HashMap<String, ProfileRecord>,
+
+    // Files currently being evaluated, innermost last, for `info script`.
+    script_files: Vec<String>,
 }
 
 /// A command defined in the interpreter.
@@ -653,6 +656,7 @@ impl Interp {
             scopes: ScopeStack::new(),
             num_levels: 0,
             profile_map: HashMap::new(),
+            script_files: Vec::new(),
         };
 
         interp.set_scalar("errorInfo", Value::empty()).unwrap();
@@ -712,6 +716,7 @@ impl Interp {
             ("lset", commands::cmd_lset),
             ("lsort", commands::cmd_lsort),
             ("format", commands::cmd_format),
+            ("scan", commands::cmd_scan),
             ("glob", commands::cmd_glob),
             ("clock", commands::cmd_clock),
             ("regexp", commands::cmd_regexp),
@@ -1374,6 +1379,25 @@ impl Interp {
         result
     }
     /// Run host work in global scope without exposing or changing caller locals.
+    /// Evaluate `script` as the contents of `file`, for `info script` and
+    /// `info frame`.
+    pub fn eval_file(&mut self, file: &str, script: &str) -> MoltResult {
+        self.script_files.push(file.to_string());
+        let result = self.eval(script);
+        self.script_files.pop();
+        result
+    }
+
+    /// The innermost file being evaluated, if any.
+    pub fn script_file(&self) -> Option<&str> {
+        self.script_files.last().map(String::as_str)
+    }
+
+    /// The call words of the procedure frame at absolute `level`.
+    pub(crate) fn call_at(&self, level: usize) -> Option<Value> {
+        self.scopes.call_at(level)
+    }
+
     /// Run `action` with stack frame `level` current, as `uplevel` does.
     pub(crate) fn with_scope_level<T>(
         &mut self,
@@ -2345,6 +2369,7 @@ impl Procedure {
     fn execute(&self, interp: &mut Interp, argv: &[Value]) -> MoltResult {
         interp.push_scope();
         interp.scopes.set_namespace(&self.namespace);
+        interp.scopes.set_call(Value::from(argv));
         let result = self.execute_in_scope(interp, argv);
         interp.pop_scope();
         result

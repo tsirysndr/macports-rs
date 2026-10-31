@@ -889,6 +889,22 @@ pub fn cmd_string_is(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltR
         }
         position += 1;
     }
+    const CLASSES: [&str; 22] = [
+        "alnum", "alpha", "ascii", "boolean", "control", "digit", "double", "entier", "false",
+        "graph", "integer", "list", "lower", "print", "punct", "space", "true", "upper", "wide",
+        "wordchar", "xdigit", "dict",
+    ];
+    // Tcl accepts any unique abbreviation of a class name.
+    let class = match CLASSES
+        .iter()
+        .filter(|name| name.starts_with(class))
+        .collect::<Vec<_>>()
+        .as_slice()
+    {
+        [only] => **only,
+        _ if CLASSES.contains(&class) => class,
+        _ => return molt_err!("bad class \"{}\"", class),
+    };
     let value = &argv[argv.len() - 1];
     let text = value.as_str();
     if text.is_empty() {
@@ -914,7 +930,7 @@ pub fn cmd_string_is(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltR
         "boolean" => (value.as_bool().is_err()).then_some(0),
         "true" => (!matches!(value.as_bool(), Ok(true))).then_some(0),
         "false" => (!matches!(value.as_bool(), Ok(false))).then_some(0),
-        "list" => (value.as_list().is_err()).then_some(0),
+        "list" | "dict" => (value.as_list().is_err()).then_some(0),
         other => return molt_err!("bad class \"{}\"", other),
     };
     if let (Some(index), Some(name)) = (failure, fail_var) {
@@ -1137,4 +1153,203 @@ pub fn cmd_clock(_: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
         "microseconds" => molt_ok!(now.as_micros() as MoltInt),
         other => molt_err!("unsupported clock subcommand \"{}\"", other),
     }
+}
+
+// ---------------------------------------------------------------------------
+// scan
+
+/// # scan string format ?varName ...?
+pub fn cmd_scan(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(1, argv, 3, 0, "string format ?varName ...?")?;
+    let input: Vec<char> = argv[1].as_str().chars().collect();
+    let format: Vec<char> = argv[2].as_str().chars().collect();
+    let mut values: Vec<Value> = Vec::new();
+    let (mut i, mut f) = (0, 0);
+    let mut failed_early = false;
+    while f < format.len() {
+        let c = format[f];
+        if c.is_whitespace() {
+            while i < input.len() && input[i].is_whitespace() {
+                i += 1;
+            }
+            f += 1;
+            continue;
+        }
+        if c != '%' {
+            if i < input.len() && input[i] == c {
+                i += 1;
+                f += 1;
+                continue;
+            }
+            break;
+        }
+        f += 1;
+        if format.get(f) == Some(&'%') {
+            if input.get(i) == Some(&'%') {
+                i += 1;
+                f += 1;
+                continue;
+            }
+            break;
+        }
+        let suppress = format.get(f) == Some(&'*');
+        if suppress {
+            f += 1;
+        }
+        let start = f;
+        while f < format.len() && format[f].is_ascii_digit() {
+            f += 1;
+        }
+        let width: Option<usize> = format[start..f].iter().collect::<String>().parse().ok();
+        while f < format.len() && "hlLjzt".contains(format[f]) {
+            f += 1;
+        }
+        let Some(&conversion) = format.get(f) else {
+            return molt_err!("unterminated format specifier");
+        };
+        f += 1;
+        let limit = |from: usize| {
+            width
+                .map(|w| (from + w).min(input.len()))
+                .unwrap_or(input.len())
+        };
+        if !matches!(conversion, 'c' | '[' | 'n') {
+            while i < input.len() && input[i].is_whitespace() {
+                i += 1;
+            }
+        }
+        if i >= input.len() && conversion != 'n' {
+            failed_early = values.is_empty();
+            break;
+        }
+        let value = match conversion {
+            'd' | 'u' | 'i' | 'o' | 'x' | 'X' | 'b' => {
+                let end = limit(i);
+                let mut j = i;
+                if j < end && (input[j] == '-' || input[j] == '+') {
+                    j += 1;
+                }
+                let radix = match conversion {
+                    'o' => 8,
+                    'x' | 'X' => 16,
+                    'b' => 2,
+                    _ => 10,
+                };
+                let digits_start = j;
+                while j < end && input[j].is_digit(radix) {
+                    j += 1;
+                }
+                if j == digits_start {
+                    break;
+                }
+                let text: String = input[i..j].iter().collect();
+                i = j;
+                let number = MoltInt::from_str_radix(&text, radix).map_err(|_| {
+                    Exception::molt_err(Value::from("integer value too large to represent"))
+                })?;
+                Value::from(number)
+            }
+            'f' | 'e' | 'E' | 'g' | 'G' => {
+                let end = limit(i);
+                let mut j = i;
+                if j < end && (input[j] == '-' || input[j] == '+') {
+                    j += 1;
+                }
+                while j < end && (input[j].is_ascii_digit() || input[j] == '.') {
+                    j += 1;
+                }
+                if j < end && (input[j] == 'e' || input[j] == 'E') {
+                    let mark = j;
+                    j += 1;
+                    if j < end && (input[j] == '-' || input[j] == '+') {
+                        j += 1;
+                    }
+                    if j < end && input[j].is_ascii_digit() {
+                        while j < end && input[j].is_ascii_digit() {
+                            j += 1;
+                        }
+                    } else {
+                        j = mark;
+                    }
+                }
+                let text: String = input[i..j].iter().collect();
+                let Ok(number) = text.parse::<f64>() else {
+                    break;
+                };
+                i = j;
+                Value::from(number)
+            }
+            's' => {
+                let end = limit(i);
+                let mut j = i;
+                while j < end && !input[j].is_whitespace() {
+                    j += 1;
+                }
+                let text: String = input[i..j].iter().collect();
+                i = j;
+                Value::from(text)
+            }
+            'c' => {
+                let character = input[i];
+                i += 1;
+                Value::from(character as MoltInt)
+            }
+            'n' => Value::from(i as MoltInt),
+            '[' => {
+                let mut set = Vec::new();
+                let negate = format.get(f) == Some(&'^');
+                if negate {
+                    f += 1;
+                }
+                if format.get(f) == Some(&']') {
+                    set.push(']');
+                    f += 1;
+                }
+                while f < format.len() && format[f] != ']' {
+                    if format.get(f + 1) == Some(&'-')
+                        && f + 2 < format.len()
+                        && format[f + 2] != ']'
+                    {
+                        for character in format[f]..=format[f + 2] {
+                            set.push(character);
+                        }
+                        f += 3;
+                    } else {
+                        set.push(format[f]);
+                        f += 1;
+                    }
+                }
+                f += 1;
+                let end = limit(i);
+                let mut j = i;
+                while j < end && (set.contains(&input[j]) != negate) {
+                    j += 1;
+                }
+                if j == i {
+                    break;
+                }
+                let text: String = input[i..j].iter().collect();
+                i = j;
+                Value::from(text)
+            }
+            other => return molt_err!("bad scan conversion character \"{}\"", other),
+        };
+        if !suppress {
+            values.push(value);
+        }
+    }
+    let variables = &argv[3..];
+    if variables.is_empty() {
+        if failed_early {
+            return molt_ok!(-1);
+        }
+        return molt_ok!(Value::from(values));
+    }
+    if failed_early {
+        return molt_ok!(-1);
+    }
+    for (name, value) in variables.iter().zip(values.iter()) {
+        interp.set_var(name, value.clone())?;
+    }
+    molt_ok!(values.len().min(variables.len()) as MoltInt)
 }

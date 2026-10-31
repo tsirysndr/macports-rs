@@ -244,3 +244,33 @@ fn expression_operands_may_touch_operators_and_parentheses() {
     ]);
     fails(&["set \"a\"b 1"]);
 }
+
+#[test]
+fn scan_parses_numbers_strings_and_sets() {
+    check(&[
+        ("scan 007 %u", "7"),
+        ("scan {12.5 abc} {%f %s}", "12.5 abc"),
+        ("scan 3.11.2 %d.%d.%d a b c; list $a $b $c", "3 11 2"),
+        ("scan 3.11 %d.%d.%d x y z", "2"),
+        ("scan ff %x", "255"),
+        ("scan A %c", "65"),
+        ("scan abc123 {%[a-z]%d}", "abc 123"),
+        ("scan {} %d", "-1"),
+        ("scan {  42} %d", "42"),
+        ("scan 12345 %2d%d", "12 345"),
+        ("scan {a b} {%*s %s}", "b"),
+    ]);
+}
+
+#[test]
+fn string_is_accepts_class_abbreviations_and_info_frames() {
+    check(&[
+        ("string is bool yes", "1"),
+        ("string is int 5", "1"),
+        ("proc lv {a} {info level 0}; lv x", "lv x"),
+        ("proc depth {} {info level}; depth", "1"),
+        ("info script", ""),
+        ("dict get [info frame 0] type", "eval"),
+    ]);
+    fails(&["string is nosuchclass 5", "string is a 5"]);
+}

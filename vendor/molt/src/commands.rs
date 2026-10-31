@@ -703,7 +703,7 @@ pub fn cmd_info(interp: &mut Interp, context_id: ContextID, argv: &[Value]) -> M
     interp.call_subcommand(context_id, argv, 1, &INFO_SUBCOMMANDS)
 }
 
-const INFO_SUBCOMMANDS: [Subcommand; 11] = [
+const INFO_SUBCOMMANDS: [Subcommand; 14] = [
     Subcommand("args", cmd_info_args),
     Subcommand("body", cmd_info_body),
     Subcommand("cmdtype", cmd_info_cmdtype),
@@ -711,11 +711,60 @@ const INFO_SUBCOMMANDS: [Subcommand; 11] = [
     Subcommand("complete", cmd_info_complete),
     Subcommand("default", cmd_info_default),
     Subcommand("exists", cmd_info_exists),
+    Subcommand("frame", cmd_info_frame),
     Subcommand("globals", cmd_info_globals),
+    Subcommand("level", cmd_info_level),
     Subcommand("locals", cmd_info_locals),
     Subcommand("procs", cmd_info_procs),
+    Subcommand("script", cmd_info_script),
     Subcommand("vars", cmd_info_vars),
 ];
+
+/// # info level ?number?
+pub fn cmd_info_level(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(2, argv, 2, 3, "?number?")?;
+    let current = interp.scope_level() as MoltInt;
+    let Some(number) = argv.get(2) else {
+        return molt_ok!(current);
+    };
+    let number = number.as_int()?;
+    let level = if number > 0 { number } else { current + number };
+    if level < 1 || level > current {
+        return molt_err!("bad level \"{}\"", argv[2]);
+    }
+    interp
+        .call_at(level as usize)
+        .map(Ok)
+        .unwrap_or_else(|| molt_err!("bad level \"{}\"", argv[2]))
+}
+
+/// # info frame ?number?
+///
+/// Molt does not track source lines; frames report the evaluated file.
+pub fn cmd_info_frame(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(2, argv, 2, 3, "?number?")?;
+    if argv.len() == 2 {
+        return molt_ok!(interp.scope_level() as MoltInt + 1);
+    }
+    let mut frame = vec![Value::from("type")];
+    match interp.script_file() {
+        Some(file) => frame.extend([
+            Value::from("source"),
+            Value::from("line"),
+            Value::from(1),
+            Value::from("file"),
+            Value::from(file),
+        ]),
+        None => frame.extend([Value::from("eval"), Value::from("line"), Value::from(1)]),
+    }
+    molt_ok!(Value::from(frame))
+}
+
+/// # info script
+pub fn cmd_info_script(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(2, argv, 2, 2, "")?;
+    molt_ok!(interp.script_file().unwrap_or("").to_string())
+}
 
 /// # info args *procname*
 pub fn cmd_info_args(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
@@ -1092,7 +1141,7 @@ pub fn cmd_source(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResu
         Err(e) => return molt_err!("couldn't read file \"{}\": {}", filename, e),
     };
     // As in Tcl, `return` in a sourced script ends only that script.
-    match interp.eval(&script) {
+    match interp.eval_file(filename, &script) {
         Err(mut exception) if exception.code() == ResultCode::Return => {
             exception.decrement_level();
             if exception.code() == ResultCode::Okay {
