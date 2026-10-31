@@ -1673,3 +1673,12 @@ pair signed by different keys, reject a cross-port key mismatch without registry
 prefix, or image-store changes, and retain coverage of the explicit shared-key
 API. This backend still requires the caller to execute the full Portfile lifecycle;
 it does not by itself enable ordinary CLI installation.
+
+The target graph now registers `org.macports.archivefetch` with the upstream
+main prerequisite, always-run policy, runtime package, and prerun callback.
+`archivefetch`, `pre-archivefetch`, and `post-archivefetch` declarations use the
+same deferred wrappers as other PortSystem phases. Tests verify metadata-only
+opening, dry-run behavior, callback order, repeated always-target execution,
+and pre-hook failure without a completion marker. The native archivefetch
+startup/body callbacks still need connection to the archive transport and cache
+lifecycle; target registration alone does not perform downloads or enable install.

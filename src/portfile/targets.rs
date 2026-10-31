@@ -15,6 +15,7 @@ struct Binding {
 pub(super) fn install(interp: &mut Interp, id: ContextID) -> MoltResult {
     interp.add_context_command("target_provides", provides, id);
     for phase in [
+        "archivefetch",
         "fetch",
         "checksum",
         "extract",
@@ -40,7 +41,7 @@ pub(super) fn install(interp: &mut Interp, id: ContextID) -> MoltResult {
             interp.set_scalar(&name, handle.clone())?;
             ditems::set(interp, id, &handle, "provides", list([phase.into()]));
             let requires = match phase {
-                "fetch" | "deactivate" | "uninstall" | "clean" => "main",
+                "archivefetch" | "fetch" | "deactivate" | "uninstall" | "clean" => "main",
                 "checksum" => "main fetch",
                 "extract" => "main fetch checksum",
                 "patch" => "main fetch checksum extract",
@@ -87,10 +88,10 @@ pub(super) fn install(interp: &mut Interp, id: ContextID) -> MoltResult {
             }
             if matches!(
                 phase,
-                "install" | "activate" | "deactivate" | "uninstall" | "clean"
+                "archivefetch" | "install" | "activate" | "deactivate" | "uninstall" | "clean"
             ) {
                 ditems::set(interp, id, &handle, "runtype", "always".into());
-                if phase != "install" {
+                if !matches!(phase, "archivefetch" | "install") {
                     ditems::set(interp, id, &handle, "state", "no".into());
                 }
             }
