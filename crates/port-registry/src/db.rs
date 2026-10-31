@@ -291,10 +291,10 @@ impl Database {
 
 impl Drop for Database {
     fn drop(&mut self) {
-        if let Some(connection) = self.connection.take() {
-            if let Some(runtime) = &self.runtime {
-                let _ = block(runtime, connection.close());
-            }
+        if let Some(connection) = self.connection.take()
+            && let Some(runtime) = &self.runtime
+        {
+            let _ = block(runtime, connection.close());
         }
         // A runtime may not be dropped inside another runtime's async context;
         // shutting it down in the background is allowed anywhere.
