@@ -1925,3 +1925,11 @@ to the checksum phase. Main dispatch preserves transport return values and
 errors, skips standard fetch only when `all_dist_files` is absent, and selects
 bzr/cvs/svn/git/hg or standard fetch procedures like upstream. These callbacks do
 not yet supply the transport procedures or privilege-aware fetch startup.
+
+Source URL selection now provides native `portfetch::get_urls` and `sortsites`.
+The former refreshes candidates and preserves URL order and duplicates; both
+apply upstream's missing-tag fallback to the default URL map, including its
+error when the required default is absent. Sorting reads the caller's candidate
+variable and delegates multi-mirror ordering to `compare_pingtimes`, preserving
+callback errors. A native ping service and its comparator remain unfinished;
+tests supply a deterministic comparator and exercise fallback and failure paths.
