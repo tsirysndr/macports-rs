@@ -127,10 +127,22 @@ fn circular_defaults_fail_without_poisoning_subsequent_reads() {
     assert_eq!(result.port.get("a"), "repaired");
 }
 #[test]
-fn errors_during_final_default_resolution_are_not_silently_dropped() {
-    assert!(run("options custom; default custom {$missing_variable}").is_err());
-    assert!(run("options custom; default custom {[error broken]}").is_err());
-    assert!(run("options custom; default custom {[catch {socket forbidden 1}]}").is_err());
+fn unreadable_defaults_are_omitted_from_metadata_but_explicit_reads_fail() {
+    for default in [
+        "{$missing_variable}",
+        "{[error broken]}",
+        "{[catch {socket forbidden 1}]}",
+    ] {
+        let result = run(&format!("options custom; default custom {default}")).unwrap();
+        assert_eq!(result.port.get("custom"), "", "{default}");
+        assert!(
+            run(&format!(
+                "options custom; default custom {default}; set value $custom"
+            ))
+            .is_err(),
+            "{default}"
+        );
+    }
 }
 #[test]
 fn extraction_formats_behave_like_radio_buttons_and_honor_explicit_suffix() {

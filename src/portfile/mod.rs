@@ -345,8 +345,23 @@ fn open(
             continue;
         }
         if interp.var_exists(&Value::from(name.clone())) {
-            let value = interp.scalar(&name).map_err(failure)?;
-            fields.insert(name, value.as_str().to_owned());
+            let lazy = interp
+                .context::<State>(id)
+                .lazy_defaults
+                .contains_key(&name);
+            let unsupported = interp.context::<State>(id).unsupported.clone();
+            match interp.scalar(&name) {
+                Ok(_) if lazy && interp.context::<State>(id).unsupported != unsupported => {
+                    interp.context::<State>(id).unsupported = unsupported;
+                }
+                Ok(value) => {
+                    fields.insert(name, value.as_str().to_owned());
+                }
+                // Upstream metadata never computes unexported defaults; one that
+                // cannot be computed yet is omitted rather than fatal.
+                Err(_) if lazy => interp.context::<State>(id).unsupported = unsupported,
+                Err(err) => return Err(failure(err)),
+            }
         }
     }
     check_supported(&mut interp, id)?;
