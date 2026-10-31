@@ -230,8 +230,11 @@ fn write_archive(destroot: &Path, output: &Path) -> Result<()> {
         fs::File::create(output).with_context(|| format!("cannot create {}", output.display()))?;
     let encoder = bzip2::write::BzEncoder::new(BufWriter::new(file), bzip2::Compression::best());
     let mut builder = tar::Builder::new(encoder);
-    builder.follow_symlinks(false);
-    builder.append_dir_all(".", destroot)?;
+    let mut entries = vec![PathBuf::new()];
+    collect(destroot, Path::new(""), &mut entries)?;
+    for relative in entries {
+        append(&mut builder, destroot, &relative)?;
+    }
     let encoder = builder.into_inner()?;
     let mut writer = encoder.finish()?;
     writer.flush()?;
@@ -239,5 +242,85 @@ fn write_archive(destroot: &Path, output: &Path) -> Result<()> {
         .into_inner()
         .map_err(|err| err.into_error())?
         .sync_all()?;
+    Ok(())
+}
+
+/// Every entry below `directory`, parents before children, in name order.
+fn collect(root: &Path, directory: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
+    let mut names: Vec<_> = fs::read_dir(root.join(directory))?
+        .flatten()
+        .map(|entry| entry.file_name())
+        .collect();
+    names.sort();
+    for name in names {
+        let relative = directory.join(&name);
+        let is_dir = fs::symlink_metadata(root.join(&relative))?.is_dir();
+        out.push(relative.clone());
+        if is_dir {
+            collect(root, &relative, out)?;
+        }
+    }
+    Ok(())
+}
+
+/// A PAX extended-header record: `length key=value\n`, length counting itself.
+fn pax_record(key: &str, value: &str) -> Vec<u8> {
+    let body = format!(" {key}={value}\n");
+    let mut length = body.len() + 1;
+    while format!("{length}{body}").len() != length {
+        length = format!("{length}{body}").len();
+    }
+    format!("{length}{body}").into_bytes()
+}
+
+fn append<W: Write>(builder: &mut tar::Builder<W>, root: &Path, relative: &Path) -> Result<()> {
+    use std::os::unix::fs::MetadataExt;
+    let full = root.join(relative);
+    let metadata = fs::symlink_metadata(&full)?;
+    let mut name = format!("./{}", relative.to_string_lossy());
+    let mut header = tar::Header::new_ustar();
+    header.set_mode(metadata.mode() & 0o7777);
+    header.set_uid(u64::from(metadata.uid()));
+    header.set_gid(u64::from(metadata.gid()));
+    header.set_mtime(u64::try_from(metadata.mtime()).unwrap_or(0));
+    let mut pax = Vec::new();
+    if metadata.is_dir() {
+        if !name.ends_with('/') {
+            name.push('/');
+        }
+        header.set_entry_type(tar::EntryType::Directory);
+        header.set_size(0);
+    } else if metadata.file_type().is_symlink() {
+        header.set_entry_type(tar::EntryType::Symlink);
+        header.set_size(0);
+        let target = fs::read_link(&full)?.to_string_lossy().into_owned();
+        if header.set_link_name(&target).is_err() || target.len() > 100 {
+            pax.extend(pax_record("linkpath", &target));
+            header.set_link_name(&target[target.len().saturating_sub(100)..])?;
+        }
+    } else {
+        header.set_entry_type(tar::EntryType::Regular);
+        header.set_size(metadata.len());
+    }
+    if header.set_path(&name).is_err() {
+        pax.extend(pax_record("path", &name));
+        let tail = &name[name.len().saturating_sub(99)..];
+        header.set_path(tail.trim_start_matches('/'))?;
+    }
+    if !pax.is_empty() {
+        let mut extension = tar::Header::new_ustar();
+        extension.set_entry_type(tar::EntryType::XHeader);
+        extension.set_path("PaxHeader")?;
+        extension.set_mode(0o644);
+        extension.set_size(pax.len() as u64);
+        extension.set_cksum();
+        builder.append(&extension, pax.as_slice())?;
+    }
+    header.set_cksum();
+    if metadata.is_file() {
+        builder.append(&header, fs::File::open(&full)?)?;
+    } else {
+        builder.append(&header, std::io::empty())?;
+    }
     Ok(())
 }

@@ -50,7 +50,7 @@ pub fn plan_evaluated(
     installed: &[Entry],
     load: impl FnMut(&Port, &PortSpec) -> Result<Evaluation>,
 ) -> Result<EvaluatedPlan> {
-    plan_inner(index, specs, installed, |_, _| Ok(None), load)
+    plan_inner(index, specs, installed, RUNTIME, |_, _| Ok(None), load)
 }
 
 /// Evaluate only the dependency closure not already satisfied by provider
@@ -68,6 +68,7 @@ pub fn plan_evaluated_with_providers(
         index,
         specs,
         installed,
+        RUNTIME,
         |_, dependency| {
             if let Some(value) = decisions.get(dependency) {
                 return Ok(Some(*value));
@@ -93,6 +94,37 @@ pub fn plan_sessions(
     index: &Index,
     specs: &[PortSpec],
     registry: Option<&crate::registry::Registry>,
+    load: impl FnMut(&Port, &PortSpec) -> Result<crate::portfile::Session>,
+) -> Result<SessionPlan> {
+    plan_sessions_for(index, specs, registry, RUNTIME, load)
+}
+
+/// Plan a source installation: every dependency the build phases need must be
+/// active first, as for upstream's install target without a binary archive.
+pub fn plan_source_sessions(
+    index: &Index,
+    specs: &[PortSpec],
+    registry: Option<&crate::registry::Registry>,
+    load: impl FnMut(&Port, &PortSpec) -> Result<crate::portfile::Session>,
+) -> Result<SessionPlan> {
+    plan_sessions_for(index, specs, registry, SOURCE, load)
+}
+
+const RUNTIME: &[&str] = &["depends_lib", "depends_run"];
+const SOURCE: &[&str] = &[
+    "depends_fetch",
+    "depends_extract",
+    "depends_patch",
+    "depends_build",
+    "depends_lib",
+    "depends_run",
+];
+
+fn plan_sessions_for(
+    index: &Index,
+    specs: &[PortSpec],
+    registry: Option<&crate::registry::Registry>,
+    fields: &[&str],
     mut load: impl FnMut(&Port, &PortSpec) -> Result<crate::portfile::Session>,
 ) -> Result<SessionPlan> {
     use dependencies::provider::{Resolver, Search};
@@ -108,6 +140,7 @@ pub fn plan_sessions(
         index,
         specs,
         &installed,
+        fields,
         |port, dependency| {
             let resolvers = resolvers.borrow();
             let resolver: &Resolver<'_> = resolvers
@@ -145,6 +178,7 @@ fn plan_inner(
     index: &Index,
     specs: &[PortSpec],
     installed: &[Entry],
+    fields: &[&str],
     mut probe: impl FnMut(&Port, &str) -> Result<Option<bool>>,
     mut load: impl FnMut(&Port, &PortSpec) -> Result<Evaluation>,
 ) -> Result<EvaluatedPlan> {
@@ -206,7 +240,7 @@ fn plan_inner(
         ) {
             continue;
         }
-        for field in ["depends_lib", "depends_run"] {
+        for field in fields {
             for dependency in dependencies::in_field(&value.port, field)? {
                 let context = format!("{}: {field} {}", spec.name, dependency.specification);
                 let key = (value.port.name.clone(), dependency.specification.clone());

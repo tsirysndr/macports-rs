@@ -160,11 +160,11 @@ fn selectors_are_deduplicated_and_unknown_names_fail() {
     assert!(!fixture.run(&["list", "installed"]).status.success());
 }
 #[test]
-fn install_does_not_fake_success_or_invoke_external_port() {
+fn install_without_a_local_portfile_fails_before_writing_anything() {
     let fixture = Fixture::new();
     let output = fixture.run(&["install", "curl", "+ssl"]);
     assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("not implemented"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Portfile"));
     assert_eq!(
         std::fs::read_dir(fixture.directory.path()).unwrap().count(),
         1
@@ -803,11 +803,7 @@ fn action_ambiguity_includes_unimplemented_upstream_commands() {
 #[test]
 fn exact_actions_win_and_unique_unsupported_prefixes_remain_errors() {
     let fixture = Fixture::new();
-    for (action, canonical) in [
-        ("install", "install"),
-        ("activ", "activate"),
-        ("uninst", "uninstall"),
-    ] {
+    for (action, canonical) in [("activ", "activate"), ("uninst", "uninstall")] {
         let output = fixture.run(&[action, "curl"]);
         assert!(!output.status.success());
         let error = String::from_utf8_lossy(&output.stderr);

@@ -160,7 +160,7 @@ fn insufficient_metadata_and_replaced_ports_are_explicit_errors() {
     }
 }
 #[test]
-fn ordinary_install_is_blocked_before_index_or_registry_access() {
+fn ordinary_install_without_an_index_fails_before_registry_access() {
     let dir = tempfile::tempdir().unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_port"))
         .args(["install", "app"])
@@ -172,7 +172,6 @@ fn ordinary_install_is_blocked_before_index_or_registry_access() {
         .unwrap();
     assert!(!output.status.success());
     assert!(output.stdout.is_empty());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("use -y install"));
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
 }
 #[test]

@@ -2,6 +2,7 @@
 mod evaluated;
 pub use evaluated::{
     EvaluatedPlan, SessionPlan, plan_evaluated, plan_evaluated_with_providers, plan_sessions,
+    plan_source_sessions,
 };
 mod plan;
 pub mod signature;

@@ -74,6 +74,10 @@ impl<'a> Resolver<'a> {
         let mut dependencies = Vec::new();
         let mut seen = HashSet::new();
         for field in ["depends_lib", "depends_run"] {
+            // A port that never declares a dependency type has no such option.
+            if session.invoke("info", &["exists", field])? != "1" {
+                continue;
+            }
             for specification in crate::tcl_list::parse(&session.scalar(field)?)? {
                 if let Some(name) = self.resolve(&specification)?
                     && seen.insert(name.to_ascii_lowercase())

@@ -12,7 +12,7 @@ pub struct Install {
     #[arg(skip)]
     pub dry_run: bool,
     #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
-    ports: Vec<String>,
+    pub(super) ports: Vec<String>,
 }
 
 pub(super) fn run(

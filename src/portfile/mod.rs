@@ -38,6 +38,7 @@ mod stage_context;
 mod startupitem;
 pub use destroot_libtool::LibtoolCleanup;
 use stage_context::StageContext;
+pub use utilities::MACPORTS_BASE_VERSION;
 mod checksum_runtime;
 mod compilers;
 mod diagnostics;

@@ -6,6 +6,7 @@ mod download;
 mod info;
 mod inspect;
 mod install;
+mod install_exec;
 mod installed;
 mod local;
 mod location;
@@ -18,7 +19,7 @@ mod space;
 mod system;
 mod variants;
 
-use anyhow::{Result, bail, ensure};
+use anyhow::{Context, Result, bail};
 use clap::Subcommand;
 use std::{
     io::{self, Write},
@@ -123,12 +124,7 @@ impl Session {
                 args[0]
             );
         }
-        if let Command::Install(args) = &command {
-            ensure!(
-                args.dry_run,
-                r#"command "install" execution is not implemented yet; use -y install to preview an indexed binary installation plan; no Tcl or MacPorts fallback is used"#
-            );
-        }
+
         let stdout = io::stdout();
         let mut out = io::BufWriter::new(stdout.lock());
         if let Command::Outdated(args) = command {
@@ -228,6 +224,11 @@ impl Session {
             // Offline index queries never initialize an async runtime or HTTP client.
             let index = self.index(index_file, quiet)?;
             match command {
+                Command::Install(args) if !args.dry_run => {
+                    let root = local::root(index_file, false, "install")?
+                        .context("installation requires a local ports tree")?;
+                    install_exec::run(&mut out, index, registry_file, &args.ports, quiet, &root)?
+                }
                 Command::Install(args) => {
                     let root = if let Some(path) = index_file {
                         Some(

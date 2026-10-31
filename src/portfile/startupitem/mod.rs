@@ -14,6 +14,7 @@ use std::{
 
 pub(super) fn install(interp: &mut Interp, id: ContextID) {
     interp.add_context_command("portstartupitem::startupitem_create", create, id);
+    interp.add_context_command("eval_targets", eval_targets, id);
     defaults::install(interp, id);
     for key in [
         "startupitems",
@@ -71,6 +72,9 @@ struct Item {
     unique: String,
     plist: String,
     location: String,
+    name: String,
+    autostart: bool,
+    install: bool,
 }
 type Attributes = BTreeMap<String, Value>;
 fn attribute(interp: &mut Interp, attrs: &Attributes, key: &str) -> Result<Option<Value>> {
@@ -196,13 +200,86 @@ fn plan_item(interp: &mut Interp, attrs: &Attributes) -> Result<Option<Item>> {
         );
         Source::Custom(source)
     };
+    let flag = |interp: &mut Interp, key: &str, default: &str| -> Result<bool> {
+        Value::from(attr_text(interp, attrs, key, default)?)
+            .as_bool()
+            .map_err(failure)
+    };
+    let autostart = flag(interp, "autostart", "no")?;
+    // Only load/unload need the install location; staging-only sessions may
+    // lack the configuration it defaults from, so use upstream's default then.
+    let install = flag(interp, "install", "yes").unwrap_or(true);
     Ok(Some(Item {
         source,
         unique,
         plist,
         location,
+        name,
+        autostart,
+        install,
     }))
 }
+/// `eval_targets` for the launchd targets activation runs (`load`, `unload`).
+/// Other targets are run by the host's phase driver, not from Portfiles.
+fn eval_targets(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
+    molt::check_args(1, argv, 2, 2, "target")?;
+    let target = argv[1].as_str();
+    if !matches!(target, "load" | "unload") {
+        return commands::unsupported(interp, id, argv);
+    }
+    interp.with_global_scope(|interp| {
+        let items = plan(interp).map_err(|e| error(e.to_string()))?;
+        let autostart_only = interp
+            .scalar("portstartupitem::autostart_only")
+            .ok()
+            .and_then(|value| value.as_bool().ok())
+            .unwrap_or(false);
+        let prefix = interp.scalar("prefix")?.to_string();
+        let subport = interp.scalar("subport")?.to_string();
+        let progress = interp
+            .context::<State>(id)
+            .progress
+            .clone()
+            .unwrap_or_else(|| crate::progress::Progress::new(false));
+        // SAFETY: getuid only reads the process credentials.
+        let root = unsafe { libc::getuid() } == 0;
+        for item in items {
+            if target == "load" && autostart_only && !item.autostart {
+                continue;
+            }
+            let path = if item.install {
+                format!("/Library/{}/{}", item.location, item.plist)
+            } else {
+                format!("{prefix}/etc/{}/{}", item.location, item.plist)
+            };
+            if target == "load" && !Path::new(&path).exists() {
+                return Err(error(format!("Launchd plist {path} was not found")));
+            }
+            if item.location == "LaunchDaemons" && !root {
+                progress.warning(&format!(
+                    "Skipping {target} of startupitem '{}' for {subport}, root privileges required",
+                    item.name
+                ));
+                continue;
+            }
+            let verb = if target == "load" {
+                "Loading"
+            } else {
+                "Unloading"
+            };
+            progress.message(&format!(
+                "--->  {verb} startupitem '{}' for {subport}",
+                item.name
+            ));
+            interp.eval_value(&Value::from(vec![
+                Value::from("system"),
+                Value::from(format!("/bin/launchctl {target} -w {path}")),
+            ]))?;
+        }
+        Ok(0.into())
+    })
+}
+
 pub(super) fn preflight(interp: &mut Interp, _id: ContextID) -> MoltResult {
     plan(interp)
         .map(|_| Value::empty())

@@ -121,4 +121,61 @@ impl Installer<'_> {
             image,
         })
     }
+
+    /// Like `install_prepared`, for an image built from this session's destroot:
+    /// the native install body resolves registration, then `package` creates
+    /// the local image (as upstream's install_main archives the destroot).
+    #[cfg(target_os = "macos")]
+    pub fn install_built(
+        &mut self,
+        item: &Item<'_>,
+        session: &mut Session,
+        dry_run: bool,
+        registration: impl FnOnce(&mut Session) -> Result<(Target, NewImage)>,
+        package: impl FnOnce(&mut Session, &Target) -> Result<VerifiedArchive>,
+    ) -> Result<LifecycleResult> {
+        validate(item)?;
+        session.set_progress(self.progress.clone());
+        let install_target = session.scalar("org.macports.install")?;
+        let mut pending = None;
+        let progress = self.progress.clone();
+        let install = session.run_prepared_target_with_native_body(
+            &install_target,
+            dry_run,
+            "portinstall::install_main",
+            |session| {
+                let (target, record) = registration(session)?;
+                let mut archive = package(session, &target)?;
+                pending = Some(self.register(&mut archive, item, &target, record)?);
+                Ok(())
+            },
+        )?;
+        let activate_target = session.scalar("org.macports.activate")?;
+        let mut image = None;
+        let activate = session.run_prepared_target_with_native_body(
+            &activate_target,
+            dry_run,
+            "portactivate::activate_main",
+            |_| {
+                let registered = pending.take().context(
+                    "native activation needs a registered image; custom or skipped install requires registry image recovery",
+                )?;
+                image = Some(registered.activate_inner(false)?);
+                Ok(())
+            },
+        )?;
+        if image.is_some() {
+            progress.phase(&format!(
+                "Installed {} @{}{}",
+                item.port.name,
+                item.port.version(),
+                item.variants
+            ));
+        }
+        Ok(LifecycleResult {
+            install,
+            activate,
+            image,
+        })
+    }
 }

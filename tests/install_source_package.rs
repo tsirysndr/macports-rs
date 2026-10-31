@@ -113,3 +113,39 @@ fn cxx_stdlib_detection_reads_linked_runtimes() {
         "none"
     );
 }
+
+#[test]
+fn long_paths_and_link_targets_use_pax_records() {
+    let root = tempfile::tempdir().unwrap();
+    let destroot = root.path().join("destroot");
+    let deep = format!(
+        "opt/{}/{}/{}",
+        "a".repeat(90),
+        "b".repeat(90),
+        "c".repeat(90)
+    );
+    fs::create_dir_all(destroot.join(&deep)).unwrap();
+    fs::write(destroot.join(&deep).join("file.txt"), "deep").unwrap();
+    let target = format!("{}/file.txt", "x".repeat(120));
+    symlink(&target, destroot.join("opt/link")).unwrap();
+    fs::write(root.path().join("state"), "").unwrap();
+    fs::write(root.path().join("Portfile"), "").unwrap();
+    let inputs = Inputs {
+        destroot,
+        statefile: root.path().join("state"),
+        portfile: root.path().join("Portfile"),
+        subport: "deep".into(),
+        version: "1".into(),
+        archs: "noarch".into(),
+        source_date_epoch: "0".into(),
+        macports_version: "2.12.7".into(),
+        ..Inputs::default()
+    };
+    let output = root.path().join("deep.tbz2");
+    package::create(&inputs, &output).unwrap();
+    let mut archive = VerifiedArchive::local(fs::File::open(&output).unwrap()).unwrap();
+    let inspection = inspect::tbz2(&mut archive, Limits::default()).unwrap();
+    let files: Vec<_> = inspection.contents.files.iter().cloned().collect();
+    assert_eq!(files, [format!("{deep}/file.txt"), "opt/link".to_string()]);
+    assert!(inspection.members.contains_key(&format!("{deep}/file.txt")));
+}

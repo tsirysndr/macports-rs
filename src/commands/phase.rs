@@ -1,7 +1,7 @@
-use crate::{build, index::Index, query};
+use crate::{build, index::Index, portfile::Session, query};
 use anyhow::{Result, bail};
 use clap::Args;
-use std::path::Path;
+use std::{cell::Cell, path::Path, rc::Rc};
 
 #[derive(Args)]
 pub struct Phase {
@@ -9,7 +9,7 @@ pub struct Phase {
     ports: Vec<String>,
 }
 
-const ORDER: [&str; 8] = [
+pub(super) const ORDER: [&str; 8] = [
     "main",
     "fetch",
     "checksum",
@@ -19,6 +19,65 @@ const ORDER: [&str; 8] = [
     "build",
     "destroot",
 ];
+
+/// The phase label shown on a session's process output while it runs.
+pub(super) type Label = Rc<Cell<build::Phase>>;
+
+fn label_for(target: &str) -> build::Phase {
+    match target {
+        "fetch" => build::Phase::Fetch,
+        "checksum" => build::Phase::Checksum,
+        "extract" => build::Phase::Extract,
+        "patch" => build::Phase::Patch,
+        "configure" => build::Phase::Configure,
+        "build" | "main" => build::Phase::Build,
+        "test" => build::Phase::Test,
+        _ => build::Phase::Destroot,
+    }
+}
+
+/// Bind progress, proxies, the mirror worker and real process execution.
+pub(super) fn prepare(
+    session: &mut Session,
+    host: &super::local::Host,
+    worker: &crate::install::mirror_worker::MirrorWorker,
+    name: &str,
+) -> Result<Label> {
+    session.set_progress(host.progress.clone());
+    session.set_proxies(Some(host.context.proxies.clone()));
+    session.set_mirror_worker(worker.clone());
+    let progress = host.progress.clone();
+    let name = name.to_string();
+    let directory = std::env::current_dir()?;
+    let label: Label = Rc::new(Cell::new(build::Phase::Build));
+    let current = label.clone();
+    session.enable_system(&host.context.environment, move |request| {
+        let command = request.into_command(&directory)?;
+        let phase = current.get();
+        std::thread::scope(|scope| {
+            scope
+                .spawn(|| {
+                    tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()?
+                        .block_on(build::run_status(&command, &name, phase, &progress))
+                })
+                .join()
+                .unwrap_or_else(|_| Err(anyhow::anyhow!("process worker panicked")))
+        })
+    })?;
+    Ok(label)
+}
+
+/// Run the given targets in order, labelling process output with each one.
+pub(super) fn run_targets(session: &mut Session, label: &Label, targets: &[&str]) -> Result<()> {
+    for target in targets {
+        label.set(label_for(target));
+        let item = session.scalar(&format!("org.macports.{target}"))?;
+        session.run_prepared_target(&item, false)?;
+    }
+    Ok(())
+}
 
 /// Run the requested source phase and its prerequisites for each port in order.
 pub(super) fn run(
@@ -32,7 +91,6 @@ pub(super) fn run(
     let Some(end) = ORDER.iter().position(|phase| *phase == target) else {
         bail!("unsupported phase {target}");
     };
-    let phases = &ORDER[..=end];
     let mut specs = query::specifications(index, &args.ports)?;
     let host = super::local::Host::new(root, registry_file, quiet)?;
     let worker =
@@ -41,39 +99,8 @@ pub(super) fn run(
         host.context.variants.apply(spec);
         let port = query::lookup(index, &spec.name)?;
         let mut session = host.open(root, port, spec)?;
-        session.set_progress(host.progress.clone());
-        session.set_proxies(Some(host.context.proxies.clone()));
-        session.set_mirror_worker(worker.clone());
-        let progress = host.progress.clone();
-        let name = spec.name.clone();
-        let directory = std::env::current_dir()?;
-        let phase = match target {
-            "fetch" => build::Phase::Fetch,
-            "checksum" => build::Phase::Checksum,
-            "extract" => build::Phase::Extract,
-            "patch" => build::Phase::Patch,
-            "configure" => build::Phase::Configure,
-            "build" => build::Phase::Build,
-            _ => build::Phase::Destroot,
-        };
-        session.enable_system(&host.context.environment, move |request| {
-            let command = request.into_command(&directory)?;
-            std::thread::scope(|scope| {
-                scope
-                    .spawn(|| {
-                        tokio::runtime::Builder::new_current_thread()
-                            .enable_all()
-                            .build()?
-                            .block_on(build::run_status(&command, &name, phase, &progress))
-                    })
-                    .join()
-                    .unwrap_or_else(|_| Err(anyhow::anyhow!("process worker panicked")))
-            })
-        })?;
-        for phase in phases {
-            let item = session.scalar(&format!("org.macports.{phase}"))?;
-            session.run_prepared_target(&item, false)?;
-        }
+        let label = prepare(&mut session, &host, &worker, &spec.name)?;
+        run_targets(&mut session, &label, &ORDER[..=end])?;
     }
     Ok(())
 }
