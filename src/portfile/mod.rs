@@ -41,6 +41,7 @@ use stage_context::StageContext;
 mod checksum_runtime;
 mod compilers;
 mod diagnostics;
+mod source_epoch;
 mod ditems;
 mod dlist;
 mod exec;
@@ -144,6 +145,7 @@ struct State {
     tracing: BTreeSet<String>,
     callbacks: Vec<String>,
     variant_descriptions: Option<BTreeMap<String, String>>,
+    source_date_epoch: Option<i64>,
     warned: BTreeSet<String>,
     notifications: Vec<(String, String)>,
     build_states: BTreeMap<String, crate::build::state::StateFile>,
@@ -169,6 +171,25 @@ struct State {
     active: BTreeSet<String>,
     unsupported: BTreeSet<String>,
 }
+/// Configuration values upstream copies into each port's `system_options`.
+const SYSTEM_OPTIONS: &[&str] = &[
+    "portdbpath", "porturl", "portpath", "portbuildpath", "auto_path", "prefix",
+    "prefix_frozen", "portsharepath", "registry.path", "registry.format", "user_home",
+    "user_path", "user_ssh_auth_sock", "portarchivetype", "portarchive_hfscompression",
+    "archivefetch_pubkeys", "portautoclean", "portimage_mode", "porttrace", "keeplogs",
+    "portverbose", "destroot_umask", "rsync_server", "rsync_options", "rsync_dir",
+    "startupitem_autostart", "startupitem_type", "startupitem_install", "place_worksymlink",
+    "macportsuser", "sudo_user", "configureccache", "ccache_dir", "ccache_size",
+    "configuredistcc", "configurepipe", "buildnicevalue", "buildmakejobs", "applications_dir",
+    "applications_dir_frozen", "current_phase", "frameworks_dir", "frameworks_dir_frozen",
+    "developer_dir", "universal_archs", "build_arch", "os_arch", "os_endian", "os_version",
+    "os_major", "os_minor", "os_platform", "os_subplatform", "macos_version",
+    "macos_version_major", "macosx_version", "macosx_sdk_version", "macosx_deployment_target",
+    "packagemaker_path", "default_compilers", "sandbox_enable", "sandbox_network",
+    "delete_la_files", "cxx_stdlib", "pkg_post_unarchive_deletions", "clonebin_path",
+    "macosx_sdk_path",
+];
+
 fn error(message: impl Into<String>) -> Exception {
     Exception::molt_err2("PORTFILE".into(), Value::from(message.into()))
 }
@@ -266,6 +287,11 @@ fn open(
         interp
             .set_scalar(name, value.clone().into())
             .map_err(failure)?;
+        if SYSTEM_OPTIONS.contains(&name.as_str()) {
+            interp
+                .set_element("system_options", name, value.clone().into())
+                .map_err(failure)?;
+        }
     }
     for (name, value) in &requested.options {
         interp
@@ -325,6 +351,7 @@ fn open(
     build_defaults::register_paths(&mut interp, id).map_err(failure)?;
     build_defaults::register_execution(&mut interp, id).map_err(failure)?;
     startupitem::initialize(&mut interp, id).map_err(failure)?;
+    source_epoch::install(&mut interp, id).map_err(failure)?;
     option_procs::install(&mut interp, id).map_err(failure)?;
     build_phase::install(&mut interp, id);
     test_phase::install(&mut interp, id);

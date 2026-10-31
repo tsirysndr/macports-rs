@@ -49,6 +49,10 @@ pub(super) fn install(interp: &mut Interp, id: ContextID) -> MoltResult {
         ("compiler.command_line_tools_version", tools_version),
         ("get_compiler_version", compiler_version),
         ("get_tool_path", tool_path),
+        (
+            "portconfigure::load_implicit_function_declaration_whitelist",
+            whitelist,
+        ),
     ] {
         interp.add_context_command(name, command, id);
     }
@@ -179,6 +183,11 @@ pub(super) fn install(interp: &mut Interp, id: ContextID) -> MoltResult {
         ("configure.distcc", "${configuredistcc}".into()),
         ("configure.pipe", "${configurepipe}".into()),
         ("configure.nice", "${buildnicevalue}".into()),
+        (
+            "configure.checks.implicit_function_declaration.whitelist",
+            "[portconfigure::load_implicit_function_declaration_whitelist ${configure.sdk_version}]"
+                .into(),
+        ),
         ("use_xcode", "[portmain::use_xcode]".into()),
         (
             "configure.developer_dir",
@@ -1521,4 +1530,22 @@ fn compiler_version(_: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult 
 fn tool_path(_: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 2, 2, "tool")?;
     Ok(find_tool(argv[1].as_str()).into())
+}
+
+/// Lines of the tree's per-SDK implicit function declaration whitelist.
+fn whitelist(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(1, argv, 2, 2, "sdk_version")?;
+    let Some(root) = interp.context::<State>(id).groups.resource_directory.clone() else {
+        return Ok(Value::empty());
+    };
+    let path = root.join(format!(
+        "port1.0/checks/implicit_function_declaration/macosx{}.sdk.list",
+        argv[1]
+    ));
+    let entries: Vec<Value> = std::fs::read_to_string(path)
+        .unwrap_or_default()
+        .lines()
+        .map(Value::from)
+        .collect();
+    Ok(Value::from(entries))
 }
