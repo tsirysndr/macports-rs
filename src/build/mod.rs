@@ -43,6 +43,8 @@ impl ProcessResult {
 }
 #[derive(Clone, Copy, Debug)]
 pub enum Phase {
+    Fetch,
+    Checksum,
     Configure,
     Build,
     Test,
@@ -51,6 +53,8 @@ pub enum Phase {
 impl Phase {
     pub fn label(self) -> &'static str {
         match self {
+            Self::Fetch => "fetching",
+            Self::Checksum => "verifying",
             Self::Configure => "configuring",
             Self::Build => "building",
             Self::Test => "testing",

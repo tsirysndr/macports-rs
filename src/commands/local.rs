@@ -30,3 +30,75 @@ pub(super) fn variables(root: Option<&Path>) -> Result<BTreeMap<String, String>>
     }
     crate::source::detect_build_host()?.variables()
 }
+
+/// Configuration and Portfile-session setup shared by local-tree actions.
+pub(super) struct Host {
+    pub context: crate::config::Context,
+    pub archives: crate::portfile::ArchiveSites,
+    pub registry_path: PathBuf,
+    pub progress: crate::progress::Progress,
+}
+
+impl Host {
+    pub fn new(root: &Path, registry_file: Option<&Path>, quiet: bool) -> Result<Self> {
+        let variables = variables(Some(root))?;
+        let environment = std::env::vars_os()
+            .map(|(name, value)| {
+                Ok((
+                    name.into_string()
+                        .map_err(|_| anyhow::anyhow!("startup environment name is not UTF-8"))?,
+                    value
+                        .into_string()
+                        .map_err(|_| anyhow::anyhow!("startup environment value is not UTF-8"))?,
+                ))
+            })
+            .collect::<Result<_>>()?;
+        // SAFETY: getuid has no arguments and does not mutate process state.
+        let uid = unsafe { libc::getuid() };
+        let paths = crate::config::Paths::discover(
+            "/opt/local/etc/macports".into(),
+            std::env::current_dir()?,
+            &environment,
+            uid,
+        )?;
+        let config = paths.load()?;
+        let context = crate::config::Context::new(
+            &config,
+            variables,
+            &environment,
+            uid,
+            &crate::install::proxy::Settings::default(),
+        )?;
+        let progress = crate::progress::Progress::new(quiet);
+        for warning in &context.warnings {
+            progress.warning(warning);
+        }
+        let registry_path = context.registry_path(registry_file)?;
+        let archives = paths.archive_resolver(&config, &context, root, progress.clone())?;
+        Ok(Self {
+            context,
+            archives,
+            registry_path,
+            progress,
+        })
+    }
+
+    pub fn open(
+        &self,
+        root: &Path,
+        port: &crate::index::Port,
+        spec: &crate::spec::PortSpec,
+    ) -> Result<crate::portfile::Session> {
+        let mut session = crate::portfile::open_from_tree_with_registry(
+            root,
+            port,
+            &self.context.variables,
+            spec,
+            &self.context.environment,
+            self.archives.clone(),
+            Some(&self.registry_path),
+        )?;
+        session.set_mirror_timings(self.context.mirror_timings.clone());
+        Ok(session)
+    }
+}

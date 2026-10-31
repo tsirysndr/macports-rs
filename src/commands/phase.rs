@@ -1,0 +1,65 @@
+use crate::{build, index::Index, query};
+use anyhow::{Result, bail};
+use clap::Args;
+use std::path::Path;
+
+#[derive(Args)]
+pub struct Phase {
+    #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
+    ports: Vec<String>,
+}
+
+/// Run `main`, `fetch` and, when requested, `checksum` for each port in order.
+pub(super) fn run(
+    index: &Index,
+    registry_file: Option<&Path>,
+    args: Phase,
+    target: &str,
+    quiet: bool,
+    root: &Path,
+) -> Result<()> {
+    let phases: &[&str] = match target {
+        "fetch" => &["main", "fetch"],
+        "checksum" => &["main", "fetch", "checksum"],
+        _ => bail!("unsupported phase {target}"),
+    };
+    let mut specs = query::specifications(index, &args.ports)?;
+    let host = super::local::Host::new(root, registry_file, quiet)?;
+    let worker =
+        crate::install::mirror_worker::MirrorWorker::new(host.context.mirror_timings.clone(), 8)?;
+    for spec in &mut specs {
+        host.context.variants.apply(spec);
+        let port = query::lookup(index, &spec.name)?;
+        let mut session = host.open(root, port, spec)?;
+        session.set_progress(host.progress.clone());
+        session.set_proxies(Some(host.context.proxies.clone()));
+        session.set_mirror_worker(worker.clone());
+        let progress = host.progress.clone();
+        let name = spec.name.clone();
+        let directory = std::env::current_dir()?;
+        let phase = if target == "fetch" {
+            build::Phase::Fetch
+        } else {
+            build::Phase::Checksum
+        };
+        session.enable_system(&host.context.environment, move |request| {
+            let command = request.into_command(&directory)?;
+            std::thread::scope(|scope| {
+                scope
+                    .spawn(|| {
+                        tokio::runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .build()?
+                            .block_on(build::run_status(&command, &name, phase, &progress))
+                    })
+                    .join()
+                    .unwrap_or_else(|_| Err(anyhow::anyhow!("process worker panicked")))
+            })
+        })?;
+        for phase in phases {
+            let item = session.scalar(&format!("org.macports.{phase}"))?;
+            session.run_prepared_target(&item, false)?;
+        }
+    }
+    Ok(())
+}

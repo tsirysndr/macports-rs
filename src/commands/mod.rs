@@ -10,6 +10,7 @@ mod installed;
 mod local;
 mod location;
 mod outdated;
+mod phase;
 mod provides;
 mod search;
 mod size;
@@ -67,6 +68,10 @@ pub enum Command {
     Variants(variants::Variants),
     /// Download files concurrently from a checksummed JSON manifest (Rust extension)
     Download(download::Download),
+    /// Fetch distfiles for ports in a local ports tree
+    Fetch(phase::Phase),
+    /// Fetch and verify distfile checksums for ports in a local ports tree
+    Checksum(phase::Phase),
     #[command(external_subcommand)]
     Unsupported(Vec<String>),
 }
@@ -151,6 +156,21 @@ impl Session {
             }
         } else if let Command::Download(args) = command {
             download::run(&mut out, args, quiet)?;
+        } else if let Command::Fetch(_) | Command::Checksum(_) = command {
+            let (target, args) = match command {
+                Command::Fetch(args) => ("fetch", args),
+                Command::Checksum(args) => ("checksum", args),
+                _ => unreachable!(),
+            };
+            let root = local::root(index_file, false, target)?.unwrap();
+            phase::run(
+                self.index(index_file, quiet)?,
+                registry_file,
+                args,
+                target,
+                quiet,
+                &root,
+            )?;
         } else if let Command::Variants(args) = command {
             let root = local::root(index_file, args.index, "variants")?;
             variants::run(
@@ -220,6 +240,8 @@ impl Session {
                 | Command::Version
                 | Command::Platform
                 | Command::Download(_)
+                | Command::Fetch(_)
+                | Command::Checksum(_)
                 | Command::Location(_)
                 | Command::Space(_)
                 | Command::Deps(_)

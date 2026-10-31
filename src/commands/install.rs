@@ -43,57 +43,13 @@ pub(super) fn run(
     };
     let evaluated = local
         .map(|root| {
-            let variables = super::local::variables(Some(root))?;
-            let environment = std::env::vars_os()
-                .map(|(name, value)| {
-                    Ok((
-                        name.into_string().map_err(|_| {
-                            anyhow::anyhow!("startup environment name is not UTF-8")
-                        })?,
-                        value.into_string().map_err(|_| {
-                            anyhow::anyhow!("startup environment value is not UTF-8")
-                        })?,
-                    ))
-                })
-                .collect::<Result<_>>()?;
-            // SAFETY: getuid has no arguments and does not mutate process state.
-            let uid = unsafe { libc::getuid() };
-            let paths = crate::config::Paths::discover(
-                "/opt/local/etc/macports".into(),
-                std::env::current_dir()?,
-                &environment,
-                uid,
-            )?;
-            let config = paths.load()?;
-            let context = crate::config::Context::new(
-                &config,
-                variables,
-                &environment,
-                uid,
-                &crate::install::proxy::Settings::default(),
-            )?;
-            let progress = crate::progress::Progress::new(quiet);
-            for warning in &context.warnings {
-                progress.warning(warning);
-            }
+            let host = super::local::Host::new(root, registry_file, quiet)?;
             for spec in &mut specs {
-                context.variants.apply(spec);
+                host.context.variants.apply(spec);
             }
-            let registry = context.open_registry(registry_file)?;
-            let registry_path = context.registry_path(registry_file)?;
-            let archives = paths.archive_resolver(&config, &context, root, progress.clone())?;
+            let registry = host.context.open_registry(registry_file)?;
             install::plan_sessions(index, &specs, registry.as_ref(), |port, spec| {
-                let mut session = crate::portfile::open_from_tree_with_registry(
-                    root,
-                    port,
-                    &context.variables,
-                    spec,
-                    &context.environment,
-                    archives.clone(),
-                    Some(&registry_path),
-                )?;
-                session.set_mirror_timings(context.mirror_timings.clone());
-                Ok(session)
+                host.open(root, port, spec)
             })
         })
         .transpose()?;
