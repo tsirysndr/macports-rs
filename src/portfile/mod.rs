@@ -40,6 +40,7 @@ pub use destroot_libtool::LibtoolCleanup;
 use stage_context::StageContext;
 pub use utilities::MACPORTS_BASE_VERSION;
 mod builtin_callbacks;
+mod channels;
 mod checksum_runtime;
 mod compilers;
 mod diagnostics;
@@ -148,6 +149,8 @@ struct State {
     callbacks: Vec<String>,
     variant_descriptions: Option<BTreeMap<String, String>>,
     source_date_epoch: Option<i64>,
+    channels: BTreeMap<String, channels::Channel>,
+    next_channel: u64,
     warned: BTreeSet<String>,
     notifications: Vec<(String, String)>,
     build_states: BTreeMap<String, crate::build::state::StateFile>,
@@ -318,8 +321,8 @@ fn open(
         variants::mark(&mut interp, name, *enabled, false).map_err(failure)?;
     }
     for command in [
-        "source", "exit", "puts", "parse", "pdump", "pclear", "open", "socket", "load", "default",
-        "platform", "system",
+        "source", "exit", "parse", "pdump", "pclear", "socket", "load", "default", "platform",
+        "system",
     ] {
         interp.add_context_command(command, commands::unsupported, id);
     }
@@ -361,6 +364,7 @@ fn open(
     utilities::install(&mut interp, id);
     workpath::install(&mut interp, id);
     build_state::install(&mut interp, id);
+    channels::install(&mut interp, id);
     archive_state::install(&mut interp, id);
     archive_paths::install(&mut interp, id);
     archive_runtime::install(&mut interp, id);

@@ -156,7 +156,7 @@ fn unsupported_commands_cannot_be_hidden_by_catch() {
         "source /etc/passwd",
         "socket anything 1",
         "exit",
-        "puts hello",
+        "load lib.dylib",
     ] {
         let source = format!("name app; version 1; catch {{{command}}}");
         let error = evaluate(&source, &[]).unwrap_err_text();
