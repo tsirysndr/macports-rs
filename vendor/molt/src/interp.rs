@@ -698,6 +698,8 @@ impl Interp {
         interp.add_command("for", commands::cmd_for);
         interp.add_command("foreach", commands::cmd_foreach);
         interp.add_command("global", commands::cmd_global);
+        interp.add_command("namespace", commands::cmd_namespace);
+        interp.add_command("variable", commands::cmd_variable);
         interp.add_command("upvar", commands::cmd_upvar);
         interp.add_command("if", commands::cmd_if);
         interp.add_command("incr", commands::cmd_incr);
@@ -890,7 +892,15 @@ impl Interp {
 
             let name = words[0].as_str();
 
-            if let Some(cmd) = self.commands.get(name) {
+            let root_name = name.trim_start_matches(':');
+            let command = if self.scopes.namespace().is_empty() {
+                self.commands.get(root_name)
+            } else {
+                self.commands
+                    .get(&self.scopes.qualify(name))
+                    .or_else(|| self.commands.get(root_name))
+            };
+            if let Some(cmd) = command {
                 // let start = Instant::now();
                 let cmd = Rc::clone(cmd);
                 let result = cmd.execute(self, words.as_slice());
@@ -1318,6 +1328,27 @@ impl Interp {
             }
         }
         Ok(())
+    }
+    pub fn link_namespace_variable(&mut self, name: &str) -> Result<String, Exception> {
+        let target = self.qualify_variable(name);
+        let local = name.rsplit("::").next().unwrap();
+        if !self.scopes.is_namespace_frame() || self.qualify_variable(local) != target {
+            self.upvar_named(0, &target, local)?;
+        }
+        Ok(target)
+    }
+    pub fn namespace(&self) -> String {
+        format!("::{}", self.scopes.namespace())
+    }
+    pub fn qualify_variable(&self, name: &str) -> String {
+        format!("::{}", self.scopes.qualify(name))
+    }
+    pub fn eval_namespace(&mut self, name: &str, body: &Value) -> MoltResult {
+        let namespace = self.scopes.qualify(name);
+        self.scopes.push_namespace(namespace);
+        let result = self.eval_value(body);
+        self.scopes.pop();
+        result
     }
     /// Run host work in global scope without exposing or changing caller locals.
     pub fn with_global_scope<T>(&mut self, action: impl FnOnce(&mut Self) -> T) -> T {
@@ -1822,13 +1853,19 @@ impl Interp {
     /// TODO: If this method is ever made public, the parameter list validation done
     /// in cmd_proc should be moved here.
     pub(crate) fn add_proc(&mut self, name: &str, parms: &[Value], body: &Value) {
+        let qualified = self.scopes.qualify(name);
+        let namespace = qualified
+            .rsplit_once("::")
+            .map_or("", |(namespace, _)| namespace)
+            .to_owned();
         let proc = Procedure {
+            namespace,
             parms: parms.to_owned(),
             body: body.clone(),
         };
 
         self.commands
-            .insert(name.into(), Rc::new(Command::Proc(proc)));
+            .insert(qualified, Rc::new(Command::Proc(proc)));
     }
 
     /// Determines whether or not the interpreter contains a command with the given
@@ -2241,6 +2278,7 @@ impl Interp {
 /// commands table, and can be changed there freely.  The procedure truly doesn't
 /// know what its name is except when it is being executed.
 struct Procedure {
+    namespace: String,
     /// The procedure's parameter list.  Each item in the list is a name or a
     /// name/default value pair.  (This is verified by the `proc` command.)
     parms: MoltList,
@@ -2252,9 +2290,13 @@ struct Procedure {
 
 impl Procedure {
     fn execute(&self, interp: &mut Interp, argv: &[Value]) -> MoltResult {
-        // FIRST, push the proc's local scope onto the stack.
         interp.push_scope();
-
+        interp.scopes.set_namespace(&self.namespace);
+        let result = self.execute_in_scope(interp, argv);
+        interp.pop_scope();
+        result
+    }
+    fn execute_in_scope(&self, interp: &mut Interp, argv: &[Value]) -> MoltResult {
         // NEXT, process the proc's argument list.
         let mut argi = 1; // Skip the proc's name
 
@@ -2300,9 +2342,6 @@ impl Procedure {
 
         // NEXT, evaluate the proc's body, getting the result.
         let result = interp.eval_value(&self.body);
-
-        // NEXT, pop the scope off of the stack; we're done with it.
-        interp.pop_scope();
 
         if let Err(mut exception) = result {
             // FIRST, handle the return -code, -level protocol

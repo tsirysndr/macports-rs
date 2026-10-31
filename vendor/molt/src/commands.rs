@@ -13,6 +13,8 @@ use std::fs;
 use std::time::Instant;
 mod array_patterns;
 mod list_ops;
+mod namespace;
+pub use namespace::{command as cmd_namespace, variable as cmd_variable};
 mod list_search;
 pub use list_search::command as cmd_lsearch;
 mod string_map;

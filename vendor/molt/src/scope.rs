@@ -64,6 +64,8 @@ impl Debug for Var {
 pub(crate) struct Scope {
     /// Vars in this scope by name.
     map: HashMap<String, Var>,
+    namespace: String,
+    namespace_frame: bool,
 }
 
 impl Scope {
@@ -71,6 +73,8 @@ impl Scope {
     pub fn new() -> Self {
         Scope {
             map: HashMap::new(),
+            namespace: String::new(),
+            namespace_frame: false,
         }
     }
 }
@@ -122,16 +126,49 @@ impl ScopeStack {
         ss
     }
 
-    fn location<'a>(&'a self, mut level: usize, name: &'a str) -> (usize, Cow<'a, str>) {
-        if name.contains("::") {
-            level = 0;
+    pub(crate) fn is_namespace_frame(&self) -> bool {
+        self.current() == 0 || self.stack[self.current()].namespace_frame
+    }
+    pub(crate) fn namespace(&self) -> &str {
+        &self.stack[self.current()].namespace
+    }
+    pub(crate) fn qualify(&self, name: &str) -> String {
+        self.qualify_at(self.current(), name)
+    }
+    fn qualify_at(&self, level: usize, name: &str) -> String {
+        if name.starts_with("::") || self.stack[level].namespace.is_empty() {
+            qualified_name(name).into_owned()
+        } else {
+            qualified_name(&format!("{}::{name}", self.stack[level].namespace)).into_owned()
         }
-        let mut name = qualified_name(name);
+    }
+    fn storage<'a>(&'a self, level: usize, name: &'a str) -> (usize, Cow<'a, str>) {
+        if name.contains("::") || self.stack[level].namespace_frame {
+            if name.starts_with("::") || self.stack[level].namespace.is_empty() {
+                (0, qualified_name(name))
+            } else {
+                (0, Cow::Owned(self.qualify_at(level, name)))
+            }
+        } else {
+            (level, Cow::Borrowed(name))
+        }
+    }
+    fn location<'a>(&'a self, level: usize, name: &'a str) -> (usize, Cow<'a, str>) {
+        let (mut level, mut name) = self.storage(level, name);
         while let Some(Var::Upvar(target, other)) = self.stack[level].map.get(name.as_ref()) {
             level = *target;
             name = Cow::Borrowed(other);
         }
         (level, name)
+    }
+    pub(crate) fn push_namespace(&mut self, namespace: String) {
+        let mut frame = Scope::new();
+        frame.namespace = namespace;
+        frame.namespace_frame = true;
+        self.stack.push(frame);
+    }
+    pub(crate) fn set_namespace(&mut self, namespace: &str) {
+        self.stack.last_mut().unwrap().namespace = namespace.into();
     }
     pub(crate) fn global_name(&self, name: &str) -> Option<String> {
         let (level, name) = self.location(self.current(), name);
@@ -294,12 +331,8 @@ impl ScopeStack {
             return molt_err!("bad level {}", level);
         }
         let (target, name) = self.location(level, other);
-        let local_level = if local.contains("::") {
-            0
-        } else {
-            self.current()
-        };
-        let local = qualified_name(local).into_owned();
+        let (local_level, local) = self.storage(self.current(), local);
+        let local = local.into_owned();
         if target == local_level && name == local {
             return molt_err!("can't upvar from variable to itself");
         }
@@ -329,7 +362,9 @@ impl ScopeStack {
     /// Pushes a new scope onto the stack.  The scope contains no variables by default, though
     /// the procedure that is pushing it onto the stack will often add some.
     pub fn push(&mut self) {
-        self.stack.push(Scope::new());
+        let mut scope = Scope::new();
+        scope.namespace = self.namespace().to_owned();
+        self.stack.push(scope);
     }
 
     /// Pops the current scope from the stack. Panics if we're at the global scope; this implies an

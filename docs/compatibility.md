@@ -1566,3 +1566,13 @@ indices. Tests exercise the mirror-filter expression used by archive_sites.tcl,
 Portfile evaluation, and the Tcl regression suite. Sorted, dictionary, regexp,
 indexed/stride search modes remain explicitly unsupported; namespace evaluation
 is still needed before loading the full archive-site resource file.
+
+Native namespace evaluation now supports `namespace eval`, `namespace current`,
+`namespace upvar`, and `variable` links. Namespace frames retain qualified scalar
+and array storage independently of root variables; procedures retain their defining
+namespace and resolve local commands before root commands. Failed calls restore
+scope and namespace frames, including argument-binding failures. Tests exercise
+archive-resource-style platform links and mirror filtering, nested namespaces,
+procedure state, and Portfile option isolation. Namespace import/export/deletion,
+full namespace introspection, and complete archive-site resource loading remain
+unfinished.

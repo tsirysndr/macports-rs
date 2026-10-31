@@ -355,3 +355,77 @@ fn list_search_filters_mirror_urls_during_portfile_evaluation() {
         "https://one/,http://two/"
     );
 }
+
+#[test]
+fn namespaces_keep_portgroup_style_state_out_of_global_options() {
+    let mut session = open(
+        r#"
+        name app; version 1
+        namespace eval helper {
+            variable version private
+            variable count 0
+            proc bump {} {variable count; incr count}
+        }
+        description [helper::bump]
+    "#,
+    );
+    assert_eq!(session.metadata().port.get("version"), "1");
+    assert_eq!(session.metadata().port.get("description"), "1");
+    assert_eq!(session.invoke("helper::bump", &[]).unwrap(), "2");
+    assert_eq!(session.scalar("helper::version").unwrap(), "private");
+}
+
+#[test]
+fn evaluates_pinned_archive_site_resource_without_external_tcl() {
+    let variables = BTreeMap::from([
+        ("os.platform".into(), "darwin".into()),
+        ("os.major".into(), "24".into()),
+    ]);
+    let source = format!(
+        "{}\nname app; version 1",
+        include_str!("fixtures/archive-sites/archive_sites.tcl")
+    );
+    let mut session = Session::open(
+        &source,
+        &variables,
+        &PortSpec::named("app"),
+        PortGroups::default(),
+    )
+    .unwrap();
+    let urls = session
+        .invoke(
+            "set",
+            &["::portfetch::mirror_sites::sites(macports_archives)"],
+        )
+        .unwrap();
+    let urls = tcl_list::parse(&urls).unwrap();
+    assert_eq!(urls[0], "https://packages.macports.org/:nosubdir");
+    assert!(urls.iter().all(|url| !url.starts_with(':')));
+    assert_eq!(
+        session
+            .invoke(
+                "set",
+                &["::portfetch::mirror_sites::archive_sigtype(macports_archives)"]
+            )
+            .unwrap(),
+        "sig"
+    );
+    assert_eq!(
+        session
+            .invoke(
+                "set",
+                &["::portfetch::mirror_sites::archive_type(macports_archives)"]
+            )
+            .unwrap(),
+        "tbz2"
+    );
+    assert_eq!(
+        session
+            .invoke(
+                "set",
+                &["::portfetch::mirror_sites::archive_cxx_stdlib(macports_archives)"]
+            )
+            .unwrap(),
+        "libc++"
+    );
+}
