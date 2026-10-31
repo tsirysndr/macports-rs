@@ -309,3 +309,8 @@ fn renamed_native_commands_keep_their_registered_identity() {
         ),
     ]);
 }
+
+#[test]
+fn expr_concatenates_multiple_arguments() {
+    check(&[("expr 1 + 2", "3"), ("set r 4; expr ${r} * 2 + 1", "9")]);
+}

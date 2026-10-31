@@ -361,9 +361,13 @@ pub fn cmd_exit(_interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResul
 ///
 /// See the Molt Book.
 pub fn cmd_expr(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
-    check_args(1, argv, 2, 2, "expr")?;
+    check_args(1, argv, 2, 0, "arg ?arg ...?")?;
 
-    interp.expr(&argv[1])
+    if argv.len() == 2 {
+        return interp.expr(&argv[1]);
+    }
+    let joined: Vec<&str> = argv[1..].iter().map(Value::as_str).collect();
+    interp.expr(&Value::from(joined.join(" ")))
 }
 
 /// # for *start* *test* *next* *command*
