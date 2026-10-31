@@ -107,7 +107,7 @@ pub enum Mode {
 /// One connection with the runtime that drives it.
 pub struct Database {
     connection: Option<SqliteConnection>,
-    runtime: tokio::runtime::Runtime,
+    runtime: Option<tokio::runtime::Runtime>,
 }
 
 /// Drive a future to completion, also from inside another Tokio runtime.
@@ -183,13 +183,13 @@ impl Database {
         })?;
         Ok(Self {
             connection: Some(connection),
-            runtime,
+            runtime: Some(runtime),
         })
     }
 
     /// Run several plain SQL statements.
     pub fn batch(&mut self, sql: &str) -> Result<()> {
-        let runtime = &self.runtime;
+        let runtime = self.runtime.as_ref().expect("open runtime");
         let connection = self.connection.as_mut().expect("open connection");
         block(
             runtime,
@@ -200,7 +200,7 @@ impl Database {
 
     /// Rows of a plain SQL query without parameters.
     pub fn raw_rows(&mut self, sql: &str) -> Result<Vec<SqliteRow>> {
-        let runtime = &self.runtime;
+        let runtime = self.runtime.as_ref().expect("open runtime");
         let connection = self.connection.as_mut().expect("open connection");
         Ok(block(
             runtime,
@@ -209,7 +209,7 @@ impl Database {
     }
 
     fn run_rows(&mut self, sql: String, values: SqlxValues) -> Result<Vec<SqliteRow>> {
-        let runtime = &self.runtime;
+        let runtime = self.runtime.as_ref().expect("open runtime");
         let connection = self.connection.as_mut().expect("open connection");
         Ok(block(runtime, async move {
             sqlx::query_with(&sql, values)
@@ -219,7 +219,7 @@ impl Database {
     }
 
     fn run_execute(&mut self, sql: String, values: SqlxValues) -> Result<(u64, i64)> {
-        let runtime = &self.runtime;
+        let runtime = self.runtime.as_ref().expect("open runtime");
         let connection = self.connection.as_mut().expect("open connection");
         let result = block(runtime, async move {
             sqlx::query_with(&sql, values)
@@ -280,7 +280,10 @@ impl Database {
 
     pub fn close(mut self) -> Result<()> {
         if let Some(connection) = self.connection.take() {
-            block(&self.runtime, connection.close())?;
+            block(
+                self.runtime.as_ref().expect("open runtime"),
+                connection.close(),
+            )?;
         }
         Ok(())
     }
@@ -289,7 +292,14 @@ impl Database {
 impl Drop for Database {
     fn drop(&mut self) {
         if let Some(connection) = self.connection.take() {
-            let _ = block(&self.runtime, connection.close());
+            if let Some(runtime) = &self.runtime {
+                let _ = block(runtime, connection.close());
+            }
+        }
+        // A runtime may not be dropped inside another runtime's async context;
+        // shutting it down in the background is allowed anywhere.
+        if let Some(runtime) = self.runtime.take() {
+            runtime.shutdown_background();
         }
     }
 }
@@ -421,7 +431,7 @@ pub mod sqlite {
             compare: impl Fn(&str, &str) -> std::cmp::Ordering + Send + Sync + 'static,
         ) -> Result<()> {
             let database = &mut self.0;
-            let runtime = &database.runtime;
+            let runtime = database.runtime.as_ref().expect("open runtime");
             let connection = database.connection.as_mut().expect("open connection");
             let name = name.to_string();
             block(runtime, async move {
@@ -434,7 +444,7 @@ pub mod sqlite {
         pub fn prepare(&mut self, sql: &str) -> Result<()> {
             use sqlx::Executor as _;
             let database = &mut self.0;
-            let runtime = &database.runtime;
+            let runtime = database.runtime.as_ref().expect("open runtime");
             let connection = database.connection.as_mut().expect("open connection");
             block(
                 runtime,
@@ -446,7 +456,7 @@ pub mod sqlite {
         pub fn execute(&mut self, sql: &str, params: impl Params) -> Result<usize> {
             let values = params.values();
             let database = &mut self.0;
-            let runtime = &database.runtime;
+            let runtime = database.runtime.as_ref().expect("open runtime");
             let connection = database.connection.as_mut().expect("open connection");
             let result = block(runtime, async move {
                 let mut query = sqlx::query(sql);
@@ -478,7 +488,7 @@ pub mod sqlite {
         pub fn query(&mut self, sql: &str, params: impl Params) -> Result<Vec<Row>> {
             let values = params.values();
             let database = &mut self.0;
-            let runtime = &database.runtime;
+            let runtime = database.runtime.as_ref().expect("open runtime");
             let connection = database.connection.as_mut().expect("open connection");
             let rows = block(runtime, async move {
                 let mut query = sqlx::query(sql);
