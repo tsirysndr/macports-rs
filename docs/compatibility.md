@@ -1829,3 +1829,12 @@ handle without closing it, or opens/releases its own state handle with normal
 work-state policy. Missing destroot directories do not create work directories.
 This supplies the completed-source-build check for archive-fetch startup; the
 remaining startup URL/cache/transport orchestration is not yet complete.
+
+Native archive path helpers now provide normalized `get_portimage_path`,
+`find_portarchive_path`, and `portarchivefetch::archives_present`. Lookup preserves
+upstream's installed-versus-incoming choice, force-refresh behavior, candidate
+file checks, and unpacked image-directory fallback. `supportedArchiveTypes`
+currently advertises only the implemented native tbz2 decoder. Installed lookup
+still needs the host's `registry_exists` callback (covered with a test callback);
+forcing incoming-only lookup avoids it. Filesystem presence never grants trust:
+`Store::load`/download verification remain required before native installation.

@@ -6,6 +6,7 @@ mod activate_runtime;
 mod architecture;
 mod archive_defaults;
 mod archive_files;
+mod archive_paths;
 mod archive_state;
 pub use archive_defaults::ArchiveSites;
 mod binaries;
@@ -238,6 +239,7 @@ fn open(
     workpath::install(&mut interp, id);
     build_state::install(&mut interp, id);
     archive_state::install(&mut interp, id);
+    archive_paths::install(&mut interp, id);
     phase_start::install(&mut interp, id);
     install_start::install(&mut interp, id);
     activate_runtime::install(&mut interp, id);

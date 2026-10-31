@@ -136,3 +136,87 @@ fn evaluated_variant_globals_match_archive_identity_and_filter_requested_inputs(
     assert_eq!(empty.scalar("portvariants").unwrap(), "");
     assert_eq!(empty.scalar("requested_variants").unwrap(), "");
 }
+
+#[test]
+fn archive_lookup_respects_registry_presence_refresh_and_verified_candidates() {
+    use std::fs;
+    let temp = tempfile::tempdir().unwrap();
+    let mut s = session();
+    s.invoke("set", &["portdbpath", temp.path().to_str().unwrap()])
+        .unwrap();
+    s.invoke("set", &["registered", "0"]).unwrap();
+    s.invoke(
+        "proc",
+        &[
+            "registry_exists",
+            "args",
+            "global registered; return $registered",
+        ],
+    )
+    .unwrap();
+    let filename = s.invoke("get_portimage_name", &[]).unwrap();
+    let image = s.invoke("get_portimage_path", &[]).unwrap();
+    assert_eq!(
+        std::path::Path::new(&image).file_name().unwrap(),
+        filename.as_str()
+    );
+    assert_eq!(s.invoke("supportedArchiveTypes", &[]).unwrap(), "tbz2");
+    let incoming = temp.path().join("incoming/verified");
+    fs::create_dir_all(&incoming).unwrap();
+    let downloaded = incoming.join(&filename);
+    fs::write(&downloaded, b"presence is not authentication").unwrap();
+    assert_eq!(
+        s.invoke("find_portarchive_path", &[]).unwrap(),
+        downloaded.to_str().unwrap()
+    );
+    s.invoke("set", &["registered", "1"]).unwrap();
+    assert_eq!(s.invoke("find_portarchive_path", &[]).unwrap(), "");
+    assert_eq!(
+        s.invoke("find_portarchive_path", &["0"]).unwrap(),
+        downloaded.to_str().unwrap()
+    );
+    fs::create_dir_all(std::path::Path::new(&image).parent().unwrap()).unwrap();
+    fs::write(&image, b"also untrusted").unwrap();
+    assert_eq!(
+        fs::canonicalize(s.invoke("find_portarchive_path", &[]).unwrap()).unwrap(),
+        fs::canonicalize(&image).unwrap()
+    );
+    s.invoke(
+        "set",
+        &["archivefetch.fulldestpath", incoming.to_str().unwrap()],
+    )
+    .unwrap();
+    s.invoke(
+        "set",
+        &["portarchivefetch::archivefetch_urls", "tbz2 missing.tbz2"],
+    )
+    .unwrap();
+    assert_eq!(
+        s.invoke("portarchivefetch::archives_present", &[]).unwrap(),
+        "1"
+    );
+    fs::remove_file(&downloaded).unwrap();
+    s.invoke("set", &["force_archive_refresh", "yes"]).unwrap();
+    assert_eq!(
+        s.invoke("portarchivefetch::archives_present", &[]).unwrap(),
+        "0"
+    );
+    s.invoke("set", &["force_archive_refresh", "no"]).unwrap();
+    fs::remove_file(&image).unwrap();
+    let unpacked = std::path::Path::new(&image).with_extension("");
+    fs::create_dir(&unpacked).unwrap();
+    assert_eq!(
+        s.invoke("portarchivefetch::archives_present", &[]).unwrap(),
+        "1"
+    );
+    s.invoke("set", &["force_archive_refresh", "yes"]).unwrap();
+    assert_eq!(
+        s.invoke("portarchivefetch::archives_present", &[]).unwrap(),
+        "0"
+    );
+    fs::write(incoming.join("missing.tbz2"), b"candidate").unwrap();
+    assert_eq!(
+        s.invoke("portarchivefetch::archives_present", &[]).unwrap(),
+        "1"
+    );
+}
