@@ -6,9 +6,11 @@ A standalone Rust implementation of the MacPorts `port` CLI, built with clap,
 Tokio, and reqwest. No Tcl runtime or existing MacPorts executable required;
 SQLite is bundled.
 
-**Work in progress: not yet a drop-in replacement. Actual installation is not
-implemented.** Index and registry queries, local Portfile inspection, and install
-previews work within the [documented compatibility limits](docs/compatibility.md#current-compatibility-boundary).
+Every `port` action is implemented, from queries to source and binary
+installs, upgrades, snapshots, sync, lint and installer packages, with the
+[documented differences](docs/compatibility.md#actions-and-global-options).
+Test it against a separate prefix (see `PORTSRC` in the guide) before using it
+on an existing MacPorts installation.
 
 ## Quick start
 

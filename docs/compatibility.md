@@ -10,11 +10,12 @@ this binary. Rust crates are linked at build time; normal operating-system
 libraries are still used. SQLite is bundled into the executable; no database
 command or separately installed SQLite library is needed.
 
-**This is not yet a drop-in replacement. Installation is not implemented.**
-It currently provides native index and installed-registry queries, a tested parallel download engine,
-and terminal progress rendering. It evaluates a subset of local Portfiles for
-variant and dependency inspection. It does not mutate an
-existing MacPorts registry, or forward commands to another executable.
+Every upstream `port` action is implemented natively, including source and
+binary installation, activation, upgrades, registry snapshots, ports-tree
+sync, lint, livecheck and installer packages. Portfiles and PortGroups are
+evaluated by an embedded Tcl interpreter written in Rust (molt); no command is
+forwarded to another executable. See [Actions and global options](#actions-and-global-options)
+for the full list and the remaining differences.
 
 ## Build and run
 
@@ -78,8 +79,8 @@ unimplemented; removing the platform cache file triggers a fresh download.
 | `variants --index` | Sorted variant details, defaults/requested markers, descriptions, conflicts, and requirements |
 | `variants` | Native evaluation of supported local Portfiles and PortGroups alongside a selected PortIndex |
 | Index data | Serialized Tcl list data is parsed in Rust; no Tcl code is evaluated |
-| `install` | `-y` / `--dry-run` previews local Portfile or indexed binary dependencies; actual installation is blocked |
-| `upgrade`, `uninstall`, activation | Not implemented; fail explicitly before filesystem changes |
+| `install` | Signed binary archives first (`-s`/`-b`/`buildfromsource` select), otherwise builds from source; dependencies first, activation, notes, autoclean |
+| `upgrade`, `uninstall`, `activate`, `deactivate` | Native, with dependents checks, `-f`, `-u`, `-R`, and replacement of other active versions |
 | `installed` | Read-only SQLite registry, names/globs, version filters, active/inactive and requested/unrequested selectors |
 | `contents` | Registered file lists, active-image preference, version selection, quiet and size/unit output |
 | `location` | Recorded image paths, explicit version selection, ambiguity errors, and quiet output |
@@ -87,14 +88,14 @@ unimplemented; removing the platform cache file triggers a fresh download.
 | `provides` | Active file ownership, quiet output, normalized paths and symlinks |
 | `dependents`, `rdependents` | Installed-registry reverse dependencies, verbose versions, full trees, cycle handling |
 | `outdated` | Active-version, revision, epoch, and Darwin-platform comparison against the catalog |
-| Other registry commands, `sync`, `selfupdate` | Not implemented |
+| `sync`, `selfupdate` | Signed `ports.tar.gz` and PortIndex verified with the pinned ports key; `file://` git trees are pulled |
 | Port specifications | Attached/separate `@version`, `+variant`, `-variant`, and `key=value`; canonical echo rendering |
 | Logical expressions | `and`, `or`, `not`, `!`, parentheses, and implicit union; preserves input order |
 | `rdepends:<port>` | Indexed transitive reverse dependencies; exact, case-insensitive port names |
-| Registry selectors outside `installed`/`outdated`, `depof`/`rdepof`, current directory, Portfile URLs | Not implemented |
+| Pseudo-portnames | `installed`, `uninstalled`, `active`, `inactive`, `actinact`, `outdated`, `requested`, `unrequested`, `leaves`, `rleaves`, `obsolete`, `current`, `.`, and Portfile directories in the selected tree |
 | Action abbreviations | Unique case-insensitive prefixes, exact-name priority, upstream ambiguity checks |
 | Command chaining | Quoted `;` separators, per-action option reset, stops on first error |
-| Interactive mode and command files | Not implemented |
+| Interactive mode and command files | `port` with no action reads commands from standard input; `-F file`; `cd`, `quit`, `exit`, `#` comments |
 
 `port version` reports this Rust implementation's package version, not a
 MacPorts base version. `port platform` prints `darwin <major> <architecture>`
@@ -106,17 +107,16 @@ Chain actions with a quoted or escaped semicolon so your shell passes it to
 `port`, for example `port -q echo curl ';' info --index --version curl`.
 Global options before the first action apply to every action; options within an
 action reset before the next one. Empty segments are ignored. Actions run in
-order and stop on the first error; successful earlier actions are not rolled
-back. The parsed index is reused until `--index-file` changes, so a chain sees a
+order and stop on the first error unless `-p` is given; successful earlier
+actions are not rolled back. The parsed index is reused until `--index-file` changes, so a chain sees a
 consistent catalog snapshot for each uninterrupted use of a source. Semicolons
 inside a larger argument are ordinary characters. No shell interpreter is used.
 
 Actions accept unique prefixes: `port sear curl`, `port ver`, and
 `port help sear`. Exact lowercase action names take priority; otherwise prefixes
-are matched case-insensitively against the upstream command vocabulary, including
-commands not yet implemented here. For example, `dep` is ambiguous between
-`dependents` and `deps`; `activ` resolves to `activate` and reports that it is not
-implemented. The Rust `download` extension also participates. Wildcard action patterns such as `sea*` also work; quote them to prevent shell
+are matched case-insensitively against the upstream command vocabulary. For
+example, `dep` is ambiguous between `dependents` and `deps`, and `activ`
+resolves to `activate`. The Rust `download` extension also participates. Wildcard action patterns such as `sea*` also work; quote them to prevent shell
 expansion. Interactive-only action abbreviations are not supported.
 
 Place command flags before the first port expression. Field selectors use
@@ -223,6 +223,41 @@ advanced regular expressions. Malformed glob corner cases, Unicode matching/sort
 wrapping, some metadata formatting edge cases, and error details still need
 full upstream parity tests. Tests currently check representative upstream-derived
 behavior; they are not a complete differential compatibility suite.
+
+## Actions and global options
+
+Implemented actions: `usage`, `help`, `echo`, `info`, `location`, `notes`,
+`provides`, `log`, `activate`, `deactivate`, `select`, `sync`, `selfupdate`,
+`setrequested`, `unsetrequested`, `setunrequested`, `upgrade`, `rev-upgrade`,
+`reclaim`, `diagnose`, `version`, `platform`, `uninstall`, `mirror`,
+`installed`, `outdated`, `contents`, `space`, `dependents`, `rdependents`,
+`deps`, `rdeps`, `variants`, `search`, `list`, `edit`, `cat`, `dir`, `work`,
+`url`, `file`, `logfile`, `gohome`, `fetch`, `checksum`, `extract`, `patch`,
+`configure`, `build`, `destroot`, `install`, `clean`, `test`, `lint`,
+`livecheck`, `distcheck`, `bump`, `load`, `unload`, `reload`, `distfiles`,
+`archivefetch`, `archive`, `unarchive`, `dmg`, `mdmg`, `mpkg`, `pkg`,
+`snapshot`, `restore`, `migrate`, and, in the shell, `cd`, `quit` and `exit`.
+
+Global options before the action follow upstream: `-q`, `-v`, `-d` (debug
+messages), `-y` (dry run; actions without their own dry run report what they
+skip), `-s`/`-b` (source or binary only), `-f` (force), `-n` (no dependencies),
+`-u` and `-R` (upgrade), `-c`/`-k` (autoclean or keep work), `-o` (keep build
+state for a changed Portfile), `-p` (continue after errors), `-N`
+(non-interactive), `-D portdir`, and `-F cmdfile`. They also reach Portfiles as
+the usual `ports_*` variables.
+
+Remaining differences from MacPorts base:
+
+- `-t` (trace mode) needs darwintrace and is accepted with a warning only.
+- Binary archive sites must use Signify signatures; legacy RSA (`rmd160`)
+  sites from `archive_sites.conf` are skipped, so such ports build from source.
+- `pkg` builds flat packages with pkgbuild/productbuild; PackageMaker bundles
+  for very old macOS are not produced.
+- `mirror` records mirrored files in `distfiles_mirror.txt` beside upstream's
+  binary `distfiles_mirror.db`, which it never writes.
+- `selfupdate` syncs the ports trees but does not replace MacPorts base, so
+  `migrate` skips base's self-upgrade.
+- Ports named by directory must belong to the selected ports tree.
 
 ## Installed-port registry
 
@@ -907,17 +942,11 @@ report measured differences without assuming a speedup.
 
 ## Next compatibility gates
 
-1. Port specifications, global/action options, configuration and source discovery,
-   selectors, field formatting, and error/exit behavior matched against upstream.
-2. Native evaluation of existing Portfiles and PortGroups, including Tcl language
-   semantics, variants, platforms, callbacks, and MacPorts extensions. Parsing
-   serialized index lists is not a substitute for this engine.
-3. Dependency/version resolution using evaluated metadata; native fetch/checksum
-   phases using the existing parallel downloader.
-4. Build/archive handling and registry-compatible transactions, locks, activation,
-   rollback, upgrades, and uninstall; connect progress events to these real phases.
-5. End-to-end compatibility tests using real ports, and performance comparisons
-   before claiming replacement compatibility.
+1. Trace mode (`-t`) with a native darwintrace replacement.
+2. Legacy RSA-signed (`rmd160`) archive sites alongside Signify ones.
+3. Ports named by directories outside the selected ports tree.
+4. Broader end-to-end comparisons with upstream on real ports, including
+   installs into a real `/opt/local` prefix as root, and performance checks.
 
 Original interface references: [MacPorts guide](https://guide.macports.org/#using.port),
 [port implementation](https://github.com/macports/macports-base/blob/master/src/port/port.tcl),
