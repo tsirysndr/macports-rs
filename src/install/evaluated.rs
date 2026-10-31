@@ -110,7 +110,7 @@ pub fn plan_source_sessions(
     plan_sessions_for(index, specs, registry, SOURCE, load)
 }
 
-const RUNTIME: &[&str] = &["depends_lib", "depends_run"];
+use plan::RUNTIME;
 const SOURCE: &[&str] = &[
     "depends_fetch",
     "depends_extract",
@@ -286,6 +286,7 @@ fn plan_inner(
         },
         specs,
         installed,
+        fields,
         |port, dependency| {
             providers
                 .get(&(port.name.clone(), dependency.to_owned()))

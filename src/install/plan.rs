@@ -46,7 +46,7 @@ pub(super) fn plan_with<'a>(
     specs: &[PortSpec],
     installed: &[Entry],
 ) -> Result<Vec<Item<'a>>> {
-    plan_providers(lookup, select, specs, installed, |_, _| Ok(None))
+    plan_providers(lookup, select, specs, installed, RUNTIME, |_, _| Ok(None))
 }
 
 /// Plan using current provider evidence. Use entries and a resolver from the same
@@ -63,15 +63,20 @@ pub fn plan_with_providers<'a>(
         variants::defaults,
         specs,
         installed,
+        RUNTIME,
         |_, dependency| Ok(Some(resolver.probe(dependency)?.is_satisfied())),
     )
 }
+
+/// Dependency fields a binary installation needs active first.
+pub(super) const RUNTIME: &[&str] = &["depends_lib", "depends_run"];
 
 pub(super) fn plan_providers<'a>(
     lookup: impl Fn(&str) -> Result<&'a Port>,
     select: impl Fn(&Port, Option<&PortSpec>) -> Result<variants::Selection>,
     specs: &[PortSpec],
     installed: &[Entry],
+    fields: &[&str],
     mut provider: impl FnMut(&Port, &str) -> Result<Option<bool>>,
 ) -> Result<Vec<Item<'a>>> {
     let mut images: HashMap<String, Vec<&Entry>> = HashMap::new();
@@ -213,7 +218,7 @@ pub(super) fn plan_providers<'a>(
                 }
                 let mut targets = Vec::new();
                 let mut seen = HashSet::new();
-                for field in ["depends_lib", "depends_run"] {
+                for field in fields {
                     for dependency in dependencies::in_field(port, field)? {
                         let components: Vec<_> = dependency.specification.split(':').collect();
                         let probe_required = match components.as_slice() {
