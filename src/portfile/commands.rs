@@ -128,11 +128,8 @@ fn system(_: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
 pub(super) fn options(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     for name in &argv[1..] {
         let name = name.as_str();
-        if name.is_empty()
-            || !name
-                .bytes()
-                .all(|c| c.is_ascii_alphanumeric() || b"_.".contains(&c))
-        {
+        // Upstream declares any word as an option, even accidental ones.
+        if name.is_empty() {
             return Err(error("invalid option name"));
         }
         if interp
