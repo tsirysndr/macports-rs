@@ -8,6 +8,7 @@ mod inspect;
 mod install;
 mod install_exec;
 mod installed;
+mod lifecycle;
 mod local;
 mod location;
 mod outdated;
@@ -69,6 +70,12 @@ pub enum Command {
     Variants(variants::Variants),
     /// Download files concurrently from a checksummed JSON manifest (Rust extension)
     Download(download::Download),
+    /// Activate an installed, inactive port image
+    Activate(lifecycle::Lifecycle),
+    /// Deactivate an active port image, removing its files from the prefix
+    Deactivate(lifecycle::Lifecycle),
+    /// Uninstall port images, deactivating them first if necessary
+    Uninstall(lifecycle::Lifecycle),
     /// Fetch distfiles for ports in a local ports tree
     Fetch(phase::Phase),
     /// Fetch and verify distfile checksums for ports in a local ports tree
@@ -195,6 +202,22 @@ impl Session {
                 quiet,
                 &root,
             )?;
+        } else if let Command::Activate(_) | Command::Deactivate(_) | Command::Uninstall(_) =
+            command
+        {
+            let path = registry_file
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| PathBuf::from(crate::registry::DEFAULT_PATH));
+            let progress = crate::progress::Progress::new(quiet);
+            match command {
+                Command::Activate(args) => {
+                    let staging = tempfile::tempdir()?;
+                    lifecycle::activate(&path, args, &progress, staging.path())?
+                }
+                Command::Deactivate(args) => lifecycle::deactivate(&path, args, &progress)?,
+                Command::Uninstall(args) => lifecycle::uninstall(&path, args, &progress)?,
+                _ => unreachable!(),
+            }
         } else if let Command::Variants(args) = command {
             let root = local::root(index_file, args.index, "variants")?;
             variants::run(
@@ -269,6 +292,9 @@ impl Session {
                 | Command::Version
                 | Command::Platform
                 | Command::Download(_)
+                | Command::Activate(_)
+                | Command::Deactivate(_)
+                | Command::Uninstall(_)
                 | Command::Fetch(_)
                 | Command::Checksum(_)
                 | Command::Extract(_)

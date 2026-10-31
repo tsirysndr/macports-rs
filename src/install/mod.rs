@@ -20,6 +20,7 @@ pub mod fetch;
 pub mod target;
 
 pub mod activation;
+pub mod deactivation;
 
 pub mod binary;
 pub mod publication;
