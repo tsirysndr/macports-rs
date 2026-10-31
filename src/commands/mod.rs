@@ -4,6 +4,7 @@ mod clean;
 mod contents;
 mod dependencies;
 mod dependents;
+mod diagnose;
 mod distcheck;
 mod distfiles;
 mod download;
@@ -108,6 +109,8 @@ pub enum Command {
     Usage { topics: Vec<String> },
     /// Update a Portfile's checksums to match freshly fetched distfiles
     Bump(bump::Bump),
+    /// Check the system for common problems
+    Diagnose(diagnose::Diagnose),
     /// Fetch and verify distfiles for mirroring
     Mirror(mirror::Mirror),
     /// Check that mirrors still serve each port's distfiles
@@ -364,6 +367,9 @@ impl Session {
                 args,
                 &root,
             )?;
+        } else if let Command::Diagnose(args) = command {
+            let root = local::root(index_file, false, "diagnose")?.unwrap();
+            diagnose::run(args, quiet, &root)?;
         } else if let Command::Bump(args) = command {
             let root = local::root(index_file, false, "bump")?.unwrap();
             bump::run(&mut out, self.index(index_file, quiet)?, args, quiet, &root)?;
@@ -626,6 +632,7 @@ impl Session {
                 | Command::Distcheck(_)
                 | Command::Mirror(_)
                 | Command::Bump(_)
+                | Command::Diagnose(_)
                 | Command::Restore(_)
                 | Command::Migrate(_)
                 | Command::Load(_)

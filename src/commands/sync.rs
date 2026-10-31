@@ -176,6 +176,18 @@ fn tree(url: &str, portdbpath: &Path) -> Option<PathBuf> {
     }
 }
 
+/// Local directories of every configured source's ports tree.
+pub(super) fn source_trees() -> Vec<PathBuf> {
+    let Ok(settings) = settings() else {
+        return Vec::new();
+    };
+    sources(&settings.sources)
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|(url, _)| tree(url, &settings.portdbpath))
+        .collect()
+}
+
 /// The PortIndex of the `[default]` source (or the first), once synced.
 pub(super) fn default_index() -> Option<PathBuf> {
     let settings = settings().ok()?;

@@ -737,3 +737,44 @@ fn bump_rewrites_stale_checksums_and_resets_the_revision() {
     assert!(updated.contains("revision 0\n"));
     assert_eq!(tree.ok(&["bump", "bumped"]), "No changes needed.\n");
 }
+
+#[test]
+fn diagnose_reports_missing_archives_files_and_configuration() {
+    let tree = Tree::new();
+    let missing = tree.run(&["diagnose"]);
+    assert!(!missing.status.success());
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("No configuration file found at"));
+
+    let resources = tree.root.join("ports/_resources/macports1.0");
+    fs::create_dir_all(&resources).unwrap();
+    fs::write(
+        resources.join("xcode_versions.ini"),
+        "# test\nxcode_version_1=1.0\n",
+    )
+    .unwrap();
+    tree.ok(&["install", "lib"]);
+    fs::remove_file(tree.file("share/lib/version")).unwrap();
+    for entry in fs::read_dir(tree.root.join("db/software/lib")).unwrap() {
+        fs::remove_file(entry.unwrap().path()).unwrap();
+    }
+    let output = tree.run(&["diagnose"]);
+    assert!(output.status.success());
+    let progress = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        progress.contains("Warning: No Xcode version info was found for your OS version."),
+        "{progress}"
+    );
+    assert!(
+        progress.contains(
+            "couldn't find the archive for 'lib @1_0'. Please uninstall and reinstall this port."
+        ),
+        "{progress}"
+    );
+    assert!(
+        progress.contains(&format!(
+            "couldn't find file '{}' for port 'lib'.",
+            tree.file("share/lib/version").display()
+        )),
+        "{progress}"
+    );
+}
