@@ -274,6 +274,39 @@ impl Session {
     /// The host must prepare runtime packages and execution context before
     /// running returned handles; hooks may require replanning if they edit it.
     pub fn target_order(&mut self, target: &str) -> Result<Vec<String>> {
+        Ok(self
+            .walk_target_graph(target, |_, _| Ok(TargetOutcome::Completed))?
+            .into_iter()
+            .map(|(item, _)| item)
+            .collect())
+    }
+
+    /// Execute the selected prerequisite graph with a host-owned phase runner.
+    /// The runner prepares each phase's runtime package/context and typically
+    /// calls run_prepared_target or run_prepared_target_with_native_body.
+    /// Pending items are selected again after each callback so live requires,
+    /// uses, and provides edits take effect. The selected closure is fixed at
+    /// entry, matching dlist_eval; newly registered targets are not added.
+    pub fn run_target_graph(
+        &mut self,
+        target: &str,
+        run: impl FnMut(&mut Session, &str) -> Result<TargetOutcome>,
+    ) -> Result<Vec<(String, TargetOutcome)>> {
+        ensure!(
+            self.interp
+                .context::<State>(self.id)
+                .system_executor
+                .is_some(),
+            "target execution requires an execution-enabled session"
+        );
+        self.walk_target_graph(target, run)
+    }
+
+    fn walk_target_graph(
+        &mut self,
+        target: &str,
+        mut run: impl FnMut(&mut Session, &str) -> Result<TargetOutcome>,
+    ) -> Result<Vec<(String, TargetOutcome)>> {
         check_supported(&mut self.interp, self.id)?;
         let all = self
             .interp
@@ -307,25 +340,35 @@ impl Session {
                 all
             }
         };
-        // Keep synthetic success bookkeeping out of Portfile variables.
-        self.interp.push_scope();
-        let result = (|| -> Result<Vec<String>> {
-            self.interp.array_set("statusdict", &[]).map_err(failure)?;
-            let mut ordered = Vec::with_capacity(items.len());
-            while !items.is_empty() {
-                let item =
-                    next(&mut self.interp, self.id, &items, "statusdict").map_err(failure)?;
-                ensure!(
-                    !item.as_str().is_empty(),
-                    "target {target} has unmet or cyclic dependencies"
-                );
-                mark(&mut self.interp, self.id, &item, true).map_err(failure)?;
-                items.retain(|pending| pending != &item);
-                ordered.push(item.to_string());
+        let mut successful = BTreeSet::<String>::new();
+        let mut results = Vec::with_capacity(items.len());
+        while !items.is_empty() {
+            // Only the selector owns a temporary interpreter frame. Host
+            // callbacks run at the normal scope, including native runtime setup.
+            self.interp.push_scope();
+            let selected = (|| -> MoltResult {
+                self.interp.array_set("statusdict", &[])?;
+                for token in &successful {
+                    self.interp.set_element("statusdict", token, 1.into())?;
+                }
+                next(&mut self.interp, self.id, &items, "statusdict")
+            })();
+            self.interp.pop_scope();
+            let item = selected.map_err(failure)?;
+            ensure!(
+                !item.as_str().is_empty(),
+                "target {target} has unmet or cyclic dependencies"
+            );
+            let outcome = run(self, item.as_str())?;
+            check_supported(&mut self.interp, self.id)?;
+            for token in
+                field_list(&mut self.interp, self.id, &item, "provides").map_err(failure)?
+            {
+                successful.insert(token.to_string());
             }
-            Ok(ordered)
-        })();
-        self.interp.pop_scope();
-        result
+            items.retain(|pending| pending != &item);
+            results.push((item.to_string(), outcome));
+        }
+        Ok(results)
     }
 }

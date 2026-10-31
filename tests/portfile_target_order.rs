@@ -78,3 +78,49 @@ fn custom_graph_respects_soft_order_and_rejects_missing_or_cyclic_requirements()
     // Scope cleanup works even after planning errors.
     assert_eq!(names(&mut s, "main"), ["org.macports.main"]);
 }
+
+#[test]
+fn host_runner_uses_live_graph_and_stops_on_phase_failure() {
+    use port_rs::portfile::TargetOutcome;
+    for fail in [false, true] {
+        let mut s = session(
+            r#"
+            name app; version 1; set statusdict preserve
+            proc body args {}
+            set a [target_new a body]; target_provides $a a; target_state $a no
+            set b [target_new b body]; target_provides $b b; target_state $b no
+            set c [target_new c body]; target_provides $c c; target_state $c no
+            set end [target_new end body]; target_provides $end end; target_state $end no
+            target_requires $end a b c
+        "#,
+        );
+        s.enable_system(&BTreeMap::new(), |_| panic!("no subprocess expected"))
+            .unwrap();
+        let mut visited = Vec::new();
+        let result = s.run_target_graph("end", |s, handle| {
+            let name = s.invoke("ditem_key", &[handle, "name"])?;
+            visited.push(name.clone());
+            if name == "a" {
+                let b = s.scalar("b")?;
+                s.invoke("target_requires", &[&b, "c"])?;
+            }
+            if fail && name == "c" {
+                anyhow::bail!("phase failed");
+            }
+            s.execute_target(handle, None, false)
+        });
+        assert_eq!(s.scalar("statusdict").unwrap(), "preserve");
+        if fail {
+            assert!(result.unwrap_err().to_string().contains("phase failed"));
+            assert_eq!(visited, ["a", "c"]);
+        } else {
+            assert_eq!(visited, ["a", "c", "b", "end"]);
+            assert!(
+                result
+                    .unwrap()
+                    .iter()
+                    .all(|(_, outcome)| *outcome == TargetOutcome::Completed)
+            );
+        }
+    }
+}

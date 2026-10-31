@@ -1814,3 +1814,11 @@ state is scoped away from Portfile variables. Unknown targets, missing hard
 requirements, and cycles fail before execution. The host must still prepare
 runtime context and account for graph changes made by subsequently run hooks;
 this read-only ordering API is not `eval_targets` execution.
+
+`Session::run_target_graph` executes a selected prerequisite closure through a
+host-supplied phase runner. It reselects pending items after each callback using
+live requires/uses/provides fields, stops on errors, and returns phase outcomes.
+Its temporary selector scope is removed before invoking host code, allowing the
+prepared runtime to access normal globals. The closure is fixed at entry like
+upstream dlist evaluation; newly registered targets are not silently added.
+The host still supplies package/context preparation and per-phase execution.
