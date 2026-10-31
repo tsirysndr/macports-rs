@@ -29,6 +29,8 @@ pub(super) const OPTIONS: &[&str] = &[
     "master_sites",
     "archive_sites",
     "archive_sites.mirror_subdir",
+    "archive_sites.listfile",
+    "archive_sites.listpath",
     "archive.subdir",
     "dist_subdir",
     "distfiles",

@@ -1616,5 +1616,14 @@ means no archive candidates. Prepared requests retain their exact site reference
 for trust-key selection. Named tbz2/Signify classes are supported; literal archive
 URLs and other archive/signature formats still require additional resolution.
 Installing the dynamic archive_sites default before Portfile evaluation (including
-append/prepend against that default), local archive environment mirrors, automatic
-site discovery, and the complete install target lifecycle remain unfinished.
+append/prepend against that default), local archive environment mirrors, and the
+complete install target lifecycle remain unfinished.
+
+Archive-site discovery now resolves the live `archive_sites.listpath` and
+`archive_sites.listfile` within the caller-selected tree, with no fallback to
+another source. It evaluates the resource for the session platform, merges
+configured sites, and normalizes paths before compatibility selection. Missing
+tree resources still permit configured sites. An integration test exercises
+discovery, live request preparation, site-key loading, HTTP transfer, and signature
+verification together against a local server. The install command still needs to
+invoke this pipeline as part of its complete initialized target lifecycle.

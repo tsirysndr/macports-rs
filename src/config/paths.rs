@@ -13,6 +13,38 @@ pub struct Paths {
     pub portsrc: Option<PathBuf>,
 }
 impl Paths {
+    /// Discover resources only in the active ports tree, with no fallback to a
+    /// different configured source. Layout is the initialized installation state.
+    pub fn select_archive_sites(
+        &self,
+        config: &Config,
+        tree: &Path,
+        session: &mut crate::portfile::Session,
+        installation: &crate::install::sites::Layout,
+        supported: impl FnMut(&str) -> bool,
+    ) -> Result<crate::install::sites::Selection> {
+        let platform = session.scalar("os.platform")?;
+        let major = session
+            .scalar("os.major")?
+            .parse::<u32>()
+            .context("invalid archive-site platform major version")?;
+        let resource = self
+            .absolute(tree)
+            .join("_resources")
+            .join(session.scalar("archive_sites.listpath")?)
+            .join(session.scalar("archive_sites.listfile")?);
+        let tree_sites =
+            crate::install::sites::resource::Resource::read(&resource, &platform, major)?
+                .sites()?;
+        let configured = self.archive_sites(config, &platform, major)?;
+        crate::install::sites::Selection::new(
+            tree_sites,
+            configured,
+            installation,
+            |path| self.normalize(path),
+            supported,
+        )
+    }
     /// Combine keys from the live archive-site references with pubkeys.conf.
     pub fn archive_site_keys(
         &self,

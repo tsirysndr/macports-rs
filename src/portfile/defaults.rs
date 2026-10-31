@@ -18,6 +18,8 @@ pub(super) fn install(interp: &mut Interp, id: ContextID) -> MoltResult {
         ("distname", "${name}-${version}"),
         ("dist_subdir", "${name}"),
         ("archive.subdir", "${subport}"),
+        ("archive_sites.listfile", "archive_sites.tcl"),
+        ("archive_sites.listpath", "port1.0/fetch"),
         ("extract.suffix", ".tar.gz"),
         (
             "distfiles",
