@@ -653,3 +653,44 @@ fn distcheck_sizes_distfiles_and_reports_unavailable_ones() {
         String::from_utf8_lossy(&gone.stderr)
     );
 }
+
+#[test]
+fn mirror_fetches_verified_distfiles_and_records_them() {
+    let tree = Tree::new();
+    let url = serve("0123456789");
+    let sha = "84d89877f0d4041efb6bf91a16f0248f2fd573e6af05c19f96bedb9f882f7882";
+    for (name, sum, license) in [
+        ("good", sha, "MIT"),
+        (
+            "bad",
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            "MIT",
+        ),
+        ("private", sha, "NoMirror"),
+    ] {
+        let text = portfile(name, "1", "")
+            .replace(
+                "distfiles\n",
+                &format!("master_sites {url}\ndistfiles {name}-1.tar.gz\nchecksums sha256 {sum} size 10\n"),
+            )
+            .replace("license MIT", &format!("license {license}"));
+        let directory = tree.root.join("ports/devel").join(name);
+        fs::create_dir_all(&directory).unwrap();
+        fs::write(directory.join("Portfile"), text).unwrap();
+    }
+    tree.port("lib", "1", "");
+    tree.ok(&["mirror", "good", "private"]);
+    let good = tree.root.join("db/distfiles/good/good-1.tar.gz");
+    assert_eq!(read(&good), "0123456789");
+    assert!(!tree.root.join("db/distfiles/private").exists());
+    assert_eq!(
+        read(&tree.root.join("db/distfiles_mirror.txt")),
+        format!("{}\n", good.display())
+    );
+    let bad = tree.run(&["mirror", "bad"]);
+    assert!(!bad.status.success());
+    assert!(String::from_utf8_lossy(&bad.stderr).contains("portmirror: checksum failed"));
+    assert!(!tree.root.join("db/distfiles/bad/bad-1.tar.gz").exists());
+    tree.ok(&["mirror", "--new", "private"]);
+    assert_eq!(read(&tree.root.join("db/distfiles_mirror.txt")), "");
+}

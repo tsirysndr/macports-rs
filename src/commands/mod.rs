@@ -17,6 +17,7 @@ mod lint;
 mod livecheck;
 mod local;
 mod location;
+mod mirror;
 mod outdated;
 mod phase;
 mod portcmds;
@@ -104,6 +105,8 @@ pub enum Command {
     Distfiles(portcmds::Ports),
     /// Show the command syntax, or the usage of the given actions
     Usage { topics: Vec<String> },
+    /// Fetch and verify distfiles for mirroring
+    Mirror(mirror::Mirror),
     /// Check that mirrors still serve each port's distfiles
     Distcheck(portcmds::Ports),
     /// Check whether upstream released newer versions of ports
@@ -358,6 +361,9 @@ impl Session {
                 args,
                 &root,
             )?;
+        } else if let Command::Mirror(args) = command {
+            let root = local::root(index_file, false, "mirror")?.unwrap();
+            mirror::run(self.index(index_file, quiet)?, args, quiet, &root)?;
         } else if let Command::Distcheck(args) = command {
             let root = local::root(index_file, false, "distcheck")?.unwrap();
             distcheck::run(
@@ -612,6 +618,7 @@ impl Session {
                 | Command::Lint(_)
                 | Command::Livecheck(_)
                 | Command::Distcheck(_)
+                | Command::Mirror(_)
                 | Command::Restore(_)
                 | Command::Migrate(_)
                 | Command::Load(_)
