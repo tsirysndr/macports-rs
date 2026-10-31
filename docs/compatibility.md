@@ -1917,3 +1917,11 @@ and unknown classes return empty lists; resource evaluation errors propagate.
 Tests run native fetch initialization against an actual temporary mirror resource
 and verify caching and forbidden-command failures. Fallback to a different
 default ports tree and source network transport are still unfinished.
+
+Native source-fetch runtime now implements `portfetch::files_present` and
+`portfetch::fetch_main`, with the `fetch.type` option defaulting to `standard`.
+Cache inspection follows regular-file symlinks and leaves content authentication
+to the checksum phase. Main dispatch preserves transport return values and
+errors, skips standard fetch only when `all_dist_files` is absent, and selects
+bzr/cvs/svn/git/hg or standard fetch procedures like upstream. These callbacks do
+not yet supply the transport procedures or privilege-aware fetch startup.

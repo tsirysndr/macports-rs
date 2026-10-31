@@ -17,6 +17,7 @@ pub(super) fn install(interp: &mut Interp, id: ContextID) -> MoltResult {
     for (name, template) in [
         ("add_users", ""),
         ("global_mirror_site", "macports_distfiles"),
+        ("fetch.type", "standard"),
         ("mirror_sites.listfile", "mirror_sites.tcl"),
         ("mirror_sites.listpath", "port1.0/fetch"),
         ("distname", "${name}-${version}"),

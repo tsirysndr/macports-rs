@@ -42,6 +42,7 @@ mod ditems;
 mod dlist;
 mod fetch_files;
 mod fetch_resources;
+mod fetch_runtime;
 mod fetch_sites;
 mod file_delete;
 mod file_link;
@@ -253,6 +254,7 @@ fn open(
     fetch_sites::install(&mut interp, id);
     fetch_files::install(&mut interp, id).map_err(failure)?;
     fetch_resources::install(&mut interp, id);
+    fetch_runtime::install(&mut interp, id);
     registry_lookup::install(&mut interp, id);
     phase_start::install(&mut interp, id);
     install_start::install(&mut interp, id);
