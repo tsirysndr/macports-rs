@@ -81,16 +81,37 @@ pub fn configured_pem_keys(config: &Path, cwd: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-/// Whether `signature` (DER RSA over RIPEMD-160) verifies `file` with any key.
+/// DER DigestInfo prefix for a RIPEMD-160 digest (OID 1.3.36.3.2.1).
+const RIPEMD160_PREFIX: [u8; 15] = [
+    0x30, 0x21, 0x30, 0x09, 0x06, 0x05, 0x2b, 0x24, 0x03, 0x02, 0x01, 0x05, 0x00, 0x04, 0x14,
+];
+
+fn public_key(pem: &str) -> Option<rsa::RsaPublicKey> {
+    use rsa::{pkcs1::DecodeRsaPublicKey, pkcs8::DecodePublicKey};
+    rsa::RsaPublicKey::from_public_key_pem(pem)
+        .ok()
+        .or_else(|| rsa::RsaPublicKey::from_pkcs1_pem(pem).ok())
+}
+
+/// Whether `signature` (PKCS #1 v1.5 RSA over RIPEMD-160, as
+/// `openssl dgst -ripemd160 -sign` writes) verifies `file` with any key.
 pub fn verify(file: &Path, signature: &Path, keys: &[PathBuf]) -> bool {
+    use ripemd::Digest;
+    let (Ok(contents), Ok(signature)) = (std::fs::read(file), std::fs::read(signature)) else {
+        return false;
+    };
+    let digest = ripemd::Ripemd160::digest(&contents);
     keys.iter().any(|key| {
-        std::process::Command::new("/usr/bin/openssl")
-            .args(["dgst", "-ripemd160", "-verify"])
-            .arg(key)
-            .arg("-signature")
-            .arg(signature)
-            .arg(file)
-            .output()
-            .is_ok_and(|output| output.status.success())
+        let Some(key) = std::fs::read_to_string(key)
+            .ok()
+            .and_then(|pem| public_key(&pem))
+        else {
+            return false;
+        };
+        let scheme = rsa::Pkcs1v15Sign {
+            hash_len: Some(20),
+            prefix: RIPEMD160_PREFIX.to_vec().into_boxed_slice(),
+        };
+        key.verify(scheme, &digest, &signature).is_ok()
     })
 }

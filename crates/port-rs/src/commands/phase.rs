@@ -9,6 +9,15 @@ pub struct Phase {
     ports: Vec<String>,
 }
 
+#[derive(Args)]
+pub struct Fetch {
+    /// Fetch only from the port's own sites, not the MacPorts mirrors
+    #[arg(long = "no-mirrors")]
+    pub no_mirrors: bool,
+    #[command(flatten)]
+    pub phase: Phase,
+}
+
 pub(super) const ORDER: [&str; 8] = [
     "main",
     "fetch",
@@ -26,13 +35,52 @@ pub(super) struct Running {
     phase: Cell<build::Phase>,
     profile: std::cell::RefCell<Option<String>>,
     registry: std::path::PathBuf,
+    trace: std::cell::RefCell<Option<super::trace::Tracer>>,
+    hidden: std::cell::RefCell<std::collections::HashSet<String>>,
+    progress: crate::progress::Progress,
 }
 impl Running {
-    /// Select `target`'s phase label and sandbox profile.
+    /// Select `target`'s phase label, sandbox profile and trace log.
     pub(super) fn enter(&self, session: &mut Session, target: &str) -> Result<()> {
         self.phase.set(label_for(target));
-        *self.profile.borrow_mut() = super::sandbox::profile(session, target, &self.registry)?;
+        let traced = super::sandbox::traced(target);
+        let hidden = if traced {
+            super::sandbox::hidden_files(session, target, &self.registry)?
+        } else {
+            Vec::new()
+        };
+        let tracer = if traced {
+            let mut value = |name: &str| session.scalar(name).unwrap_or_default();
+            let portdbpath = std::path::PathBuf::from(value("portdbpath"));
+            let ignored = vec![
+                value("portdbpath"),
+                value("workpath"),
+                value("distpath"),
+                value("portpath"),
+            ];
+            super::trace::Tracer::new(
+                &portdbpath,
+                &value("prefix"),
+                std::path::Path::new(&value("workpath")),
+                target,
+                ignored,
+            )?
+        } else {
+            None
+        };
+        let sipdir = tracer.as_ref().map(|tracer| tracer.sipdir.clone());
+        *self.profile.borrow_mut() =
+            super::sandbox::profile(session, target, &hidden, sipdir.as_deref())?;
+        *self.hidden.borrow_mut() = hidden.into_iter().collect();
+        *self.trace.borrow_mut() = tracer;
         Ok(())
+    }
+
+    /// Report what trace mode saw during the target just run.
+    pub(super) fn finish(&self) {
+        if let Some(tracer) = self.trace.borrow_mut().take() {
+            tracer.report(&self.hidden.borrow(), &self.registry, &self.progress);
+        }
     }
 }
 pub(super) type Label = Rc<Running>;
@@ -75,10 +123,16 @@ pub(super) fn prepare(
         phase: Cell::new(build::Phase::Build),
         profile: Default::default(),
         registry: host.registry_path.clone(),
+        trace: Default::default(),
+        hidden: Default::default(),
+        progress: host.progress.clone(),
     });
     let current = label.clone();
     session.enable_system(&host.context.environment, move |request| {
         let mut command = request.into_command(&directory)?;
+        if let Some(tracer) = current.trace.borrow().as_ref() {
+            tracer.wrap(&mut command)?;
+        }
         if let Some(profile) = current.profile.borrow().as_deref() {
             super::sandbox::wrap(&mut command, profile);
         }
@@ -106,7 +160,9 @@ pub(super) fn run_targets(session: &mut Session, label: &Label, targets: &[&str]
             progress.set_log_phase(target);
         }
         let item = session.scalar(&format!("org.macports.{target}"))?;
-        if let Err(err) = session.run_prepared_target(&item, false) {
+        let result = session.run_prepared_target(&item, false);
+        label.finish();
+        if let Err(err) = result {
             let message = err.to_string();
             let message = message
                 .strip_prefix("Portfile evaluation: ")

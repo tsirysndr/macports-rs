@@ -67,7 +67,7 @@ fn canonical(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
     })
 }
 
-fn check(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
+fn check(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 1, 1, "")?;
     interp.with_global_scope(|interp| {
         if interp.scalar("os.platform")?.as_str() != "darwin"
@@ -75,17 +75,13 @@ fn check(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
         {
             return Ok(Value::empty());
         }
-        // Native PortSystem elevates temporarily in this case. The privilege
-        // lifecycle is not implemented yet, so do not silently skip root-only files.
-        // SAFETY: these identity queries have no arguments or memory preconditions.
-        if unsafe { libc::getuid() == 0 && libc::geteuid() != 0 } {
-            let name = "porttest::test_archs privilege elevation";
-            interp.context::<State>(id).unsupported.insert(name.into());
-            return Err(error(format!("unsupported Portfile command {name}")));
-        }
+        // Root-only files in the destroot need root to read, as upstream.
         let destroot = interp.scalar("destroot")?;
         let destpath = interp.scalar("destpath")?;
-        let (files, warnings) = inspect(Path::new(destpath.as_str()), destroot.as_str())?;
+        let user = interp.scalar("macports::macportsuser")?;
+        let (files, warnings) = crate::privileges::as_root(user.as_str(), || {
+            inspect(Path::new(destpath.as_str()), destroot.as_str())
+        })?;
         for warning in warnings {
             eprintln!("Warning: {warning}");
         }

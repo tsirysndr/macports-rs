@@ -1,4 +1,5 @@
 mod cli;
+mod shell;
 
 use port_rs::commands;
 use std::{
@@ -74,24 +75,44 @@ fn command_file(
     }
     let process_all = port_rs::options::get().process_all;
     let mut ok = true;
+    let mut editor = interactive
+        .then(|| shell::LineEditor::new(index_file(base)))
+        .flatten();
     loop {
-        if noisy {
+        let prompt = if noisy {
             let directory = std::env::current_dir().unwrap_or_default();
             let parts: Vec<_> = directory.iter().collect();
             let short: PathBuf = parts[parts.len().saturating_sub(2)..].iter().collect();
-            print!("[{}] > ", short.display());
-            let _ = io::stdout().flush();
-        }
-        let mut line = String::new();
-        match input.read_line(&mut line) {
-            Ok(0) | Err(_) => {
-                if noisy {
-                    println!();
+            format!("[{}] > ", short.display())
+        } else {
+            String::new()
+        };
+        let line = if let Some(editor) = &mut editor {
+            match editor.read(&prompt) {
+                Some(line) => line,
+                None => {
+                    if noisy {
+                        println!();
+                    }
+                    break;
                 }
-                break;
             }
-            Ok(_) => {}
-        }
+        } else {
+            if noisy {
+                print!("{prompt}");
+                let _ = io::stdout().flush();
+            }
+            let mut line = String::new();
+            match input.read_line(&mut line) {
+                Ok(0) | Err(_) => {
+                    if noisy {
+                        println!();
+                    }
+                    break;
+                }
+                Ok(_) => line,
+            }
+        };
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
             continue;
@@ -188,6 +209,22 @@ fn main() {
     // runtimes or starts concurrent downloads/build work.
     unsafe {
         port_rs::source::capture_creation_mask_before_threads();
+    }
+    // Invoked as `portindex` (a link to this binary), act as that tool.
+    let mut args = std::env::args();
+    let program = args.next().unwrap_or_default();
+    if std::path::Path::new(&program)
+        .file_name()
+        .is_some_and(|name| name == "portindex")
+    {
+        let args: Vec<String> = args.collect();
+        match port_rs::commands::portindex::main(&args) {
+            Ok(code) => std::process::exit(code),
+            Err(error) => {
+                report(&error);
+                std::process::exit(1);
+            }
+        }
     }
     match run() {
         Ok(true) => {}

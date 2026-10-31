@@ -270,13 +270,71 @@ fn sync_directory(path: &Path, progress: &Progress) -> Result<()> {
             .context("cannot run git")?;
         ensure!(status.success(), "Syncing local git ports tree failed");
     }
-    if !path.join("PortIndex").is_file() {
+    reindex(path, progress)
+}
+
+/// Regenerate a tree's PortIndex, reusing entries for unchanged Portfiles.
+fn reindex(path: &Path, progress: &Progress) -> Result<()> {
+    progress.log(
+        "info",
+        &format!("Updating the PortIndex of {}", path.display()),
+    );
+    let options = super::portindex::Options {
+        quiet: true,
+        ..Default::default()
+    };
+    let stats = super::portindex::run(path, &options)?;
+    if stats.failed > 0 {
         progress.warning(&format!(
-            "{} has no PortIndex; generating one is not supported yet",
+            "{} of {} Portfiles in {} could not be indexed",
+            stats.failed,
+            stats.total,
             path.display()
         ));
     }
     Ok(())
+}
+
+/// An rsync source holding a ports tree directory rather than a tarball.
+fn sync_rsync_directory(
+    url: &str,
+    settings: &Settings,
+    index: &str,
+    progress: &Progress,
+) -> Result<()> {
+    let destination = tree(url, &settings.portdbpath).context("invalid source URL")?;
+    fs::create_dir_all(&destination)?;
+    let source = format!("{}/", url.trim_end_matches('/'));
+    let mut command = Command::new("/usr/bin/rsync");
+    command
+        .args(settings.rsync_options.split_whitespace())
+        .arg("--exclude=/PortIndex*")
+        .arg(&source)
+        .arg(&destination);
+    ensure!(
+        command.status().context("cannot run rsync")?.success(),
+        "Synchronization of the local ports tree failed doing rsync"
+    );
+    // The platform's prebuilt PortIndex, when the server publishes one.
+    let fetched = Command::new("/usr/bin/rsync")
+        .args(settings.rsync_options.split_whitespace())
+        .args(["-I", "--include=/PortIndex", "--exclude=*"])
+        .arg(format!("{source}{index}/"))
+        .arg(&destination)
+        .status()
+        .is_ok_and(|status| status.success())
+        && destination.join("PortIndex").is_file();
+    if fetched {
+        super::portindex::write_quick(&destination.join("PortIndex"))
+    } else {
+        reindex(&destination, progress)
+    }
+}
+
+fn is_tarball(url: &str) -> bool {
+    [".tar.gz", ".tar.bz2", ".tar"]
+        .iter()
+        .any(|extension| url.ends_with(extension))
 }
 
 pub(super) fn run(quiet: bool, selfupdate: bool) -> Result<()> {
@@ -292,8 +350,14 @@ pub(super) fn run(quiet: bool, selfupdate: bool) -> Result<()> {
         }
         let result = if let Some(path) = url.strip_prefix("file://") {
             sync_directory(Path::new(path), &progress)
-        } else {
+        } else if is_tarball(&url) {
             sync_tarball(&url, &settings, &index)
+        } else if url.starts_with("rsync://") {
+            sync_rsync_directory(&url, &settings, &index, &progress)
+        } else {
+            Err(anyhow::anyhow!(
+                "Synchronization using http, https and ftp only supported with tarballs.\nThe source {url} doesn't seem to point to a tarball."
+            ))
         };
         if let Err(err) = result {
             progress.message(&format!("Error: Synchronization of {url} failed: {err:#}"));

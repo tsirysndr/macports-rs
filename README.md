@@ -24,7 +24,8 @@ This installs `port` into `/usr/local/bin` (using sudo when needed) after
 checking the download against its published SHA-256. Set `PORT_RS_VERSION` to
 install a specific tag, or `PORT_RS_INSTALL_DIR` to choose another directory.
 If MacPorts is also installed, whichever `port` comes first in `PATH` runs.
-`port selfupdate` later replaces the binary with newer releases.
+`port selfupdate` later replaces the binary with newer releases. The installer
+also links `portindex`, which the same binary provides.
 
 ## Quick start
 
@@ -42,7 +43,9 @@ cargo build --release --locked
 The first index query downloads and caches the index for your Mac's CPU and
 Darwin version. Use `--index-file PATH` or `PORT_RS_INDEX` for a local index.
 For local Portfile evaluation, select a ports tree containing a `PortIndex` and
-its Portfiles; the downloaded index alone only supports indexed queries.
+its Portfiles; the downloaded index alone only supports indexed queries. A tree
+without an index can be indexed with `portindex` (or by listing it as a
+`file://` source in `sources.conf` and running `port sync`).
 
 ## Development
 

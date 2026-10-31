@@ -9,6 +9,7 @@ use std::{ffi::OsString, path::PathBuf};
     name = "port",
     version,
     args_override_self = true,
+    disable_help_subcommand = true,
     styles = port_rs::theme::help_styles(),
     about = "Standalone Rust implementation of the MacPorts port CLI"
 )]
@@ -20,7 +21,7 @@ pub(crate) struct Cli {
     pub(crate) registry_file: Option<PathBuf>,
     #[arg(short, long, global = true)]
     pub(crate) quiet: bool,
-    /// Include full dependency specifications in metadata output
+    /// Verbose output: informational messages and full dependency specifications
     #[arg(short, long, global = true)]
     pub(crate) verbose: bool,
     /// Preview install operations without modifying the registry or installing files

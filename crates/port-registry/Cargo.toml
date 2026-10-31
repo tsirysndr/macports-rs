@@ -12,6 +12,7 @@ libc.workspace = true
 libsqlite3-sys.workspace = true
 port-core.workspace = true
 sea-query.workspace = true
+sha2.workspace = true
 sea-query-binder.workspace = true
 sqlx.workspace = true
 tokio.workspace = true

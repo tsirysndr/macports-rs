@@ -62,7 +62,11 @@ fn traced_fields(target: &str) -> &'static [&'static str] {
 }
 
 /// Active files in the prefix owned by ports this target may not use.
-fn hidden_files(session: &mut Session, target: &str, registry_path: &Path) -> Result<Vec<String>> {
+pub(super) fn hidden_files(
+    session: &mut Session,
+    target: &str,
+    registry_path: &Path,
+) -> Result<Vec<String>> {
     let Some(registry) = Registry::open(Some(registry_path)).ok().flatten() else {
         return Ok(Vec::new());
     };
@@ -104,10 +108,29 @@ fn hidden_files(session: &mut Session, target: &str, registry_path: &Path) -> Re
 }
 
 /// The profile for one target, or `None` when the target runs unsandboxed.
+/// Whether trace mode follows `target`.
+pub(super) fn traced(target: &str) -> bool {
+    crate::options::get().trace
+        && !matches!(
+            target,
+            "clean"
+                | "uninstall"
+                | "activate"
+                | "deactivate"
+                | "dmg"
+                | "mdmg"
+                | "load"
+                | "unload"
+                | "reload"
+        )
+}
+
+/// `hidden` holds the files trace mode hides from this target.
 pub(super) fn profile(
     session: &mut Session,
     target: &str,
-    registry_path: &Path,
+    hidden: &[String],
+    sipdir: Option<&Path>,
 ) -> Result<Option<String>> {
     let trace = crate::options::get().trace;
     let sandbox = truthy(&value(session, "sandbox_enable"));
@@ -130,6 +153,9 @@ pub(super) fn profile(
         _ => {}
     }
     allow.push(value(session, "workpath"));
+    if let Some(sipdir) = sipdir {
+        allow.push(sipdir.to_string_lossy().into_owned());
+    }
     if truthy(&value(session, "configure.ccache")) {
         allow.push(value(session, "ccache_dir"));
     }
@@ -182,15 +208,12 @@ pub(super) fn profile(
     if value(session, "build.type") == "xcode" {
         profile.push_str(" (allow job-creation)");
     }
-    if trace && !matches!(target, "clean" | "uninstall") {
-        let hidden = hidden_files(session, target, registry_path)?;
-        if !hidden.is_empty() {
-            profile.push_str(" (deny file-read*");
-            for file in &hidden {
-                profile.push_str(&format!(" (literal {})", quote(file)));
-            }
-            profile.push(')');
+    if !hidden.is_empty() {
+        profile.push_str(" (deny file-read*");
+        for file in hidden {
+            profile.push_str(&format!(" (literal {})", quote(file)));
         }
+        profile.push(')');
     }
     Ok(Some(profile))
 }

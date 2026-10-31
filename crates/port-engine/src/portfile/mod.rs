@@ -178,6 +178,8 @@ struct State {
     targets: BTreeMap<String, String>,
     ditems: ditems::Items,
     selected_subport: bool,
+    /// Subports declared while evaluating the main port, as `PortInfo(subports)`.
+    subports: Vec<String>,
     active: BTreeSet<String>,
     unsupported: BTreeSet<String>,
 }
@@ -487,6 +489,9 @@ fn open(
     }
     fields.insert("name".into(), requested.name.clone());
     fields.insert("variants".into(), list(state.order.clone()).to_string());
+    if !state.subports.is_empty() {
+        fields.insert("subports".into(), list(state.subports.clone()).to_string());
+    }
     let mut metadata = Vec::new();
     for (name, variant) in &state.variants {
         let mut details = Vec::new();

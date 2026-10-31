@@ -17,7 +17,7 @@ use crate::{
     spec::PortSpec,
     tcl_list,
 };
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use std::{
     collections::BTreeMap,
     fs,
@@ -25,21 +25,71 @@ use std::{
     path::{Path, PathBuf},
 };
 
+/// How requested ports are installed. Without `activate`, they are only built
+/// and stored (`port archive`, `install --no-activate`); their dependencies
+/// are still installed and activated.
+#[derive(Clone, Copy)]
+pub(super) struct Mode {
+    pub activate: bool,
+    pub requested: bool,
+    /// Build requested ports again even if the same image is installed.
+    pub rebuild: bool,
+}
+
+impl Mode {
+    pub const INSTALL: Self = Self {
+        activate: true,
+        requested: true,
+        rebuild: false,
+    };
+    pub const ARCHIVE: Self = Self {
+        activate: false,
+        requested: true,
+        rebuild: false,
+    };
+}
+
 pub(super) fn run(
     out: &mut impl Write,
     index: &Index,
     registry_file: Option<&Path>,
-    ports: &[String],
+    args: &super::install::Install,
     quiet: bool,
     root: &Path,
 ) -> Result<()> {
-    let specs = query::specifications(index, ports)?;
-    run_specs(out, index, registry_file, specs, quiet, root, true)
+    let mut specs = query::specifications(index, &args.ports)?;
+    let progress = crate::progress::Progress::new(quiet);
+    for spec in &mut specs {
+        let port = query::lookup(index, &spec.name)?;
+        let replacement = port.get("replaced_by");
+        if !replacement.is_empty() && !args.no_replace {
+            progress.message(&format!("{} is replaced by {replacement}", port.name));
+            spec.name = query::lookup(index, replacement)
+                .with_context(|| format!("Port {replacement} not found"))?
+                .name
+                .clone();
+        }
+        let port = query::lookup(index, &spec.name)?;
+        if matches!(port.get("known_fail"), "yes" | "1" | "true" | "on") && !args.allow_failing {
+            ensure!(
+                super::ask(
+                    &format!("{} is known to fail. Try to install anyway?", port.name),
+                    false
+                ),
+                "{} is known to fail (use --allow-failing to try to install anyway)",
+                port.name
+            );
+        }
+    }
+    let mode = Mode {
+        activate: !args.no_activate,
+        requested: !args.unrequested,
+        rebuild: false,
+    };
+    run_specs(out, index, registry_file, specs, quiet, root, mode)
 }
 
-/// Install already parsed specifications (with explicit variants). Without
-/// `activate`, requested ports are only built and stored (`port archive`);
-/// their dependencies are still installed and activated.
+/// Install already parsed specifications (with explicit variants).
 pub(super) fn run_specs(
     out: &mut impl Write,
     index: &Index,
@@ -47,8 +97,9 @@ pub(super) fn run_specs(
     mut specs: Vec<PortSpec>,
     quiet: bool,
     root: &Path,
-    activate: bool,
+    mode: Mode,
 ) -> Result<()> {
+    let activate = mode.activate;
     let host = super::local::Host::new(root, registry_file, quiet)?;
     for spec in &mut specs {
         host.context.variants.apply(spec);
@@ -66,7 +117,7 @@ pub(super) fn run_specs(
     let items: Vec<Item<'_>> = plan.items().collect();
     if items
         .iter()
-        .all(|item| item.action == Action::AlreadyActive)
+        .all(|item| item.action == Action::AlreadyActive && !(mode.rebuild && item.requested))
     {
         if !quiet {
             writeln!(out, "All requested ports are already installed and active.")?;
@@ -128,7 +179,9 @@ pub(super) fn run_specs(
         if options.nodeps && !item.requested {
             continue;
         }
+        let rebuild = mode.rebuild && item.requested;
         match item.action {
+            Action::AlreadyActive | Action::Activate if rebuild => {}
             Action::AlreadyActive => continue,
             Action::Resolve => bail!(
                 "{}: dependency providers could not be resolved: {}",
@@ -152,7 +205,7 @@ pub(super) fn run_specs(
                     &host.progress,
                     staging.path(),
                 )?;
-                if item.requested && !entry.requested {
+                if item.requested && mode.requested && !entry.requested {
                     let mut writer = Writer::open(&registry_path)?;
                     let mut transaction = writer.transaction()?;
                     transaction.set_requested(entry.id, true)?;
@@ -163,6 +216,27 @@ pub(super) fn run_specs(
             Action::Install => {}
         }
         let activate = activate || !item.requested;
+        let adjusted;
+        let item = if (item.requested && !mode.requested) || rebuild {
+            adjusted = Item {
+                port: item.port,
+                variants: item.variants.clone(),
+                variants_resolved: item.variants_resolved,
+                provider_fallbacks: item.provider_fallbacks.clone(),
+                requested: item.requested && mode.requested,
+                action: Action::Install,
+            };
+            &adjusted
+        } else {
+            item
+        };
+        if !sessions.contains_key(&item.port.name) {
+            let spec = requested_specs
+                .get(&item.port.name)
+                .cloned()
+                .unwrap_or_else(|| PortSpec::named(&item.port.name));
+            sessions.insert(item.port.name.clone(), host.open(root, item.port, &spec)?);
+        }
         let session = sessions
             .get_mut(&item.port.name)
             .with_context(|| format!("{}: no evaluated session", item.port.name))?;
@@ -199,8 +273,11 @@ pub(super) fn run_specs(
         }
         label.enter(session, "install")?;
         host.progress.set_log_phase("install");
-        let portfile =
-            fs::read_to_string(Path::new(&session.scalar("portpath")?).join("Portfile"))?;
+        let portfile = Path::new(&session.scalar("portpath")?).join("Portfile");
+        // A forced rebuild replaces the identical image it was built from.
+        if rebuild && let Some(existing) = identical_image(&registry_path, item)? {
+            super::lifecycle::uninstall_entry(&registry_path, &existing, &host.progress)?;
+        }
         // Hold the registry write lock only while this port installs.
         let mut writer = Writer::open(&registry_path)?;
         // As upstream activation does, retire another active version first.
@@ -235,14 +312,16 @@ pub(super) fn run_specs(
             activate,
             |session| {
                 let reader = crate::registry::Registry::open(Some(&registry_path))?;
-                install::registration::with_providers(
+                let (target, mut record) = install::registration::with_providers(
                     session,
                     item,
                     &machine,
                     &requested,
-                    portfile.clone(),
+                    String::new(),
                     reader.as_ref(),
-                )
+                )?;
+                save_portfile(&registry_path, session, &portfile, &mut record)?;
+                Ok((target, record))
             },
             |session, target| {
                 if let Some(archive) = binary {
@@ -281,6 +360,49 @@ pub(super) fn run_specs(
         }
     }
     Ok(())
+}
+
+/// Keep the Portfile and its PortGroups in the registry, as upstream does, so
+/// later activate, deactivate and uninstall can run the port's hooks.
+fn save_portfile(
+    registry_path: &Path,
+    session: &mut Session,
+    portfile: &Path,
+    record: &mut crate::registry::write::NewImage,
+) -> Result<()> {
+    use crate::registry::saved;
+    let registry = saved::registry_directory(registry_path);
+    record.portfile = saved::save_portfile(
+        registry,
+        &record.name,
+        &record.version,
+        record.revision,
+        portfile,
+    )?;
+    record.portgroups = session
+        .loaded_groups()
+        .into_iter()
+        .filter_map(|group| Some((group.path?, group.name, group.version)))
+        .map(|(path, name, version)| saved::save_group(registry, &name, &version, &path))
+        .collect::<Result<_>>()?;
+    Ok(())
+}
+
+/// A registered image, active or not, with the planned item's identity.
+fn identical_image(
+    registry_path: &Path,
+    item: &Item<'_>,
+) -> Result<Option<crate::registry::Entry>> {
+    let revision = item.port.get("revision").parse::<i64>().unwrap_or(0);
+    let Some(registry) = crate::registry::Registry::open(Some(registry_path))? else {
+        return Ok(None);
+    };
+    Ok(registry.entries()?.into_iter().find(|entry| {
+        entry.name.eq_ignore_ascii_case(&item.port.name)
+            && entry.version == item.port.get("version")
+            && entry.revision == revision
+            && entry.variants == item.variants
+    }))
 }
 
 /// The registered, inactive image matching a planned item.

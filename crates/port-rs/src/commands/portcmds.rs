@@ -12,6 +12,26 @@ use std::{
 pub struct Ports {
     #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
     pub(super) ports: Vec<String>,
+    #[arg(skip)]
+    pub(super) editor: Option<String>,
+}
+
+#[derive(Args)]
+pub struct Edit {
+    /// Use this editor instead of $MP_EDITOR, $VISUAL or $EDITOR
+    #[arg(long)]
+    editor: Option<String>,
+    #[command(flatten)]
+    ports: Ports,
+}
+
+impl Edit {
+    pub(super) fn into_ports(self) -> Ports {
+        Ports {
+            editor: self.editor,
+            ..self.ports
+        }
+    }
 }
 
 /// `$portdbpath/<kind>/<mangled port dir>/<port>`, as upstream names build and
@@ -66,9 +86,14 @@ pub(super) fn run(
             }
             "edit" => {
                 out.flush()?;
-                let editor = ["MP_EDITOR", "VISUAL", "EDITOR"]
-                    .iter()
-                    .find_map(|name| std::env::var(name).ok().filter(|v| !v.is_empty()))
+                let editor = args
+                    .editor
+                    .clone()
+                    .or_else(|| {
+                        ["MP_EDITOR", "VISUAL", "EDITOR"]
+                            .iter()
+                            .find_map(|name| std::env::var(name).ok().filter(|v| !v.is_empty()))
+                    })
                     .unwrap_or_else(|| "/usr/bin/vi".into());
                 let status = Command::new("/bin/sh")
                     .arg("-c")

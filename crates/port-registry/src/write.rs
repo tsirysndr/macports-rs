@@ -3,7 +3,7 @@ use super::{
     Entry,
     db::{
         Database, Mode,
-        schema::{Dependencies, Files, Metadata, Ports},
+        schema::{Dependencies, Files, Metadata, Portgroups, Ports},
     },
     read_entries,
 };
@@ -40,6 +40,7 @@ pub struct NewImage {
     pub cxx_stdlib_overridden: bool,
     pub files: Vec<ImageFile>,
     pub dependencies: Vec<String>,
+    pub portgroups: Vec<crate::saved::SavedGroup>,
 }
 pub struct ImageFile {
     pub path: String,
@@ -283,6 +284,26 @@ impl WriteTransaction<'_> {
                             Option::<String>::None.into(),
                             0.into(),
                             record.binary.into(),
+                        ])?,
+                )?;
+            }
+            for group in &image.portgroups {
+                database.insert(
+                    Query::insert()
+                        .into_table(Portgroups::Table)
+                        .columns([
+                            Portgroups::Id,
+                            Portgroups::Name,
+                            Portgroups::Version,
+                            Portgroups::Size,
+                            Portgroups::Sha256,
+                        ])
+                        .values([
+                            id.into(),
+                            group.name.clone().into(),
+                            group.version.clone().into(),
+                            group.size.into(),
+                            group.sha256.clone().into(),
                         ])?,
                 )?;
             }

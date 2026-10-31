@@ -67,6 +67,9 @@ impl Host {
                 variables.insert(name.into(), "yes".into());
             }
         }
+        for name in &options.action_flags {
+            variables.insert(name.clone(), "yes".into());
+        }
         let environment = std::env::vars_os()
             .map(|(name, value)| {
                 Ok((

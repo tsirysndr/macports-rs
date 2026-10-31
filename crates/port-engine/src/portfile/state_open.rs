@@ -16,12 +16,8 @@ fn call(interp: &mut Interp, words: &[&str]) -> MoltResult {
     ))
 }
 pub(super) fn open(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
-    // Upstream accepts and ignores arbitrary arguments. Never change the
-    // process credentials inside the concurrent CLI; a root worker's privilege
-    // lifecycle is still required before supporting this command under sudo.
-    if interp.context::<State>(id).system_executor.is_none()
-        || unsafe { libc::getuid() == 0 || libc::geteuid() == 0 }
-    {
+    // Upstream accepts and ignores arbitrary arguments.
+    if interp.context::<State>(id).system_executor.is_none() {
         return commands::unsupported(interp, id, argv);
     }
     interp.with_global_scope(|interp| {
@@ -39,6 +35,9 @@ pub(super) fn open(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltRe
             if enabled(interp, "place_worksymlink")? {
                 let link = interp.scalar("worksymlink")?.to_string();
                 if !Path::new(&link).is_dir() {
+                    if crate::privileges::dropped() {
+                        crate::privileges::elevate("place_worksymlink").map_err(|err| error(err.to_string()))?;
+                    }
                     match fs::remove_file(&link) {
                         Ok(()) => (),
                         Err(err) if err.kind() == io::ErrorKind::NotFound => (),
@@ -48,6 +47,9 @@ pub(super) fn open(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltRe
                 }
             }
         }
+        // De-escalate to the build account if started as root.
+        let user = interp.scalar("macports::macportsuser")?;
+        crate::privileges::drop_to(user.as_str()).map_err(|err| error(err.to_string()))?;
         let portfile = Path::new(&portpath).join("Portfile");
         let prepared = if dry {
             work_state::prepare_dry_run(Path::new(&work), &subport, &portfile, ignore)

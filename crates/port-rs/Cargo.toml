@@ -22,11 +22,13 @@ flate2.workspace = true
 httpdate.workspace = true
 libc.workspace = true
 md-5.workspace = true
+molt.workspace = true
 port-core.workspace = true
 port-engine.workspace = true
 port-registry.workspace = true
 regex.workspace = true
 reqwest.workspace = true
+rustyline.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 tar.workspace = true
@@ -34,7 +36,6 @@ tempfile.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
-molt.workspace = true
 anyhow.workspace = true
 base64.workspace = true
 bzip2.workspace = true

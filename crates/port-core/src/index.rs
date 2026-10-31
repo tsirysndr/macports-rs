@@ -31,23 +31,36 @@ static EXTERNAL: std::sync::Mutex<Option<HashMap<String, &'static Port>>> =
 
 /// Directories the user named explicitly; only these may hold an absolute
 /// `portdir` outside the selected tree.
-static EXTERNAL_DIRECTORIES: std::sync::Mutex<Vec<std::path::PathBuf>> =
+/// Each directory comes with PortGroup directories searched before the tree's.
+#[allow(clippy::type_complexity)]
+static EXTERNAL_DIRECTORIES: std::sync::Mutex<Vec<(std::path::PathBuf, Vec<std::path::PathBuf>)>> =
     std::sync::Mutex::new(Vec::new());
 
 /// Allow Portfiles from `directory`, which the user named on the command line.
 pub fn allow_external_directory(directory: &Path) {
+    allow_external_directory_with_groups(directory, Vec::new());
+}
+
+/// Allow a Portfile saved in the registry, with the PortGroups saved beside it.
+pub fn allow_external_directory_with_groups(directory: &Path, groups: Vec<std::path::PathBuf>) {
     let mut directories = EXTERNAL_DIRECTORIES.lock().expect("external directories");
-    if !directories.iter().any(|known| known == directory) {
-        directories.push(directory.to_path_buf());
+    match directories.iter_mut().find(|(known, _)| known == directory) {
+        Some(entry) => entry.1 = groups,
+        None => directories.push((directory.to_path_buf(), groups)),
     }
 }
 
 pub fn is_external_directory(directory: &Path) -> bool {
+    external_groups(directory).is_some()
+}
+
+pub fn external_groups(directory: &Path) -> Option<Vec<std::path::PathBuf>> {
     EXTERNAL_DIRECTORIES
         .lock()
         .expect("external directories")
         .iter()
-        .any(|known| known == directory)
+        .find(|(known, _)| known == directory)
+        .map(|(_, groups)| groups.clone())
 }
 
 /// Make an evaluated out-of-tree port visible to every catalog lookup.

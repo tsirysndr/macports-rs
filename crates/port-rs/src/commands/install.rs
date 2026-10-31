@@ -11,6 +11,21 @@ use std::{io::Write, path::Path};
 pub struct Install {
     #[arg(skip)]
     pub dry_run: bool,
+    /// Install the requested ports' images without activating them
+    #[arg(long = "no-activate")]
+    pub(super) no_activate: bool,
+    /// Do not mark the ports as requested
+    #[arg(long)]
+    pub(super) unrequested: bool,
+    /// Try to install ports that are known to fail
+    #[arg(long = "allow-failing")]
+    pub(super) allow_failing: bool,
+    /// Install replaced ports instead of their replacements
+    #[arg(long = "no-replace")]
+    pub(super) no_replace: bool,
+    /// Skip checking for broken binaries after installing
+    #[arg(long = "no-rev-upgrade")]
+    pub(super) no_rev_upgrade: bool,
     #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
     pub(super) ports: Vec<String>,
 }

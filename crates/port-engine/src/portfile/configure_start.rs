@@ -30,18 +30,33 @@ fn start(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
             && interp.scalar("configure.ccache")?.as_bool()?;
         if ccache {
             // Upstream elevates outside its catch block, so a non-root caller
-            // errors rather than silently disabling ccache. Process-wide
-            // privilege changes need the isolated worker, not this interpreter.
-            if unsafe { libc::getuid() } != 0 {
-                return Err(error("MacPorts requires root privileges for this action"));
+            // errors rather than silently disabling ccache.
+            crate::privileges::elevate("configure ccache").map_err(|err| error(err.to_string()))?;
+            let directory = interp.scalar("ccache_dir")?.to_string();
+            let user = interp.scalar("macports::macportsuser")?.to_string();
+            let created = (|| -> std::io::Result<()> {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::create_dir_all(&directory)?;
+                if let Some((uid, gid)) = crate::privileges::account(&user) {
+                    std::os::unix::fs::chown(&directory, Some(uid), Some(gid))?;
+                }
+                std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o755))
+            })();
+            if let Err(err) = created {
+                eprintln!(
+                    "Warning: ccache_dir {directory} could not be created; disabling ccache: {err}"
+                );
+                interp.set_scalar("configure.ccache", "no".into())?;
             }
-            interp
-                .context::<State>(id)
-                .unsupported
-                .insert("configure ccache privilege lifecycle".into());
-            return Err(error(
-                "configure ccache initialization requires the privilege worker",
-            ));
+            crate::privileges::drop_to(&user).map_err(|err| error(err.to_string()))?;
+            if interp.scalar("configure.ccache")?.as_bool()? {
+                interp.eval(
+                    "if {[catch {exec ccache -M ${ccache_size} >/dev/null} result]} {
+                        ui_warn \"ccache_dir ${ccache_dir} could not be initialized; disabling ccache: $result\"
+                        set configure.ccache no
+                    }",
+                )?;
+            }
         }
         Ok(Value::empty())
     })

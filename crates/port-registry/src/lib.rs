@@ -5,6 +5,7 @@ pub mod dependents;
 pub mod expression;
 mod leaves;
 pub mod path;
+pub mod saved;
 mod selection;
 pub mod snapshot;
 pub mod version;
@@ -13,7 +14,7 @@ use anyhow::{Context, Result, ensure};
 pub use db::sqlite;
 use db::{
     Database, Mode,
-    schema::{Dependencies, Files, Ports},
+    schema::{Dependencies, Files, Portgroups, Ports},
 };
 use sea_query::{Alias, Expr, Func, Order, Query};
 pub use selection::{expanded_specifications, specifications};
@@ -204,6 +205,79 @@ impl Registry {
         row.try_get::<Option<String>, _>(0)
             .with_context(context)?
             .with_context(context)
+    }
+    /// The saved-Portfile key recorded for an image, when it has one.
+    pub fn portfile(&self, entry: &Entry) -> Result<Option<String>> {
+        let row = self.database().select_one(
+            Query::select()
+                .column(Ports::Portfile)
+                .from(Ports::Table)
+                .and_where(Expr::col(Ports::Id).eq(entry.id)),
+        )?;
+        Ok(row
+            .map(|row| row.try_get::<Option<String>, _>(0))
+            .transpose()?
+            .flatten()
+            .filter(|portfile| saved::is_key(portfile)))
+    }
+    pub fn portgroups(&self, entry: &Entry) -> Result<Vec<saved::SavedGroup>> {
+        let rows = self.database().select(
+            Query::select()
+                .columns([
+                    Portgroups::Name,
+                    Portgroups::Version,
+                    Portgroups::Size,
+                    Portgroups::Sha256,
+                ])
+                .from(Portgroups::Table)
+                .and_where(Expr::col(Portgroups::Id).eq(entry.id)),
+        )?;
+        rows.iter()
+            .map(|row| {
+                Ok(saved::SavedGroup {
+                    name: row.try_get(0)?,
+                    version: row.try_get(1)?,
+                    size: row.try_get(2)?,
+                    sha256: row.try_get(3)?,
+                })
+            })
+            .collect()
+    }
+    /// How many images use a saved Portfile.
+    pub fn portfile_users(
+        &self,
+        name: &str,
+        version: &str,
+        revision: i64,
+        key: &str,
+    ) -> Result<usize> {
+        Ok(self
+            .database()
+            .select(
+                Query::select()
+                    .column(Ports::Id)
+                    .from(Ports::Table)
+                    .and_where(Expr::col(Ports::Name).eq(name))
+                    .and_where(Expr::col(Ports::Version).eq(version))
+                    .and_where(Expr::col(Ports::Revision).eq(revision))
+                    .and_where(Expr::col(Ports::Portfile).eq(key)),
+            )?
+            .len())
+    }
+    /// How many images use a saved PortGroup.
+    pub fn portgroup_users(&self, group: &saved::SavedGroup) -> Result<usize> {
+        Ok(self
+            .database()
+            .select(
+                Query::select()
+                    .column(Portgroups::Id)
+                    .from(Portgroups::Table)
+                    .and_where(Expr::col(Portgroups::Name).eq(&group.name))
+                    .and_where(Expr::col(Portgroups::Version).eq(&group.version))
+                    .and_where(Expr::col(Portgroups::Size).eq(group.size))
+                    .and_where(Expr::col(Portgroups::Sha256).eq(&group.sha256)),
+            )?
+            .len())
     }
     pub fn files(&self, entry: &Entry) -> Result<Vec<String>> {
         let column = if entry.active {

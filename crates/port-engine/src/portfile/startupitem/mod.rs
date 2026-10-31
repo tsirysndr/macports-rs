@@ -295,10 +295,6 @@ fn create(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
             if items.is_empty() {
                 return Ok(());
             }
-            ensure!(
-                unsafe { libc::getuid() != 0 && libc::geteuid() != 0 },
-                "privileged startup item staging requires the privilege worker"
-            );
             let root = PathBuf::from(interp.scalar("destroot").map_err(failure)?.to_string());
             ensure!(
                 fs::symlink_metadata(&root)?.is_dir(),

@@ -50,6 +50,16 @@ pub mod schema {
     }
 
     #[derive(Iden, Clone, Copy)]
+    pub enum Portgroups {
+        Table,
+        Id,
+        Name,
+        Version,
+        Size,
+        Sha256,
+    }
+
+    #[derive(Iden, Clone, Copy)]
     pub enum Dependencies {
         Table,
         Id,

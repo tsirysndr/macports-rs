@@ -29,16 +29,8 @@ fn start(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
             .unwrap_or_else(|| crate::progress::Progress::new(false))
             .phase_with_prefix(prefix.as_str(), &label);
         let prefix = interp.scalar("prefix_frozen")?;
-        if !filesystem::predicate("writable", prefix.as_str())
-            || unsafe { libc::getuid() == 0 && libc::geteuid() != 0 }
-        {
-            interp
-                .context::<State>(id)
-                .unsupported
-                .insert("install privilege lifecycle".into());
-            return Err(error(
-                "install privilege elevation requires the privilege worker",
-            ));
+        if !filesystem::predicate("writable", prefix.as_str()) || crate::privileges::dropped() {
+            crate::privileges::elevate("install").map_err(|err| error(err.to_string()))?;
         }
         invoke(interp, vec!["handle_add_users".into()])
     })

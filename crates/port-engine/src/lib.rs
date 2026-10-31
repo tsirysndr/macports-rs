@@ -9,6 +9,7 @@ pub mod build;
 pub mod config;
 pub mod install;
 pub mod portfile;
+pub mod privileges;
 
 /// Dependency metadata from the catalog, with registry-based providers.
 pub mod dependencies {

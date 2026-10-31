@@ -42,6 +42,10 @@ impl PortGroups {
             ..Self::default()
         }
     }
+    /// Search `directories` before the configured ones.
+    pub fn prepend(&mut self, directories: Vec<PathBuf>) {
+        self.directories.splice(0..0, directories);
+    }
     pub fn insert(&mut self, name: &str, version: &str, source: String) -> Result<()> {
         validate(name, version)?;
         ensure!(
@@ -186,5 +190,12 @@ fn import(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     match result {
         Err(exception) if exception.code() == molt::ResultCode::Return => Ok(exception.value()),
         other => other,
+    }
+}
+
+impl Session {
+    /// The PortGroups this Portfile imported, in import order.
+    pub fn loaded_groups(&mut self) -> Vec<LoadedGroup> {
+        self.interp.context::<State>(self.id).loaded_groups.clone()
     }
 }

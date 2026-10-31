@@ -77,8 +77,7 @@ fn unwritable_prefix_stops_before_account_dispatch() {
         s.invoke("portinstall::install_start", &[])
             .unwrap_err()
             .to_string()
-            .contains("install privilege lifecycle")
+            .contains("MacPorts requires root privileges for this action")
     );
-    // Unsupported privilege handling poisons the session, preventing later work.
-    assert!(s.invoke("handle_add_users", &[]).is_err());
+    assert_eq!(s.scalar("called").unwrap(), "no");
 }

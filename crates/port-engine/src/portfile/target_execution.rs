@@ -104,6 +104,23 @@ impl Session {
                 "unknown build-state handle \"{handle}\""
             );
         }
+        // Targets marked `<target>.asroot` run as root (upstream target_run).
+        let provides = ditems::field(&mut self.interp, self.id, &item, "provides")
+            .map_err(failure)?
+            .to_string();
+        if let Some(target) = provides.split_whitespace().next() {
+            let option = format!("{target}.asroot");
+            if self.interp.var_exists(&option.as_str().into())
+                && self
+                    .interp
+                    .scalar(&option)
+                    .ok()
+                    .and_then(|value| value.as_bool().ok())
+                    .unwrap_or(false)
+            {
+                crate::privileges::elevate(&name)?;
+            }
+        }
         // Initialization runs even for completed targets and dry runs.
         if !init.is_empty() {
             self.invoke(&init, &[&name])?;

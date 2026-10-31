@@ -11,13 +11,24 @@ use std::{
 pub(super) fn install(interp: &mut Interp, id: ContextID) {
     interp.add_context_command("portutil::create_workpath", create, id);
     interp.add_context_command("chownAsRoot", chown_as_root, id);
+    interp.add_context_command("elevateToRoot", elevate, id);
+    interp.add_context_command("dropPrivileges", drop_privileges, id);
+}
+fn elevate(_: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(1, argv, 2, 2, "action")?;
+    crate::privileges::elevate(argv[1].as_str()).map_err(|err| error(err.to_string()))?;
+    Ok(Value::empty())
+}
+fn drop_privileges(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(1, argv, 1, 1, "")?;
+    let user = interp.with_global_scope(|interp| interp.scalar("macports::macportsuser"))?;
+    if let Err(err) = crate::privileges::drop_to(user.as_str()) {
+        eprintln!("Error: Failed to de-escalate privileges: {err}");
+    }
+    Ok(Value::empty())
 }
 fn execution(interp: &mut Interp, id: ContextID, name: &str) -> Result<(), Exception> {
-    if interp.context::<State>(id).system_executor.is_none()
-        // Changing process-wide credentials is incompatible with concurrent
-        // runtime work; the privilege lifecycle still needs a separate worker.
-        || unsafe { libc::getuid() == 0 && libc::geteuid() != 0 }
-    {
+    if interp.context::<State>(id).system_executor.is_none() {
         interp.context::<State>(id).unsupported.insert(name.into());
         return Err(error(format!("unsupported Portfile command {name}")));
     }
@@ -34,6 +45,9 @@ fn call(interp: &mut Interp, words: &[&str]) -> MoltResult {
 fn create(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 1, 1, "")?;
     execution(interp, id, "portutil::create_workpath")?;
+    if crate::privileges::dropped() {
+        crate::privileges::elevate("create_workpath").map_err(|err| error(err.to_string()))?;
+    }
     interp.with_global_scope(|interp| {
         let work = interp.scalar("workpath")?.to_string();
         let build = interp.scalar("subbuildpath")?.to_string();
@@ -114,11 +128,13 @@ fn chown_as_root(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResu
                 .ok_or_else(|| error(format!("unknown user {user}")))?
         };
         let path = PathBuf::from(argv[1].as_str());
-        lchown(&path, uid)?;
-        if path.is_dir() {
-            traverse::visit_paths(vec![path], |path| lchown(path, uid))?;
-        }
-        Ok(Value::empty())
+        crate::privileges::as_root(user.as_str(), || {
+            lchown(&path, uid)?;
+            if path.is_dir() {
+                traverse::visit_paths(vec![path], |path| lchown(path, uid))?;
+            }
+            Ok(Value::empty())
+        })
     })
 }
 fn lchown(path: &Path, uid: u32) -> Result<(), Exception> {

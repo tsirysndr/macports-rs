@@ -227,7 +227,18 @@ fn exists(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
 fn subport(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 3, 3, "name body")?;
     global(interp, "subport");
-    if interp.scalar("subport")? == argv[1] {
+    global(interp, "name");
+    let current = interp.scalar("subport")?;
+    let name = interp.scalar("name")?;
+    let subname = argv[1].as_str();
+    let state = interp.context::<State>(id);
+    if current.as_str() == name.as_str()
+        && subname != name.as_str()
+        && !state.subports.iter().any(|known| known == subname)
+    {
+        state.subports.push(subname.to_owned());
+    }
+    if subname.eq_ignore_ascii_case(current.as_str()) {
         interp.context::<State>(id).selected_subport = true;
         interp.eval_value(&argv[2])
     } else {

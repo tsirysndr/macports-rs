@@ -10,6 +10,7 @@ mod diagnose;
 mod distcheck;
 mod distfiles;
 mod download;
+mod help;
 mod info;
 mod inspect;
 mod install;
@@ -26,6 +27,7 @@ mod outdated;
 mod package;
 mod phase;
 mod portcmds;
+pub mod portindex;
 mod provides;
 mod pseudo;
 mod reclaim;
@@ -39,10 +41,92 @@ mod snapshot;
 mod space;
 mod sync;
 mod system;
+mod trace;
 mod upgrade;
 mod variants;
 
 use anyhow::{Context, Result, bail};
+
+/// Every upstream action, plus this implementation's extensions.
+pub const ACTIONS: &[&str] = &[
+    "usage",
+    "help",
+    "echo",
+    "info",
+    "location",
+    "notes",
+    "provides",
+    "log",
+    "activate",
+    "deactivate",
+    "select",
+    "sync",
+    "selfupdate",
+    "setrequested",
+    "unsetrequested",
+    "setunrequested",
+    "clean",
+    "upgrade",
+    "rev-upgrade",
+    "reclaim",
+    "diagnose",
+    "version",
+    "platform",
+    "prefix",
+    "uninstall",
+    "mirror",
+    "installed",
+    "outdated",
+    "contents",
+    "space",
+    "dependents",
+    "rdependents",
+    "deps",
+    "rdeps",
+    "variants",
+    "search",
+    "list",
+    "edit",
+    "cat",
+    "dir",
+    "work",
+    "cd",
+    "url",
+    "file",
+    "logfile",
+    "gohome",
+    "fetch",
+    "checksum",
+    "extract",
+    "patch",
+    "configure",
+    "build",
+    "destroot",
+    "install",
+    "test",
+    "lint",
+    "livecheck",
+    "distcheck",
+    "bump",
+    "load",
+    "unload",
+    "reload",
+    "distfiles",
+    "archivefetch",
+    "archive",
+    "unarchive",
+    "dmg",
+    "mdmg",
+    "mpkg",
+    "pkg",
+    "snapshot",
+    "restore",
+    "migrate",
+    "quit",
+    "exit",
+    "download", // Rust extension.
+];
+
 use clap::Subcommand;
 use std::{
     io::{self, Write},
@@ -95,7 +179,7 @@ pub enum Command {
     /// Print a port's Portfile
     Cat(portcmds::Ports),
     /// Edit a port's Portfile with $MP_EDITOR, $VISUAL or $EDITOR
-    Edit(portcmds::Ports),
+    Edit(portcmds::Edit),
     /// Print the path to a port's directory
     Dir(portcmds::Ports),
     /// Print the path to a port's work directory, if it exists
@@ -112,6 +196,8 @@ pub enum Command {
     Distfiles(portcmds::Ports),
     /// Show the command syntax, or the usage of the given actions
     Usage { topics: Vec<String> },
+    /// Show the manual page for port or one of its actions
+    Help { topics: Vec<String> },
     /// Update a Portfile's checksums to match freshly fetched distfiles
     Bump(bump::Bump),
     /// Check the system for common problems
@@ -172,9 +258,9 @@ pub enum Command {
     /// Deactivate an active port image, removing its files from the prefix
     Deactivate(lifecycle::Lifecycle),
     /// Uninstall port images, deactivating them first if necessary
-    Uninstall(lifecycle::Lifecycle),
+    Uninstall(lifecycle::Uninstall),
     /// Fetch distfiles for ports in a local ports tree
-    Fetch(phase::Phase),
+    Fetch(phase::Fetch),
     /// Fetch and verify distfile checksums for ports in a local ports tree
     Checksum(phase::Phase),
     /// Extract distfiles for ports in a local ports tree
@@ -198,8 +284,14 @@ pub enum Command {
     /// Update the ports trees; port-rs itself is not replaced
     Selfupdate {
         /// Skip updating the ports trees
-        #[arg(long)]
+        #[arg(long, visible_alias = "no-sync")]
         nosync: bool,
+        /// Reinstall port-rs even if it is already the latest version
+        #[arg(long)]
+        migrate: bool,
+        /// Accepted for compatibility; port-rs downloads release binaries
+        #[arg(long)]
+        rsync: bool,
     },
     #[command(external_subcommand)]
     Unsupported(Vec<String>),
@@ -282,6 +374,53 @@ pub fn set_archive_mode(mode: ArchiveMode) {
     ARCHIVE_MODE.store(mode as u8, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// Port names in the selected PortIndex (explicit, `./PortIndex`, or the
+/// default source's), for shell completion.
+pub fn port_names(index: Option<&Path>) -> Vec<String> {
+    let path = index
+        .map(Path::to_path_buf)
+        .or_else(|| Some(PathBuf::from("PortIndex")).filter(|path| path.is_file()))
+        .or_else(sync::default_index);
+    let Some(text) = path.and_then(|path| std::fs::read(path).ok()) else {
+        return Vec::new();
+    };
+    let mut names = Vec::new();
+    let mut offset = 0;
+    while let Some(end) = text[offset..].iter().position(|byte| *byte == b'\n') {
+        let header = String::from_utf8_lossy(&text[offset..offset + end]).into_owned();
+        let mut words = header.split_whitespace();
+        let (Some(name), Some(Ok(length))) = (words.next(), words.next().map(str::parse::<usize>))
+        else {
+            break;
+        };
+        names.push(name.to_string());
+        offset += end + 1 + length;
+        if offset >= text.len() {
+            break;
+        }
+    }
+    names
+}
+
+/// Ask a yes/no question on a terminal; non-interactive runs take the
+/// default answer, as upstream.
+pub(crate) fn ask(question: &str, default: bool) -> bool {
+    use std::io::{BufRead, IsTerminal};
+    if crate::options::get().noninteractive || !io::stdin().is_terminal() {
+        return default;
+    }
+    eprint!("{question} [{}]: ", if default { "Y/n" } else { "y/N" });
+    let _ = io::stderr().flush();
+    let mut answer = String::new();
+    if io::stdin().lock().read_line(&mut answer).is_err() {
+        return false;
+    }
+    match answer.trim() {
+        "" => default,
+        answer => matches!(answer, "y" | "Y" | "yes" | "Yes"),
+    }
+}
+
 pub(crate) fn archive_mode() -> ArchiveMode {
     match ARCHIVE_MODE.load(std::sync::atomic::Ordering::Relaxed) {
         1 => ArchiveMode::SourceOnly,
@@ -342,14 +481,39 @@ impl Session {
                 out.flush()?;
                 return Ok(());
             }
-            Command::Usage { topics } => return usage(&topics),
+            Command::Usage { topics } => return help::usage(&topics),
+            Command::Help { topics } => {
+                return help::help(&topics, |action| {
+                    use clap::Subcommand;
+                    let mut command = Command::augment_subcommands(
+                        clap::Command::new("port")
+                            .about("Standalone Rust implementation of the MacPorts port CLI")
+                            .styles(crate::theme::help_styles()),
+                    );
+                    let help = match action.and_then(|action| command.find_subcommand_mut(action)) {
+                        Some(subcommand) => {
+                            let name = subcommand.get_name().to_string();
+                            subcommand
+                                .clone()
+                                .bin_name(format!("port {name}"))
+                                .render_long_help()
+                        }
+                        None => command.render_long_help(),
+                    };
+                    println!("{}", help.ansi());
+                    Ok(())
+                });
+            }
             Command::Sync => {
                 self.catalog = None;
                 return sync::run(quiet, false);
             }
-            Command::Selfupdate { nosync } => {
+            Command::Selfupdate {
+                nosync, migrate, ..
+            } => {
                 self.catalog = None;
-                base_update::update(&crate::progress::Progress::new(quiet))?;
+                let reinstall = migrate || crate::options::get().force;
+                base_update::update(&crate::progress::Progress::new(quiet), reinstall)?;
                 return if nosync {
                     Ok(())
                 } else {
@@ -425,7 +589,10 @@ impl Session {
         | Command::Test(_) = command
         {
             let (target, args) = match command {
-                Command::Fetch(args) => ("fetch", args),
+                Command::Fetch(args) => {
+                    crate::options::set_action_flags("fetch", &[("no-mirrors", args.no_mirrors)]);
+                    ("fetch", args.phase)
+                }
                 Command::Checksum(args) => ("checksum", args),
                 Command::Extract(args) => ("extract", args),
                 Command::Patch(args) => ("patch", args),
@@ -467,7 +634,7 @@ impl Session {
         {
             let (action, args) = match command {
                 Command::Cat(args) => ("cat", args),
-                Command::Edit(args) => ("edit", args),
+                Command::Edit(args) => ("edit", args.into_ports()),
                 Command::Dir(args) => ("dir", args),
                 Command::Work(args) => ("work", args),
                 Command::Url(args) => ("url", args),
@@ -627,13 +794,17 @@ impl Session {
         {
             let path = writable_registry.clone();
             let progress = crate::progress::Progress::new(quiet);
+            let hooks = lifecycle::Hooks {
+                root: local::root(index_file, false, "activate").ok().flatten(),
+                quiet,
+            };
             match command {
                 Command::Activate(args) => {
                     let staging = tempfile::tempdir()?;
-                    lifecycle::activate(&path, args, &progress, staging.path())?
+                    lifecycle::activate(&path, args, &hooks, &progress, staging.path())?
                 }
-                Command::Deactivate(args) => lifecycle::deactivate(&path, args, &progress)?,
-                Command::Uninstall(args) => lifecycle::uninstall(&path, args, &progress)?,
+                Command::Deactivate(args) => lifecycle::deactivate(&path, args, &hooks, &progress)?,
+                Command::Uninstall(args) => lifecycle::uninstall(&path, args, &hooks, &progress)?,
                 _ => unreachable!(),
             }
         } else if let Command::Variants(args) = command {
@@ -682,13 +853,29 @@ impl Session {
                         specs,
                         quiet,
                         &root,
-                        false,
+                        install_exec::Mode::ARCHIVE,
                     )?
                 }
                 Command::Install(args) if !args.dry_run => {
                     let root = local::root(index_file, false, "install")?
                         .context("installation requires a local ports tree")?;
-                    install_exec::run(&mut out, index, registry_file, &args.ports, quiet, &root)?
+                    crate::options::set_action_flags(
+                        "install",
+                        &[
+                            ("no-activate", args.no_activate),
+                            ("unrequested", args.unrequested),
+                            ("allow-failing", args.allow_failing),
+                            ("no-replace", args.no_replace),
+                            ("no-rev-upgrade", args.no_rev_upgrade),
+                        ],
+                    );
+                    install_exec::run(&mut out, index, registry_file, &args, quiet, &root)?;
+                    if !args.no_rev_upgrade && !crate::options::get().nodeps {
+                        let path = registry_file
+                            .map(Path::to_path_buf)
+                            .unwrap_or_else(|| writable_registry.clone());
+                        rev_upgrade::autorun(&mut out, index, &path, quiet, &root)?;
+                    }
                 }
                 Command::Install(args) => {
                     let root = if let Some(path) = index_file {
@@ -751,6 +938,7 @@ impl Session {
                 | Command::Upgrade(_)
                 | Command::Sync
                 | Command::Usage { .. }
+                | Command::Help { .. }
                 | Command::Select(_)
                 | Command::Log(_)
                 | Command::Distfiles(_)
@@ -786,27 +974,6 @@ impl Session {
         out.flush()?;
         Ok(())
     }
-}
-
-/// `port usage`: the general syntax, or each named action's usage, on stderr.
-fn usage(topics: &[String]) -> Result<()> {
-    use clap::Subcommand;
-    let mut command = Command::augment_subcommands(clap::Command::new("port"));
-    if topics.is_empty() {
-        eprintln!(
-            "Usage: port\n        [-qvy] [--index-file PATH] [--registry-file PATH] action [actionflags]\n        [[portname|pseudo-portname] [@version] [+-variant]...]...\n    \n\"port help\" for more information."
-        );
-        return Ok(());
-    }
-    for topic in topics {
-        let Some(subcommand) = command.find_subcommand_mut(topic) else {
-            bail!("No usage for topic {topic}");
-        };
-        let name = subcommand.get_name().to_string();
-        let mut subcommand = subcommand.clone().bin_name(format!("port {name}"));
-        eprintln!("{}", subcommand.render_usage());
-    }
-    Ok(())
 }
 
 #[cfg(test)]

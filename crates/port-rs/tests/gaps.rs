@@ -248,17 +248,35 @@ fn trace_mode_hides_files_of_undeclared_dependencies() {
     let reader = |depends: &str| {
         portfile("reader", "1", depends).replace(
             "build {}",
-            "build { system \"cat ${prefix}/share/lib/version > ${workpath}/copy\" }",
+            "build { system \"cat ${prefix}/share/stray >/dev/null && cat ${prefix}/share/lib/version > ${workpath}/copy\" }",
         )
     };
+    // A file in the prefix that no port installed.
+    let stray = tree.root.join("prefix/share/stray");
+    fs::write(&stray, "stray").unwrap();
     add_port(&tree, "reader", &reader(""));
     tree.ok(&["build", "reader"]);
     tree.ok(&["clean", "reader"]);
     let traced = tree.run(&["-t", "build", "reader"]);
     assert!(!traced.status.success(), "lib is not a declared dependency");
+    let report = String::from_utf8_lossy(&traced.stderr);
+    let hidden = tree.root.join("prefix/share/lib/version");
+    assert!(
+        report.contains(
+            "The following existing file was hidden from the build system by trace mode:"
+        ) && report.contains(&format!("  {}", hidden.display())),
+        "{report}"
+    );
+    assert!(
+        report.contains(
+            "The following file inside the MacPorts prefix not installed by a port was accessed:"
+        ) && report.contains(&format!("  {}", stray.display())),
+        "{report}"
+    );
     tree.ok(&["clean", "reader"]);
     add_port(&tree, "reader", &reader("depends_build port:lib"));
-    tree.ok(&["-t", "build", "reader"]);
+    let output = tree.ok(&["-t", "build", "reader"]);
+    assert!(!output.contains("hidden from the build system"), "{output}");
 }
 
 #[test]
@@ -284,12 +302,10 @@ fn mirror_records_distfiles_in_the_upstream_filemap() {
     assert!(bytes.starts_with(b"org.darwinports.filemap\0"));
 }
 
-#[test]
-fn selfupdate_replaces_the_port_executable_with_a_newer_release() {
+/// Serve release metadata for `tag` with a `port` that prints "updated";
+/// returns the releases URL.
+fn serve_release(tag: &str) -> String {
     use sha2::Digest;
-    let temp = tempfile::tempdir().unwrap();
-    let binary = temp.path().join("port");
-    fs::copy(env!("CARGO_BIN_EXE_port"), &binary).unwrap();
     let target = if cfg!(target_arch = "aarch64") {
         "aarch64-apple-darwin"
     } else {
@@ -322,7 +338,7 @@ fn selfupdate_replaces_the_port_executable_with_a_newer_release() {
         (
             "/latest".to_string(),
             format!(
-                "{{\"tag_name\":\"v99.0.0\",\"assets\":[{{\"name\":\"{name}\",\"browser_download_url\":\"{root}{name}\"}},{{\"name\":\"{name}.sha256\",\"browser_download_url\":\"{root}{name}.sha256\"}}]}}"
+                "{{\"tag_name\":\"v{tag}\",\"assets\":[{{\"name\":\"{name}\",\"browser_download_url\":\"{root}{name}\"}},{{\"name\":\"{name}.sha256\",\"browser_download_url\":\"{root}{name}.sha256\"}}]}}"
             )
             .into_bytes(),
         ),
@@ -346,18 +362,49 @@ fn selfupdate_replaces_the_port_executable_with_a_newer_release() {
             let _ = stream.write_all(&body);
         }
     });
+    format!("{root}latest")
+}
+
+/// Copy the port executable, then run `selfupdate --nosync` on the copy.
+fn selfupdate_copy(tag: &str, args: &[&str]) -> (tempfile::TempDir, std::path::PathBuf, String) {
+    let temp = tempfile::tempdir().unwrap();
+    let binary = temp.path().join("port");
+    fs::copy(env!("CARGO_BIN_EXE_port"), &binary).unwrap();
     let output = Command::new(&binary)
         .args(["selfupdate", "--nosync"])
-        .env("PORT_RS_RELEASES_URL", format!("{root}latest"))
+        .args(args)
+        .env("PORT_RS_RELEASES_URL", serve_release(tag))
         .env("HOME", temp.path())
         .output()
         .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    assert!(output.status.success(), "{stderr}");
+    (temp, binary, stderr)
+}
+
+#[test]
+fn selfupdate_replaces_the_port_executable_with_a_newer_release() {
+    let (_temp, binary, stderr) = selfupdate_copy("99.0.0", &[]);
+    assert!(stderr.contains("updated from"), "{stderr}");
+    let updated = Command::new(&binary).output().unwrap();
+    assert_eq!(String::from_utf8_lossy(&updated.stdout), "updated\n");
+}
+
+#[test]
+fn selfupdate_migrate_reinstalls_the_current_release() {
+    let current = env!("CARGO_PKG_VERSION");
+    let (_temp, binary, stderr) = selfupdate_copy(current, &[]);
+    assert!(stderr.contains("already the latest version"), "{stderr}");
     assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
+        Command::new(&binary)
+            .arg("version")
+            .output()
+            .unwrap()
+            .status
+            .success()
     );
-    assert!(String::from_utf8_lossy(&output.stderr).contains("updated from"));
+    let (_temp, binary, stderr) = selfupdate_copy(current, &["--migrate"]);
+    assert!(stderr.contains("updated from"), "{stderr}");
     let updated = Command::new(&binary).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&updated.stdout), "updated\n");
 }

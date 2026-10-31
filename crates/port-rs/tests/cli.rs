@@ -832,7 +832,7 @@ fn exact_actions_win_unique_prefixes_expand_and_shell_only_actions_fail() {
     );
     assert!(String::from_utf8_lossy(&output.stderr).contains("No port-rs releases are published"));
     let output = fixture.run(&["usag", "select"]);
-    assert!(String::from_utf8_lossy(&output.stderr).starts_with("Usage: port select"));
+    assert!(String::from_utf8_lossy(&output.stderr).starts_with("Usage: select --list"));
     // `cd` only works in the interactive shell, which this CLI does not have.
     let output = fixture.run(&["cd", "curl"]);
     assert!(!output.status.success());
@@ -955,7 +955,7 @@ fn usage_prints_the_syntax_or_action_usage_on_stderr() {
     let select = run(&["usage", "select"]);
     assert_eq!(
         String::from_utf8_lossy(&select.stderr),
-        "Usage: port select [OPTIONS] [ARGUMENTS]...\n"
+        "Usage: select --list --set --show --summary <arguments>\n"
     );
     let missing = run(&["usage", "nope"]);
     assert!(!missing.status.success());

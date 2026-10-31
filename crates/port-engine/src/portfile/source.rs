@@ -146,11 +146,15 @@ fn open_tree(
         "portpath".into(),
         path.parent().unwrap().to_string_lossy().into_owned(),
     );
+    let mut groups = PortGroups::from_tree(&root);
+    if external {
+        groups.prepend(crate::index::external_groups(relative).unwrap_or_default());
+    }
     super::open(
         &source,
         &variables,
         requested,
-        PortGroups::from_tree(&root),
+        groups,
         environment,
         archives,
         registry,

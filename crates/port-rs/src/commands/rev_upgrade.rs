@@ -216,6 +216,32 @@ fn rebuild_order(broken: Vec<Entry>, edges: &[(String, i64)]) -> Vec<Entry> {
     ordered
 }
 
+/// The check upstream runs after installs and upgrades when
+/// `revupgrade_autorun` is enabled (the default).
+pub(super) fn autorun(
+    out: &mut impl Write,
+    index: &Index,
+    registry_path: &Path,
+    quiet: bool,
+    root: &Path,
+) -> Result<()> {
+    let host = super::local::Host::new(root, Some(registry_path), quiet)?;
+    let enabled = host
+        .context
+        .variables
+        .get("revupgrade_autorun")
+        .is_none_or(|value| matches!(value.as_str(), "yes" | "1" | "true" | "on"));
+    if !enabled || crate::options::get().dry_run {
+        return Ok(());
+    }
+    drop(host);
+    let args = RevUpgrade {
+        id_loadcmd_check: false,
+        dry_run: false,
+    };
+    run(out, index, registry_path, args, quiet, root)
+}
+
 pub(super) fn run(
     out: &mut impl Write,
     index: &Index,
@@ -384,7 +410,7 @@ pub(super) fn run(
                 vec![spec],
                 quiet,
                 root,
-                true,
+                super::install_exec::Mode::INSTALL,
             )
             .map_err(|err| err.context(format!("Error rebuilding {}", entry.name)))?;
             if !entry.requested {

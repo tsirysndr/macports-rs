@@ -99,6 +99,46 @@ pub fn detect_platform() -> Result<Platform> {
     };
     Platform::from_system(system, release, if is_arm { "arm64" } else { machine })
 }
+/// Whether this process runs translated by Rosetta 2.
+pub fn translated() -> bool {
+    let mut value: libc::c_int = 0;
+    let mut length = std::mem::size_of_val(&value);
+    // SAFETY: the output pointer and its length describe a valid c_int.
+    unsafe {
+        libc::sysctlbyname(
+            c"sysctl.proc_translated".as_ptr(),
+            (&mut value as *mut libc::c_int).cast(),
+            &mut length,
+            std::ptr::null_mut(),
+            0,
+        ) == 0
+            && value == 1
+    }
+}
+
+/// Whether a Mach-O executable has an arm64 slice.
+pub fn has_arm64_slice(path: &std::path::Path) -> bool {
+    const CPU_TYPE_ARM64: u32 = 0x0100_000c;
+    let Ok(bytes) = std::fs::read(path) else {
+        return false;
+    };
+    let word = |at: usize, big: bool| {
+        bytes.get(at..at + 4).map(|slice| {
+            let array: [u8; 4] = slice.try_into().unwrap();
+            if big {
+                u32::from_be_bytes(array)
+            } else {
+                u32::from_le_bytes(array)
+            }
+        })
+    };
+    match word(0, true) {
+        Some(0xcafe_babe) => (0..word(4, true).unwrap_or(0).min(64) as usize)
+            .any(|index| word(8 + index * 20, true) == Some(CPU_TYPE_ARM64)),
+        _ => word(0, false) == Some(0xfeed_facf) && word(4, false) == Some(CPU_TYPE_ARM64),
+    }
+}
+
 #[cfg(not(target_os = "macos"))]
 pub fn detect_platform() -> Result<Platform> {
     bail!(

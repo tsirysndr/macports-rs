@@ -11,8 +11,9 @@ use std::{io::Read, path::Path};
 
 const RELEASES: &str = "https://api.github.com/repos/tsirysndr/macports-rs/releases/latest";
 
+/// The native target of this Mac, even when running under Rosetta.
 fn target() -> &'static str {
-    if cfg!(target_arch = "aarch64") {
+    if cfg!(target_arch = "aarch64") || crate::source::translated() {
         "aarch64-apple-darwin"
     } else {
         "x86_64-apple-darwin"
@@ -105,8 +106,9 @@ fn replace(executable: &Path, binary: &[u8]) -> Result<()> {
     Ok(())
 }
 
-/// Update this executable when a newer release exists; returns whether it did.
-pub(super) fn update(progress: &Progress) -> Result<bool> {
+/// Update this executable when a newer release exists, or reinstall the
+/// latest one when `reinstall` is set; returns whether it did.
+pub(super) fn update(progress: &Progress, reinstall: bool) -> Result<bool> {
     progress.phase("Updating port-rs base");
     let current = env!("CARGO_PKG_VERSION");
     let (version, assets) = match latest() {
@@ -117,7 +119,8 @@ pub(super) fn update(progress: &Progress) -> Result<bool> {
         }
         Err(error) => return Err(error),
     };
-    if crate::registry::compare_versions(&version, current).is_le() {
+    let order = crate::registry::compare_versions(&version, current);
+    if order.is_lt() || (order.is_eq() && !reinstall) {
         progress.message(&format!(
             "port-rs base is already the latest version ({current})"
         ));

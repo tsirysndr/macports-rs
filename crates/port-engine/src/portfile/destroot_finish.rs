@@ -15,18 +15,21 @@ fn finish(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     if interp.context::<State>(id).system_executor.is_none() {
         return commands::unsupported(interp, id, argv);
     }
-    // Privileged destroot finish additionally converts the build account's
-    // ownership. Until that worker exists, fail before any cleanup mutation.
-    if unsafe { libc::getuid() == 0 || libc::geteuid() == 0 } {
-        interp
-            .context::<State>(id)
-            .unsupported
-            .insert("destroot finish ownership lifecycle".into());
-        return Err(error(
-            "privileged destroot finish requires ownership conversion and the privilege worker",
-        ));
-    }
     interp.with_global_scope(|interp| {
+        // Installed files must not belong to the unprivileged build account.
+        if unsafe { libc::getuid() } == 0 {
+            let user = interp.scalar("macports::macportsuser")?;
+            let destroot = interp.scalar("destroot")?;
+            let owner = interp.scalar("install.user")?;
+            let group = interp.scalar("install.group")?;
+            fix_ownership(
+                Path::new(destroot.as_str()),
+                user.as_str(),
+                owner.as_str(),
+                group.as_str(),
+            )
+            .map_err(|err| error(err.to_string()))?;
+        }
         let oldmask = interp.scalar("portdestroot::oldmask")?;
         if interp.context::<State>(id).creation_mask.is_none() {
             return Err(error("creation mask is not initialized"));
@@ -113,5 +116,61 @@ fn sparse_workaround(root: &Path, work: &Path) -> Result<()> {
 }
 #[cfg(not(target_os = "macos"))]
 fn sparse_workaround(_: &Path, _: &Path) -> Result<()> {
+    Ok(())
+}
+
+/// Give files owned by the build account to `install.user` and `install.group`,
+/// keeping their permissions (upstream `destroot_finish`).
+fn fix_ownership(destroot: &Path, user: &str, owner: &str, group: &str) -> Result<()> {
+    use anyhow::Context;
+    use std::os::unix::{ffi::OsStrExt, fs::MetadataExt, fs::PermissionsExt};
+    let Some((build_uid, build_gid)) = crate::privileges::account(user) else {
+        return Ok(());
+    };
+    let owner = crate::privileges::account(owner)
+        .map(|(uid, _)| uid)
+        .context("unknown install.user")?;
+    let group = group
+        .parse::<u32>()
+        .ok()
+        .or_else(|| {
+            crate::accounts::by_name(group, true)
+                .ok()
+                .flatten()
+                .map(|account| account.id)
+        })
+        .context("unknown install.group")?;
+    traverse::visit_paths(vec![destroot.to_owned()], |path| {
+        let metadata = std::fs::symlink_metadata(path).map_err(|err| error(err.to_string()))?;
+        if metadata.uid() != build_uid && metadata.gid() != build_gid {
+            return Ok(());
+        }
+        let uid = if metadata.uid() == build_uid {
+            owner
+        } else {
+            u32::MAX
+        };
+        let gid = if metadata.gid() == build_gid {
+            group
+        } else {
+            u32::MAX
+        };
+        let native = std::ffi::CString::new(path.as_os_str().as_bytes())
+            .map_err(|err| error(err.to_string()))?;
+        // SAFETY: the path is NUL terminated and live; -1 keeps an id unchanged.
+        if unsafe { libc::lchown(native.as_ptr(), uid, gid) } != 0 {
+            return Err(error(std::io::Error::last_os_error().to_string()));
+        }
+        // Changing owners may clear setuid bits; links carry no permissions.
+        if !metadata.file_type().is_symlink() {
+            std::fs::set_permissions(
+                path,
+                std::fs::Permissions::from_mode(metadata.permissions().mode()),
+            )
+            .map_err(|err| error(err.to_string()))?;
+        }
+        Ok(())
+    })
+    .map_err(failure)?;
     Ok(())
 }

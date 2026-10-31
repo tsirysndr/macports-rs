@@ -10,6 +10,8 @@ impl Session {
 }
 pub(super) fn install(interp: &mut Interp, id: ContextID) {
     interp.add_context_command("portactivate::activate_start", start, id);
+    interp.add_context_command("portdeactivate::deactivate_start", start, id);
+    interp.add_context_command("portuninstall::uninstall_start", start, id);
     interp.add_context_command("portactivate::activate_finish", finish, id);
     interp.add_context_command("ui_notifications_append", append, id);
 }
@@ -19,16 +21,14 @@ fn start(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     }
     interp.with_global_scope(|interp| {
         let prefix = interp.scalar("prefix_frozen")?;
-        if !filesystem::predicate("writable", prefix.as_str())
-            || unsafe { libc::getuid() == 0 && libc::geteuid() != 0 }
-        {
-            interp
-                .context::<State>(id)
-                .unsupported
-                .insert("activate privilege lifecycle".into());
-            return Err(error(
-                "activation privilege elevation requires the privilege worker",
-            ));
+        // A prefix emptied by deactivation is created again on activation.
+        let existing = std::path::Path::new(prefix.as_str())
+            .ancestors()
+            .find(|path| path.exists())
+            .map(|path| path.to_string_lossy().into_owned())
+            .unwrap_or_else(|| prefix.to_string());
+        if !filesystem::predicate("writable", &existing) || crate::privileges::dropped() {
+            crate::privileges::elevate(argv[0].as_str()).map_err(|err| error(err.to_string()))?;
         }
         Ok(Value::empty())
     })

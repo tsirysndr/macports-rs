@@ -237,6 +237,28 @@ Implemented actions: `usage`, `help`, `echo`, `info`, `location`, `notes`,
 `livecheck`, `distcheck`, `bump`, `load`, `unload`, `reload`, `distfiles`,
 `archivefetch`, `archive`, `unarchive`, `dmg`, `mdmg`, `mpkg`, `pkg`,
 `snapshot`, `restore`, `migrate`, and, in the shell, `cd`, `quit` and `exit`.
+Every action accepts upstream's action flags (`cmd_opts_array`), such as
+`install --no-activate --unrequested --allow-failing --no-replace
+--no-rev-upgrade`, `uninstall --follow-dependents --follow-dependencies
+--no-exec`, `upgrade --force --enforce-variants --no-replace --no-rev-upgrade`,
+`activate`/`deactivate --no-exec`, `fetch --no-mirrors`, `edit --editor` and
+`selfupdate --no-sync --migrate --rsync`; they reach Portfiles as
+`ports_<action>_<flag>`. `usage` prints upstream's usage lines, and `help`
+opens MacPorts' man pages when they are installed under the prefix, falling
+back to this implementation's help. Installs and upgrades end with a
+`rev-upgrade` check unless `revupgrade_autorun` is off. The interactive shell
+uses a line editor with history in `~/.macports/history` (libedit's format)
+and completion of actions, port names and paths.
+
+Activate, deactivate and uninstall run the hooks of the Portfile saved in the
+registry at install time (`registry/portfiles/<name>-<version>_<revision>/
+<sha256>-<size>/Portfile`, with its PortGroups under `registry/portgroups`),
+falling back to the plain operation as `registry::run_target` does.
+
+Started as root, port-rs follows upstream's privilege lifecycle: build targets
+run with the effective ids of `macportsuser`, while staging, installing,
+activating and targets marked `<target>.asroot` return to root, and staged
+files owned by the build account go to `install.user`/`install.group`.
 
 Global options before the action follow upstream: `-q`, `-v`, `-d` (debug
 messages), `-y` (dry run; actions without their own dry run report what they
@@ -250,10 +272,15 @@ Notes on behaviors that use different mechanisms than MacPorts base:
 
 - Build sandboxing (`sandbox_enable`, `sandbox_network`) and trace mode (`-t`)
   use Seatbelt profiles applied with sandbox-exec(1). Trace mode hides prefix
-  files owned by ports outside the target's dependency closure, as darwintrace
-  does, and fences writes to the work area.
+  files owned by ports outside the target's dependency closure and fences
+  writes to the work area; a darwintrace library built with port-rs records
+  the prefix paths each target touches (running ad-hoc signed copies of
+  SIP-protected programs from `${portdbpath}/sip-workaround`, as upstream) so
+  the target ends with upstream's report of hidden, would-be-hidden and
+  unregistered files.
 - Binary archives are verified with Signify keys or, for RSA-signed sites,
-  with `openssl dgst -ripemd160` against `.pem` keys from `pubkeys.conf`.
+  natively as RIPEMD-160 PKCS #1 v1.5 signatures against `.pem` keys from
+  `pubkeys.conf`.
 - `pkg` builds flat packages with pkgbuild/productbuild, or `.pkg` bundles with
   mkbom, pax and lsbom when `package.flat` is off; `mpkg` likewise.
 - `mirror` records mirrored distfiles in `distfiles_mirror.db`, written in
@@ -263,6 +290,12 @@ Notes on behaviors that use different mechanisms than MacPorts base:
   `.sha256` asset when present), then syncs the ports trees.
 - Ports named by directory outside the selected tree are evaluated from their
   Portfile, with PortGroups from the selected tree.
+- The `port` binary acts as `portindex` when invoked under that name (the
+  installer links it). `sync` regenerates the PortIndex of `file://` trees and
+  of rsync directory sources without a prebuilt platform index, reusing entries
+  of unchanged Portfiles; `PortIndex.quick` is written alongside.
+- Under Rosetta 2, `migrate` re-runs natively; an x86_64-only port-rs first
+  replaces itself with the Apple Silicon release.
 
 ## Installed-port registry
 
@@ -528,7 +561,7 @@ Custom staging blocks can delegate through `do-destroot`. The host must provide
 prefix is restored on success and failure. Tests stage an executable into a
 temporary prefix with live logs. Native non-root destroot finish now performs
 staging cleanup and restores the saved mask. Native non-root startup now prepares the hierarchy and mask for ports without
-startup items and for supported custom or executable-based launchd services. Privilege transitions and privileged ownership conversion remain unfinished.
+startup items and for supported custom or executable-based launchd services.
 
 The CLI captures and restores its inherited creation mask at the start of
 `main`, before starting runtimes or concurrent work. New Portfile sessions inherit
@@ -550,8 +583,8 @@ inspection warns about mismatched or missing Mach-O architectures before running
 port tests. `get_canonical_archs` selects noarch, selected universal architectures,
 the configured build architecture, or the host fallback using upstream rules.
 Symlinks and non-binary data are skipped. `test.ignore_archs yes` disables the
-scan; disabling `test.run` does not. Temporary privilege elevation for a process
-that has dropped root privileges remains explicitly unsupported. Full CLI test
+scan; disabling `test.run` does not. A process that dropped root privileges elevates
+temporarily, as upstream. Full CLI test
 scheduling remains unfinished.
 
 The native `macho` library now inspects CPU architectures in thin Mach-O files,
@@ -656,8 +689,7 @@ creation/migration, optional work symlinks, state opening, and session handles.
 It reads configuration in global scope even when invoked inside a procedure.
 Dry runs skip directory and link mutations and invalidation, open existing state
 without locking, and use `/dev/null` when state is absent, matching upstream.
-Root execution is explicitly unsupported until the privilege worker exists;
-the command must not change process-wide credentials in the concurrent CLI.
+Under root it creates the work area as root, then drops to `macportsuser`.
 State warnings currently go to stderr; lock-wait progress and full UI routing,
 writable-tree ownership preparation, runtime `.home`/`.tmp` recreation after
 invalidation, and CLI phase scheduling remain unfinished.
@@ -679,8 +711,8 @@ SDK-dependent whitelist defaults are not implemented, and missing configuration
 fails explicitly. Native configure startup validates upstream compiler identifiers and shares
 compiler-fallback warning suppression with build startup. A configured compiler
 is still a host input; discovery, fallback selection, and compiler debug-name
-reporting are not implemented. Ccache startup retains upstream's root requirement;
-initialization under root remains unsupported until the privilege worker exists.
+reporting are not implemented. Ccache startup retains upstream's root requirement and creates and sizes
+`ccache_dir` for `macportsuser`.
 A real-shell test exercises configure start, main, and finish through the prepared
 target runtime, including state-based skipping on a second invocation.
 Native `portbuild::build_start` and `porttest::test_start` now emit phase notices;
@@ -949,7 +981,9 @@ report measured differences without assuming a speedup.
 ## Next compatibility gates
 
 1. Broader end-to-end comparisons with upstream on real ports, including
-   installs into a real `/opt/local` prefix as root, and performance checks.
+   installs into a real `/opt/local` prefix as root (the privilege lifecycle
+   is only exercised as an ordinary user in the test suite), and performance
+   checks.
 
 Original interface references: [MacPorts guide](https://guide.macports.org/#using.port),
 [port implementation](https://github.com/macports/macports-base/blob/master/src/port/port.tcl),
@@ -1012,9 +1046,8 @@ errors are ignored as upstream treats this workaround as best effort. The saved
 `portdestroot::oldmask` is saved by native startup; callers invoking finish
 directly must initialize it themselves. The session mask is restored on failures as well as success. Tests
 verify that the prepared-target runtime records completion only after finish
-succeeds. Privileged finish fails before cleanup because build-account ownership
-conversion and the privilege worker are still missing; ordinary CLI installation
-remains unavailable.
+succeeds. Under root, finish first gives staged files owned by the build account to
+`install.user` and `install.group`.
 
 `Session::prepare_destroot_hierarchy` now prepares the directory hierarchy portion
 of non-root destroot startup in process. It reads the installed

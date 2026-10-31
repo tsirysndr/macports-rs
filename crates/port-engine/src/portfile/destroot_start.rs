@@ -12,11 +12,11 @@ fn call(interp: &mut Interp, words: Vec<Value>) -> MoltResult {
 fn start(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     phase_start::notice(interp, id, argv, "Staging")?;
     interp.with_global_scope(|interp| {
-        if unsafe { libc::getuid() == 0 || libc::geteuid() == 0 } {
-            interp.context::<State>(id).unsupported.insert("destroot privilege lifecycle".into());
-            return Err(error("privileged destroot startup requires the privilege worker"));
+        // Staging needs root under sudo (upstream: "due to mtree").
+        if crate::privileges::dropped() {
+            crate::privileges::elevate("destroot").map_err(|err| error(err.to_string()))?;
         }
-        if interp.scalar("destroot.asroot")?.as_bool()? {
+        if interp.scalar("destroot.asroot")?.as_bool()? && unsafe { libc::getuid() } != 0 {
             return Err(error("You cannot run this port without root privileges. You need to re-run with 'sudo port'."));
         }
         startupitem::preflight(interp, id)?;

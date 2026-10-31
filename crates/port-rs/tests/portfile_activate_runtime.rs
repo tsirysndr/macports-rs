@@ -104,6 +104,6 @@ fn unwritable_prefix_rejects_activation_start() {
         s.invoke("portactivate::activate_start", &[])
             .unwrap_err()
             .to_string()
-            .contains("activate privilege lifecycle")
+            .contains("MacPorts requires root privileges for this action")
     );
 }

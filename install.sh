@@ -61,6 +61,8 @@ if [ ! -d "$install_dir" ] || [ ! -w "$install_dir" ]; then
 fi
 $sudo mkdir -p "$install_dir"
 $sudo install -m 0755 "$work/port" "$install_dir/port"
+# The same binary acts as portindex when invoked under that name.
+$sudo ln -sf port "$install_dir/portindex"
 
 echo "Installed $("$install_dir/port" --version) to $install_dir/port"
 case ":$PATH:" in

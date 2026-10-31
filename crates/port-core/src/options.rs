@@ -28,12 +28,26 @@ pub struct Global {
     pub trace: bool,
     /// `-y`: dry run.
     pub dry_run: bool,
+    /// The current action's flags as upstream's `ports_<action>_<flag>`
+    /// Portfile variables, such as `ports_fetch_no-mirrors`.
+    pub action_flags: Vec<String>,
 }
 
 static GLOBAL: RwLock<Option<Global>> = RwLock::new(None);
 
 pub fn set(options: Global) {
     *GLOBAL.write().expect("options lock") = Some(options);
+}
+
+/// Record the current action's flags for Portfiles.
+pub fn set_action_flags(action: &str, flags: &[(&str, bool)]) {
+    let mut options = get();
+    options.action_flags = flags
+        .iter()
+        .filter(|(_, set)| *set)
+        .map(|(flag, _)| format!("ports_{action}_{flag}"))
+        .collect();
+    set(options);
 }
 
 pub fn get() -> Global {

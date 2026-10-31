@@ -168,7 +168,11 @@ fn restore(
                 vec![spec],
                 quiet,
                 root,
-                port.state == "installed",
+                super::install_exec::Mode {
+                    activate: port.state == "installed",
+                    requested: true,
+                    rebuild: false,
+                },
             )
         });
         if let Err(err) = result {
@@ -307,6 +311,43 @@ pub(super) fn migrate(
     root: &Path,
 ) -> Result<()> {
     let progress = Progress::new(quiet);
+    // Under Rosetta, migration runs from a native port-rs (upstream
+    // needs_migration: "MacPorts is running through Rosetta 2").
+    if crate::source::translated() {
+        let executable = std::env::current_exe()?;
+        let mut arguments: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+        if !crate::source::has_arm64_slice(&executable) {
+            progress.message(
+                "MacPorts is running through Rosetta 2, and should be rebuilt for Apple Silicon",
+            );
+            if !super::ask(
+                "Migration will first upgrade MacPorts and then reinstall all installed ports. Would you like to continue?",
+                true,
+            ) {
+                progress.message("Aborting migration. You can re-run 'sudo port migrate' later or follow the migration instructions: https://trac.macports.org/wiki/Migration");
+                return Ok(());
+            }
+            progress.message("Upgrading MacPorts...");
+            let updated = super::base_update::update(&progress, true)
+                .context("Upgrading port command failed. Try running 'sudo port -v selfupdate' and then 'sudo port migrate'.")?;
+            anyhow::ensure!(
+                updated,
+                "Upgrading port command failed or was not attempted. Please re-install MacPorts manually and then run 'sudo port migrate' again."
+            );
+            if !arguments.iter().any(|argument| argument == "--continue") {
+                arguments.push("--continue".into());
+            }
+        }
+        out.flush()?;
+        let status = std::process::Command::new("/usr/bin/arch")
+            .arg("-arm64")
+            .arg(&executable)
+            .args(&arguments)
+            .status()
+            .context("cannot run port-rs natively")?;
+        anyhow::ensure!(status.success(), "Migration failed: {status}");
+        return Ok(());
+    }
     let _ = args.continuation;
     super::sync::run(quiet, false).context("Couldn't sync the ports tree")?;
     progress.message("Taking a snapshot of the current state...");

@@ -13,7 +13,7 @@ use clap::Args;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
-    io::{BufRead, IsTerminal, Write},
+    io::IsTerminal,
     path::{Path, PathBuf},
 };
 
@@ -42,21 +42,13 @@ const BUILD_FIELDS: [&str; 4] = [
     "depends_build",
 ];
 
-/// Ask on a terminal; non-interactive runs take the default answer, as upstream.
 fn confirm(question: &str, items: &[String]) -> bool {
-    if crate::options::get().noninteractive || !std::io::stdin().is_terminal() {
-        return true;
+    if !crate::options::get().noninteractive && std::io::stdin().is_terminal() {
+        for item in items {
+            eprintln!("  {item}");
+        }
     }
-    for item in items {
-        eprintln!("  {item}");
-    }
-    eprint!("{question} [Y/n]: ");
-    let _ = std::io::stderr().flush();
-    let mut answer = String::new();
-    if std::io::stdin().lock().read_line(&mut answer).is_err() {
-        return false;
-    }
-    !matches!(answer.trim(), "n" | "N" | "no" | "No")
+    super::ask(question, true)
 }
 
 fn label(entry: &Entry) -> String {
