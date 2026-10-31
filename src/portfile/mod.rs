@@ -53,6 +53,7 @@ mod install_start;
 mod paths;
 mod phase_start;
 mod platform;
+mod registry_lookup;
 mod session;
 mod state_open;
 pub use session::Session;
@@ -107,6 +108,7 @@ pub struct Evaluation {
 #[derive(Default)]
 struct State {
     archive_sites: Option<ArchiveSites>,
+    registry_lookup: Option<registry_lookup::Source>,
     groups: PortGroups,
     progress: Option<crate::progress::Progress>,
     warned: BTreeSet<String>,
@@ -240,6 +242,7 @@ fn open(
     build_state::install(&mut interp, id);
     archive_state::install(&mut interp, id);
     archive_paths::install(&mut interp, id);
+    registry_lookup::install(&mut interp, id);
     phase_start::install(&mut interp, id);
     install_start::install(&mut interp, id);
     activate_runtime::install(&mut interp, id);

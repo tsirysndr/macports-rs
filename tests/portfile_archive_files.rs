@@ -144,16 +144,9 @@ fn archive_lookup_respects_registry_presence_refresh_and_verified_candidates() {
     let mut s = session();
     s.invoke("set", &["portdbpath", temp.path().to_str().unwrap()])
         .unwrap();
-    s.invoke("set", &["registered", "0"]).unwrap();
-    s.invoke(
-        "proc",
-        &[
-            "registry_exists",
-            "args",
-            "global registered; return $registered",
-        ],
-    )
-    .unwrap();
+    let db_path = temp.path().join("registry.db");
+    let mut writer = port_rs::registry::write::Writer::create(&db_path).unwrap();
+    s.set_registry_lookup(Some(&db_path));
     let filename = s.invoke("get_portimage_name", &[]).unwrap();
     let image = s.invoke("get_portimage_path", &[]).unwrap();
     assert_eq!(
@@ -169,7 +162,17 @@ fn archive_lookup_respects_registry_presence_refresh_and_verified_candidates() {
         s.invoke("find_portarchive_path", &[]).unwrap(),
         downloaded.to_str().unwrap()
     );
-    s.invoke("set", &["registered", "1"]).unwrap();
+    let mut tx = writer.transaction().unwrap();
+    tx.register(&port_rs::registry::write::NewImage {
+        name: "app".into(),
+        version: "1".into(),
+        variants: "+ssl".into(),
+        location: image.clone(),
+        archs: "arm64".into(),
+        ..Default::default()
+    })
+    .unwrap();
+    tx.commit().unwrap();
     assert_eq!(s.invoke("find_portarchive_path", &[]).unwrap(), "");
     assert_eq!(
         s.invoke("find_portarchive_path", &["0"]).unwrap(),

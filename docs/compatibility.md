@@ -1835,6 +1835,16 @@ Native archive path helpers now provide normalized `get_portimage_path`,
 upstream's installed-versus-incoming choice, force-refresh behavior, candidate
 file checks, and unpacked image-directory fallback. `supportedArchiveTypes`
 currently advertises only the implemented native tbz2 decoder. Installed lookup
-still needs the host's `registry_exists` callback (covered with a test callback);
-forcing incoming-only lookup avoids it. Filesystem presence never grants trust:
+uses native registry aliases after the host binds its selected registry path;
+forcing incoming-only lookup avoids registry queries. Filesystem presence never grants trust:
 `Store::load`/download verification remain required before native installation.
+
+
+`Session::set_registry_lookup` binds native `registry_exists` and
+`registry_exists_for_name` to a selected database or explicitly absent registry.
+Each call opens a fresh read-only snapshot, respecting SQLite name/version
+collations and the upstream optional revision/variants defaults. The aliases
+return false for registry lookup errors as upstream does, and never create a
+missing database. Unbound sessions fail explicitly instead of guessing a host
+registry. Archive-path integration tests now use the real SQLite aliases;
+startup still needs to supply the binding before executing these runtime calls.

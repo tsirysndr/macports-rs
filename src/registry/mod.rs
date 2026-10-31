@@ -65,6 +65,26 @@ impl Registry {
     pub fn entries(&self) -> Result<Vec<Entry>> {
         read_entries(&self.connection).context("cannot read MacPorts registry entries")
     }
+    /// Match native registry entry search, including schema collations and both
+    /// active and inactive images. Epoch is not part of entry_exists identity.
+    pub fn contains_image(
+        &self,
+        name: &str,
+        version: &str,
+        revision: &str,
+        variants: &str,
+    ) -> Result<bool> {
+        Ok(self.connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM ports WHERE name=?1 AND version=?2 AND revision=?3 AND variants=?4)",
+            rusqlite::params![name, version, revision, variants], |row| row.get(0))?)
+    }
+    pub fn contains_name(&self, name: &str) -> Result<bool> {
+        Ok(self.connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM ports WHERE name=?1)",
+            [name],
+            |row| row.get(0),
+        )?)
+    }
     /// Look up active file-map ownership using the filesystem's case rules.
     pub fn owner(&self, path: &str, case_sensitive: bool) -> Result<Option<String>> {
         let sql = if case_sensitive {
