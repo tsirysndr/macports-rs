@@ -1956,3 +1956,11 @@ cache, which the install planner binds to every retained session so later
 measurements are visible across ports. Malformed lists fail with the option name;
 Portfile variable writes do not change the configured host policy. Network probes
 and persistent timing-cache loading remain unfinished.
+
+Native mirror probing now has an asynchronous TCP timing primitive using Tokio
+and the system resolver. Like upstream `time_connect`, it resolves the named
+service, uses the first returned TCP address, excludes lookup time from the
+measurement, and applies a three-second connection timeout. Tests use a local
+listener to verify that probing sends no application payload and reports refused
+connections and invalid inputs. Scheduling probes into the shared timing cache
+and exposing the worker callbacks to fetch startup remain unfinished.

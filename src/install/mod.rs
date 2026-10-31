@@ -33,3 +33,5 @@ pub mod pubkeys;
 pub mod sites;
 
 pub mod mirror_times;
+
+pub mod mirror_probe;
