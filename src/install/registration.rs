@@ -78,7 +78,8 @@ pub fn from_session(
             && version == item.port.get("version")
             && revision == indexed_number("revision")?
             && epoch == indexed_number("epoch")?
-            && variants == item.variants,
+            && variants == item.variants
+            && session.scalar("portvariants")? == variants,
         "live Portfile identity changed from the installation plan; replan before registration"
     );
     let target = Target::from_session(session, machine)?;
@@ -86,8 +87,17 @@ pub fn from_session(
         .platform()
         .split_once('_')
         .context("invalid archive platform")?;
-    let mut requested = PortSpec::named(&name);
-    requested.variants = inputs.requested.variants.clone();
+    let requested_variants = session.scalar("requested_variants")?;
+    if !requested_variants.is_empty() {
+        let mut requested = PortSpec::named(&name);
+        requested.parse_modifier(&requested_variants)?;
+        ensure!(
+            requested.options.is_empty()
+                && requested.version.is_none()
+                && requested.composite_version() == requested_variants,
+            "live requested variants are not canonical"
+        );
+    }
     // When old archives lack actual runtime metadata, upstream compares compiler
     // selection with the installation default, leaving actual runtime unknown.
     let configured_stdlib = session.scalar("configure.cxx_stdlib")?;
@@ -98,7 +108,7 @@ pub fn from_session(
         revision,
         epoch,
         variants,
-        requested_variants: requested.composite_version(),
+        requested_variants,
         requested: item.requested,
         portfile: inputs.portfile,
         dependencies: inputs.dependencies,

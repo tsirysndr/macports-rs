@@ -222,3 +222,54 @@ fn resolves_registration_providers_using_live_session_context() {
     .unwrap();
     assert_eq!(record.dependencies, ["fallback", "required"]);
 }
+
+#[test]
+fn registration_uses_evaluated_requested_variants_and_checks_runtime_identity() {
+    let mut spec = spec();
+    spec.parse_modifier("+undeclared").unwrap();
+    spec.parse_modifier("-unavailable").unwrap();
+    let mut session = session(&spec);
+    let port = port();
+    let register = |session: &mut Session| {
+        registration::from_session(
+            session,
+            &item(&port),
+            &machine(),
+            Inputs {
+                requested: &spec,
+                dependencies: vec![],
+                portfile: String::new(),
+            },
+        )
+    };
+    let (_, record) = register(&mut session).unwrap();
+    assert_eq!(record.requested_variants, "+ssl-docs");
+    assert_eq!(record.variants, "+ssl");
+    // Runtime registration reads the evaluated global, not the original CLI spec.
+    session
+        .invoke("set", &["requested_variants", "-docs"])
+        .unwrap();
+    assert_eq!(
+        register(&mut session).unwrap().1.requested_variants,
+        "-docs"
+    );
+    for invalid in ["+ssl+ssl", "@2+ssl", "build.jobs=8", "-docs+ssl"] {
+        session
+            .invoke("set", &["requested_variants", invalid])
+            .unwrap();
+        assert!(register(&mut session).is_err(), "{invalid}");
+    }
+    session
+        .invoke("set", &["requested_variants", "+ssl-docs"])
+        .unwrap();
+    session
+        .invoke("set", &["portvariants", "+different"])
+        .unwrap();
+    assert!(
+        register(&mut session)
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("replan")
+    );
+}

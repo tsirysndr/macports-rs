@@ -1702,3 +1702,11 @@ choices. Values set by Portfile code before variant evaluation are replaced by
 the evaluated result. Startup configuration supplies `portarchivetype` as tbz2
 by default or the first Tcl-list element of its configured value. Invalid lists
 fail during startup, while explicitly empty values remain empty as upstream.
+
+Registration now reads the evaluated `requested_variants` global instead of
+copying unfiltered command-line choices. This omits undeclared requested variants
+and preserves the runtime's positive/negative canonical ordering. Noncanonical
+runtime strings fail before registry work. Registration also checks that the
+live `portvariants` archive identity still agrees with the planned active set;
+a change requires replanning. Tests cover undeclared requests, live requested
+metadata, malformed values, and mismatched archive identity.
