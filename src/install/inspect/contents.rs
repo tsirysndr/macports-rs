@@ -69,7 +69,9 @@ impl Contents {
                             "missing or duplicate archive field {key}"
                         );
                     }
-                    "comment" | "macports_version" | "ports_commit" | "source_date_epoch" => (),
+                    "comment" | "macports_version" | "ports_commit" | "source_date_epoch"
+                    | "os.subplatform" | "os.version" | "macos_version" | "xcodeversion"
+                    | "xcodecltversion" => (),
                     _ => anyhow::bail!("unsupported +CONTENTS directive @{key}"),
                 }
             } else if !line.is_empty() {

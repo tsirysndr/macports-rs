@@ -35,12 +35,27 @@ pub fn is_binary(reader: &mut impl Read) -> Result<bool> {
 
 /// Return CPU architecture names, deduplicated and sorted. Non-Mach-O data
 /// returns an empty set; malformed recognized containers return an error.
+/// Install names from dylib load commands in every Mach-O slice, as
+/// libmachista reports them. Non-Mach-O data yields no names.
+pub fn linked_libraries(reader: &mut (impl Read + Seek)) -> Result<BTreeSet<String>> {
+    let length = reader.seek(SeekFrom::End(0))?;
+    let mut parser = Parser {
+        reader,
+        remaining: 1_000_000,
+        cpus: BTreeSet::new(),
+        libraries: BTreeSet::new(),
+    };
+    parser.parse(0, length, 0)?;
+    Ok(parser.libraries)
+}
+
 pub fn architectures(reader: &mut (impl Read + Seek)) -> Result<BTreeSet<String>> {
     let length = reader.seek(SeekFrom::End(0))?;
     let mut parser = Parser {
         reader,
         remaining: 1_000_000,
         cpus: BTreeSet::new(),
+        libraries: BTreeSet::new(),
     };
     parser.parse(0, length, 0)?;
     parser
@@ -72,7 +87,12 @@ struct Parser<'a, R> {
     reader: &'a mut R,
     remaining: usize,
     cpus: BTreeSet<u32>,
+    libraries: BTreeSet<String>,
 }
+
+/// LC_LOAD_DYLIB, LC_ID_DYLIB, LC_LOAD_WEAK_DYLIB, LC_REEXPORT_DYLIB,
+/// LC_LAZY_LOAD_DYLIB and LC_LOAD_UPWARD_DYLIB.
+const DYLIB_COMMANDS: [u32; 6] = [0xc, 0xd, 0x8000_0018, 0x8000_001f, 0x20, 0x8000_0023];
 impl<R: Read + Seek> Parser<'_, R> {
     fn read<const N: usize>(&mut self, start: u64, end: u64) -> Result<[u8; N]> {
         ensure!(
@@ -127,6 +147,19 @@ impl<R: Read + Seek> Parser<'_, R> {
                         length >= 8 && length <= limit - cursor,
                         "invalid Mach-O load command size"
                     );
+                    if DYLIB_COMMANDS.contains(&word(&command[..4], little)) && length >= 12 {
+                        let offset = word(&self.read::<4>(cursor + 8, limit)?, little) as u64;
+                        if offset >= 12 && offset < length {
+                            let start = cursor + offset;
+                            let size = (cursor + length - start) as usize;
+                            let mut name = vec![0; size];
+                            self.reader.seek(SeekFrom::Start(start))?;
+                            self.reader.read_exact(&mut name)?;
+                            let end = name.iter().position(|b| *b == 0).unwrap_or(name.len());
+                            self.libraries
+                                .insert(String::from_utf8_lossy(&name[..end]).into_owned());
+                        }
+                    }
                     cursor += length;
                 }
                 self.cpus.insert(cpu);

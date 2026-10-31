@@ -240,3 +240,21 @@ fn registry_binary_probe_propagates_io_errors_and_reads_only_needed_header() {
     );
     assert!(!port_rs::macho::is_binary(&mut HeaderThenError { bytes: b"text" }).unwrap());
 }
+
+#[test]
+fn linked_libraries_lists_dylib_install_names_of_a_real_binary() {
+    let mut file = std::fs::File::open("/usr/bin/true").unwrap();
+    let libraries = port_rs::macho::linked_libraries(&mut file).unwrap();
+    assert!(
+        libraries
+            .iter()
+            .any(|name| name.ends_with("libSystem.B.dylib")),
+        "{libraries:?}"
+    );
+    let mut text = std::io::Cursor::new(b"#!/bin/sh\n".to_vec());
+    assert!(
+        port_rs::macho::linked_libraries(&mut text)
+            .unwrap()
+            .is_empty()
+    );
+}
