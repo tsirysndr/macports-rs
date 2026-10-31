@@ -1733,3 +1733,12 @@ publication; pre/post-activate bracket publication. A failing post-install hook
 leaves the image inactive and the prefix unchanged. The test supplies explicit
 runtime startup callbacks; production startup, privileges, cache recovery, and
 ordinary CLI install execution still need integration.
+
+`run_prepared_target_with_native_body` now applies the prepared-target environment
+and state-file lifecycle to Rust phase bodies. It shares the interpreter runner's
+HOME/TMPDIR setup, developer-directory handling, dry-run state, automatic state
+handle cleanup, and custom-procedure dispatch. Tests verify the environment
+inside native work, successful completion recording, failure without completion,
+released state locks, dry-run behavior without work-directory creation, and
+script overrides. The host still prepares runtime packages, dependencies, cwd,
+privileges, tracing/sandboxing, and logs before invoking this runner.

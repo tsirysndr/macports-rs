@@ -213,3 +213,101 @@ fn state_open_failure_restores_environment_and_dry_run_option() {
         assert_eq!(s.invoke("info", &["exists", key]).unwrap(), "0");
     }
 }
+
+#[test]
+fn prepared_native_bodies_share_environment_and_release_state_on_success_or_failure() {
+    for fail in [false, true] {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(tmp.path()).unwrap();
+        let (mut s, requests) = session(&root);
+        let item = s.scalar("item").unwrap();
+        let result = s.run_prepared_target_with_native_body(&item, false, "body", |session| {
+            assert_eq!(
+                session.invoke("set", &["env(HOME)"])?,
+                root.join("build/new/app/work/.home").to_str().unwrap()
+            );
+            assert_eq!(
+                session.invoke("set", &["env(TMPDIR)"])?,
+                root.join("build/new/app/work/.tmp").to_str().unwrap()
+            );
+            assert_eq!(
+                session.invoke("set", &["env(DEVELOPER_DIR)"])?,
+                "/selected/Developer"
+            );
+            assert_eq!(session.invoke("info", &["exists", "target_state_fd"])?, "1");
+            session.invoke("system", &["native-body"])?;
+            if fail {
+                anyhow::bail!("native-body-failed");
+            }
+            Ok(())
+        });
+        let scripts = requests
+            .borrow()
+            .iter()
+            .map(|r| r.script.clone())
+            .collect::<Vec<_>>();
+        if fail {
+            assert!(
+                result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("native-body-failed")
+            );
+            assert_eq!(scripts, ["init", "start", "native-body"]);
+        } else {
+            assert_eq!(result.unwrap(), TargetOutcome::Completed);
+            assert_eq!(scripts, ["init", "start", "native-body", "post", "finish"]);
+        }
+        for key in [
+            "env(TMPDIR)",
+            "env(DEVELOPER_DIR)",
+            "target_state_fd",
+            "ports_dryrun",
+        ] {
+            assert_eq!(s.invoke("info", &["exists", key]).unwrap(), "0");
+        }
+        assert_eq!(
+            s.invoke("set", &["env(HOME)"]).unwrap(),
+            root.join("database/home").to_str().unwrap()
+        );
+        let mut state =
+            StateFile::try_open(&root.join("build/new/app/work/.macports.app.state"), None)
+                .unwrap()
+                .unwrap();
+        assert_eq!(
+            state.contains("target", "org.macports.custom").unwrap(),
+            !fail
+        );
+    }
+}
+
+#[test]
+fn prepared_native_dispatch_skips_dry_run_work_and_respects_script_override() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (mut s, requests) = session(tmp.path());
+    let item = s.scalar("item").unwrap();
+    assert_eq!(
+        s.run_prepared_target_with_native_body(&item, true, "body", |_| panic!(
+            "dry run must not run native body"
+        ))
+        .unwrap(),
+        TargetOutcome::DryRun
+    );
+    assert!(!tmp.path().join("build").exists());
+    requests.borrow_mut().clear();
+    assert_eq!(
+        s.run_prepared_target_with_native_body(&item, false, "different_builtin", |_| panic!(
+            "script override must run"
+        ))
+        .unwrap(),
+        TargetOutcome::Completed
+    );
+    assert_eq!(
+        requests
+            .borrow()
+            .iter()
+            .map(|r| r.script.as_str())
+            .collect::<Vec<_>>(),
+        ["init", "start", "body", "post", "finish"]
+    );
+}

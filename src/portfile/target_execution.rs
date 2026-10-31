@@ -67,7 +67,7 @@ impl Session {
         )
     }
 
-    fn execute_target_using(
+    pub(super) fn execute_target_using(
         &mut self,
         item: &str,
         state_handle: Option<&str>,

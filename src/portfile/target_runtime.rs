@@ -7,6 +7,37 @@ impl Session {
     /// packages and prepare dependencies, cwd, sandbox/tracing, privileges,
     /// and log handling. This does not enable ordinary CLI install execution.
     pub fn run_prepared_target(&mut self, item: &str, dry_run: bool) -> Result<TargetOutcome> {
+        self.run_prepared_target_using(item, dry_run, |session, handle| {
+            session.execute_target_inner(item, handle, dry_run, true)
+        })
+    }
+
+    /// Run a host-native phase with the same environment and state ownership as
+    /// an interpreter phase. Custom target overrides still execute normally.
+    pub fn run_prepared_target_with_native_body(
+        &mut self,
+        item: &str,
+        dry_run: bool,
+        native_procedure: &str,
+        body: impl FnOnce(&mut Session) -> Result<()>,
+    ) -> Result<TargetOutcome> {
+        self.run_prepared_target_using(item, dry_run, |session, handle| {
+            session.execute_target_using(item, handle, dry_run, true, |session, procedure, name| {
+                if procedure == native_procedure {
+                    body(session)
+                } else {
+                    session.invoke(procedure, &[name]).map(|_| ())
+                }
+            })
+        })
+    }
+
+    fn run_prepared_target_using(
+        &mut self,
+        item: &str,
+        dry_run: bool,
+        run: impl FnOnce(&mut Session, Option<&str>) -> Result<TargetOutcome>,
+    ) -> Result<TargetOutcome> {
         check_supported(&mut self.interp, self.id)?;
         ensure!(
             self.interp
@@ -41,7 +72,7 @@ impl Session {
                     .set_scalar("target_state_fd", fd.into())
                     .map_err(failure)?;
             }
-            self.execute_target_inner(item, handle.as_deref(), dry_run, true)
+            run(self, handle.as_deref())
         })();
         // Always release the actual owned file, including after scripts poison
         // their session by catching an unsupported operation.
