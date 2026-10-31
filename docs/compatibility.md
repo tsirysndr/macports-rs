@@ -1866,3 +1866,11 @@ Tests inject URL/network callbacks to verify branching and failure propagation;
 the existing native cache/state helpers are tested separately. Native checkfiles,
 mirror/DNS handling, and transport still need binding into this runtime, so this
 is not yet a complete archivefetch execution path.
+
+Native `portfetch::checksites`, `mirror_sites`, and `resolve_env_site` now build
+URL maps with named classes, tagged literals, environment/global mirror
+precedence, and mirror subdirectory expansion. Repeated map entries append as
+upstream does; malformed existing lists remain errors. Archive `checkfiles`
+connects this builder to native candidate bookkeeping without losing caller-local
+URL variables. Resource getters remain a host integration requirement (tests
+supply literal-path-aware getters); network dispatch remains unfinished.

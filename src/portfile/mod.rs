@@ -40,6 +40,7 @@ pub use destroot_libtool::LibtoolCleanup;
 use stage_context::StageContext;
 mod ditems;
 mod dlist;
+mod fetch_sites;
 mod file_delete;
 mod file_link;
 mod file_normalize;
@@ -246,6 +247,7 @@ fn open(
     archive_state::install(&mut interp, id);
     archive_paths::install(&mut interp, id);
     archive_runtime::install(&mut interp, id);
+    fetch_sites::install(&mut interp, id);
     registry_lookup::install(&mut interp, id);
     phase_start::install(&mut interp, id);
     install_start::install(&mut interp, id);

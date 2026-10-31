@@ -61,7 +61,7 @@ fn image_name(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult 
     })
 }
 
-fn check_files(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
+pub(super) fn check_files(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 2, 2, "urls")?;
     // The native command executes in its caller's frame, so the supplied URL
     // variable remains local while the archive bookkeeping is global.

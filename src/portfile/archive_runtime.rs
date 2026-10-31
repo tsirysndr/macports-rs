@@ -2,6 +2,7 @@
 use super::*;
 use molt::{MoltResult, check_args};
 pub(super) fn install(interp: &mut Interp, id: ContextID) {
+    interp.add_context_command("portarchivefetch::checkfiles", check_files, id);
     interp.add_context_command("portarchivefetch::_archivefetch_start", start_quiet, id);
     interp.add_context_command("portarchivefetch::archivefetch_start", start, id);
     interp.add_context_command("portarchivefetch::archivefetch_main", main, id);
@@ -74,4 +75,33 @@ fn main(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
         }
         Ok(0.into())
     })
+}
+
+fn check_files(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(1, argv, 2, 2, "urls")?;
+    interp.with_global_scope(|interp| {
+        let resource = call(interp, "portarchivefetch::get_full_archive_sites_path", &[])?;
+        let mirrors = Value::from(vec![
+            "::portarchivefetch::get_archive_site_urls".into(),
+            resource,
+        ]);
+        let sites = Value::from(vec![
+            "archive_sites".into(),
+            Value::from(vec![Value::empty(), "ARCHIVE_SITE_LOCAL".into()]),
+        ]);
+        interp.eval_value(&Value::from(vec![
+            "portfetch::checksites".into(),
+            sites,
+            mirrors,
+        ]))
+    })?;
+    // Preserve the supplied variable in the caller's frame, as upvar does.
+    archive_files::check_files(
+        interp,
+        id,
+        &[
+            "portarchivefetch::checkarchivefiles".into(),
+            argv[1].clone(),
+        ],
+    )
 }
