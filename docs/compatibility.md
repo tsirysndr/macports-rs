@@ -1641,6 +1641,15 @@ Portfile/PortGroup evaluation, using live resource path and filename options.
 Append/prepend resolve that default before modifying it; explicit assignments and
 command-line overrides bypass resolution. Unmodified defaults track later resource
 option changes. Resolver errors propagate as Portfile evaluation errors. The
-install scheduler still needs to supply the configured resolver and initialize
-the full PortSystem lifecycle; ordinary metadata sessions retain their existing
+local install preview now supplies the configured resolver. The full PortSystem
+lifecycle remains unfinished; ordinary metadata sessions retain their existing
 behavior when no resolver is supplied.
+
+Local install previews capture archive startup layout and policy from configuration,
+including the upstream platform defaults for C++ runtime and `.la` deletion. They
+supply the resolver before each Portfile evaluation and share a cache by resource
+path across dependency sessions. Tree/configured-site compatibility uses native
+tbz2 support; other archive decoders remain unfinished. Resource errors propagate
+without registry writes; explicit archive_sites values avoid reading unused
+resources. CLI regression tests cover default mutation, configuration merging,
+explicit bypass, and unchanged registry contents on failure.

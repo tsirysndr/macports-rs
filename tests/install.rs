@@ -704,3 +704,61 @@ fn local_preview_uses_configured_registry_and_preserves_explicit_overrides() {
     assert!(output.stdout.is_empty());
     assert_eq!(std::fs::read(&database).unwrap(), b"not a database");
 }
+
+#[test]
+fn local_install_resolves_configured_archive_defaults_before_portfile_mutations() {
+    let f = Fixture::new(&[("app", "version 1 portdir net/app")]);
+    let resources = f.dir.path().join("_resources/custom");
+    std::fs::create_dir_all(&resources).unwrap();
+    std::fs::write(
+        resources.join("mirrors.tcl"),
+        include_str!("fixtures/archive-sites/archive_sites.tcl"),
+    )
+    .unwrap();
+    let home = f.dir.path().join("home/.macports");
+    std::fs::create_dir_all(&home).unwrap();
+    let sites = f.dir.path().join("sites.conf");
+    std::fs::write(&sites, "name configured\nurls https://custom/\n").unwrap();
+    std::fs::write(
+        home.join("macports.conf"),
+        format!(
+            "archive_sites_conf {}\ncxx_stdlib libc++\ndelete_la_files yes\n",
+            sites.display()
+        ),
+    )
+    .unwrap();
+    portfile(
+        &f,
+        "app",
+        r#"
+        archive_sites.listpath custom
+        archive_sites.listfile mirrors.tcl
+        archive_sites-append extra::tbz2
+        if {${archive_sites} ne "macports_archives::tbz2 configured::tbz2 extra::tbz2"} {error "incorrect archive defaults: ${archive_sites}"}
+        revision 5
+    "#,
+    );
+    let before = std::fs::read(f.dir.path().join("registry.db")).unwrap();
+    assert_eq!(
+        stdout(f.run(&["-qy", "install", "app"])),
+        "install  app @2_5 (requested)\n"
+    );
+    assert_eq!(
+        std::fs::read(f.dir.path().join("registry.db")).unwrap(),
+        before
+    );
+    // Explicit values avoid evaluating a broken resource at the default location.
+    let default = f.dir.path().join("_resources/port1.0/fetch");
+    std::fs::create_dir_all(&default).unwrap();
+    std::fs::write(default.join("archive_sites.tcl"), "error broken-resource").unwrap();
+    portfile(&f, "app", "archive_sites explicit::tbz2");
+    assert!(f.run(&["-qy", "install", "app"]).status.success());
+    portfile(&f, "app", "archive_sites-append extra::tbz2");
+    let output = f.run(&["-qy", "install", "app"]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("broken-resource"));
+    assert_eq!(
+        std::fs::read(f.dir.path().join("registry.db")).unwrap(),
+        before
+    );
+}

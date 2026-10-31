@@ -6,6 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[derive(Clone)]
 pub struct Paths {
     pub configuration_directory: PathBuf,
     pub user_home: Option<PathBuf>,

@@ -64,8 +64,9 @@ pub(super) fn run(
                 &environment,
                 uid,
             )?;
+            let config = paths.load()?;
             let context = crate::config::Context::new(
-                &paths.load()?,
+                &config,
                 variables,
                 &environment,
                 uid,
@@ -79,13 +80,15 @@ pub(super) fn run(
                 context.variants.apply(spec);
             }
             let registry = context.open_registry(registry_file)?;
+            let archives = paths.archive_resolver(&config, &context, root, progress.clone())?;
             install::plan_sessions(index, &specs, registry.as_ref(), |port, spec| {
-                crate::portfile::open_from_tree_with_environment(
+                crate::portfile::open_from_tree_with_archive_sites(
                     root,
                     port,
                     &context.variables,
                     spec,
                     &context.environment,
+                    archives.clone(),
                 )
             })
         })

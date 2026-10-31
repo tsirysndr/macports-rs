@@ -5,7 +5,7 @@ use std::{collections::BTreeMap, path::Path, sync::OnceLock};
 const OPTIONS: &str = "binpath auto_path clonebin_path extra_env portdbformat portarchivetype portimage_mode hfscompression portautoclean porttrace portverbose keeplogs destroot_umask release_urls release_version_urls rsync_server rsync_options rsync_dir startupitem_autostart startupitem_type startupitem_install place_worksymlink xcodeversion xcodebuildcmd xcodecltversion xcode_license_unaccepted configureccache ccache_size configuredistcc configurepipe buildnicevalue buildmakejobs universal_archs build_arch macosx_sdk_version macosx_deployment_target macportsuser proxy_override_env proxy_http proxy_https proxy_ftp proxy_rsync proxy_skip master_site_local patch_site_local archive_site_local fetch_credentials fetch_threads buildfromsource revupgrade_autorun revupgrade_mode revupgrade_check_id_loadcmds host_blacklist preferred_hosts sandbox_enable sandbox_network delete_la_files cxx_stdlib default_compilers pkg_post_unarchive_deletions ui_interactive";
 const PATHS: &str = "applications_dir archive_sites_conf ccache_dir developer_dir frameworks_dir packagemaker_path portdbpath prefix pubkeys_conf sources_conf variants_conf";
 
-#[derive(Default, Debug)]
+#[derive(Clone, Default, Debug)]
 pub struct Config {
     values: BTreeMap<String, String>,
 }
@@ -108,6 +108,7 @@ impl Config {
     }
 }
 
+mod archives;
 mod paths;
 pub use paths::Paths;
 
