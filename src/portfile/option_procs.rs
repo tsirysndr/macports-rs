@@ -13,8 +13,20 @@ pub(super) fn install(interp: &mut Interp, id: ContextID) -> MoltResult {
         "universal_variant",
         "use_configure",
         "os.universal_supported",
-    ] {
+    ]
+    .into_iter()
+    .chain(UPSTREAM_OPTIONS)
+    {
         commands::register(interp, id, name);
+    }
+    for (name, value) in UPSTREAM_DEFAULTS {
+        if !interp.var_exists(&(*name).into()) {
+            defaults::register(interp, id, name, value)?;
+            interp
+                .context::<State>(id)
+                .execution_defaults
+                .insert((*name).into());
+        }
     }
     let supported = if interp.var_exists(&"os.subplatform".into()) {
         "[expr {${os.subplatform} eq \"macosx\"}]"
@@ -30,6 +42,97 @@ pub(super) fn install(interp: &mut Interp, id: ContextID) -> MoltResult {
     }
     Ok(Value::empty())
 }
+
+/// PortSystem options declared across port1.0 that other modules do not own.
+const UPSTREAM_OPTIONS: [&str; 56] = [
+    "activate.asroot",
+    "build.type.add_deps",
+    "bzr.revision",
+    "bzr.url",
+    "copy_log_files",
+    "cvs.date",
+    "cvs.method",
+    "cvs.module",
+    "cvs.password",
+    "cvs.root",
+    "cvs.tag",
+    "deactivate.asroot",
+    "depends",
+    "depends_skip_archcheck",
+    "distcheck.type",
+    "distpath",
+    "filesdir",
+    "git.branch",
+    "git.cmd",
+    "git.url",
+    "hg.cmd",
+    "hg.tag",
+    "hg.url",
+    "install.asroot",
+    "install.group",
+    "install.user",
+    "installs_libs",
+    "known_fail",
+    "libpath",
+    "license_noconflict",
+    "load.asroot",
+    "os.arch",
+    "os.endian",
+    "os.major",
+    "os.minor",
+    "os.platform",
+    "os.subplatform",
+    "os.version",
+    "portdbpath",
+    "portsandbox_active",
+    "portsandbox_profile",
+    "portsandbox_supported",
+    "prefix",
+    "provides",
+    "reload.asroot",
+    "sources_conf",
+    "svn.method",
+    "svn.revision",
+    "svn.url",
+    "uninstall.asroot",
+    "universal_possible",
+    "unload.asroot",
+    "use_xcode",
+    "worksrcdir",
+    "worksrcpath",
+    "destpath",
+];
+
+const UPSTREAM_DEFAULTS: &[(&str, &str)] = &[
+    ("activate.asroot", "no"),
+    ("build.type.add_deps", "yes"),
+    ("bzr.revision", "-1"),
+    ("cvs.method", "export"),
+    ("cvs.module", "${distname}"),
+    ("distcheck.type", "moddate"),
+    (
+        "git.cmd",
+        "[findBinary git ${portutil::autoconf::git_path}]",
+    ),
+    ("portutil::autoconf::git_path", "/usr/bin/git"),
+    ("hg.cmd", "[findBinary hg ${portutil::autoconf::hg_path}]"),
+    ("portutil::autoconf::hg_path", ""),
+    ("hg.tag", "tip"),
+    ("install.asroot", "no"),
+    ("install.user", "${portutil::autoconf::install_user}"),
+    ("install.group", "${portutil::autoconf::install_group}"),
+    ("portutil::autoconf::install_user", "root"),
+    ("portutil::autoconf::install_group", "admin"),
+    ("svn.method", "export"),
+    ("uninstall.asroot", "no"),
+    (
+        "universal_possible",
+        "[expr {${os.universal_supported} && [llength ${configure.universal_archs}] >= 2}]",
+    ),
+    ("portsandbox_supported", "0"),
+    ("portsandbox_active", "0"),
+    ("portsandbox_profile", ""),
+];
 
 fn option_proc(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 2, 0, "option ?proc ...?")?;
