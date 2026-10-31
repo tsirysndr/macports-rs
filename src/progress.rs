@@ -15,6 +15,13 @@ pub struct Progress {
     color: bool,
     terminal: bool,
     pauses: Arc<Mutex<usize>>,
+    log: Arc<Mutex<Option<LogFile>>>,
+}
+
+/// A port's main.log, in upstream's `:priority:phase message` line format.
+struct LogFile {
+    file: std::fs::File,
+    phase: String,
 }
 impl Progress {
     pub fn new(quiet: bool) -> Self {
@@ -30,7 +37,39 @@ impl Progress {
             terminal,
             pauses: Arc::new(Mutex::new(0)),
             color: terminal && std::env::var_os("NO_COLOR").is_none(),
+            log: Arc::new(Mutex::new(None)),
         }
+    }
+    /// Start a fresh main.log; later messages and process output go to it too.
+    pub fn open_log(&self, path: &std::path::Path) -> std::io::Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let file = std::fs::File::create(path)?;
+        *self.log.lock().expect("log lock") = Some(LogFile {
+            file,
+            phase: "main".into(),
+        });
+        Ok(())
+    }
+    pub fn close_log(&self) {
+        *self.log.lock().expect("log lock") = None;
+    }
+    pub fn set_log_phase(&self, phase: &str) {
+        if let Some(log) = self.log.lock().expect("log lock").as_mut() {
+            log.phase = phase.to_string();
+        }
+    }
+    pub fn log(&self, priority: &str, text: &str) {
+        use std::io::Write;
+        if let Some(log) = self.log.lock().expect("log lock").as_mut() {
+            for line in text.split('\n') {
+                let _ = writeln!(log.file, ":{priority}:{} {line}", log.phase);
+            }
+        }
+    }
+    pub fn logging(&self) -> bool {
+        self.log.lock().expect("log lock").is_some()
     }
     pub(crate) fn color_enabled(&self) -> bool {
         self.color
@@ -48,6 +87,7 @@ impl Progress {
         self.phase_with_prefix("--->", message);
     }
     pub fn phase_with_prefix(&self, prefix: &str, message: &str) {
+        self.log("msg", &format!("{prefix}  {message}"));
         if !self.quiet {
             let arrow = console::style(sanitize(prefix))
                 .true_color(PRIMARY_RGB.0, PRIMARY_RGB.1, PRIMARY_RGB.2)
@@ -63,10 +103,19 @@ impl Progress {
     }
     /// Warnings remain visible in quiet mode and coexist with download bars.
     pub fn warning(&self, message: &str) {
-        self.message(&format!("Warning: {message}"));
+        self.log("warn", message);
+        self.print(&format!("Warning: {message}"));
+    }
+    pub fn error(&self, message: &str) {
+        self.log("error", message);
+        self.print(&format!("Error: {message}"));
     }
     /// Unconditional plain message, including details accompanying a warning.
     pub fn message(&self, message: &str) {
+        self.log("msg", message);
+        self.print(message);
+    }
+    fn print(&self, message: &str) {
         let message = sanitize(message);
         if self.terminal && !self.quiet {
             let _ = self.bars.println(message);
@@ -89,6 +138,82 @@ impl Progress {
         }
     }
 }
+/// Copies a build's labelled output into the port log as `:info:` lines.
+pub(crate) struct LogTee<'a, W> {
+    inner: &'a mut W,
+    progress: &'a Progress,
+    label: String,
+    pending: Vec<u8>,
+}
+impl<'a, W> LogTee<'a, W> {
+    pub fn new(inner: &'a mut W, progress: &'a Progress, label: String) -> Self {
+        Self {
+            inner,
+            progress,
+            label,
+            pending: Vec::new(),
+        }
+    }
+    fn line(&self, bytes: &[u8]) {
+        let text = strip_ansi(&String::from_utf8_lossy(bytes));
+        let text = text.trim_end_matches('\r');
+        let text = text.strip_prefix(&self.label).unwrap_or(text);
+        self.progress.log("info", text);
+    }
+}
+impl<W: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for LogTee<'_, W> {
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        let written = std::task::ready!(std::pin::Pin::new(&mut *self.inner).poll_write(cx, buf))?;
+        self.pending.extend_from_slice(&buf[..written]);
+        while let Some(end) = self.pending.iter().position(|byte| *byte == b'\n') {
+            let line: Vec<u8> = self.pending.drain(..=end).collect();
+            self.line(&line[..end]);
+        }
+        std::task::Poll::Ready(Ok(written))
+    }
+    fn poll_flush(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut *self.inner).poll_flush(cx)
+    }
+    fn poll_shutdown(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut *self.inner).poll_shutdown(cx)
+    }
+}
+impl<W> Drop for LogTee<'_, W> {
+    fn drop(&mut self) {
+        if !self.pending.is_empty() {
+            let pending = std::mem::take(&mut self.pending);
+            self.line(&pending);
+        }
+    }
+}
+fn strip_ansi(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' && chars.peek() == Some(&'[') {
+            chars.next();
+            for c in chars.by_ref() {
+                if c.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+        } else {
+            result.push(c);
+        }
+    }
+    result
+}
+
 pub(crate) struct PausedBars(Progress);
 impl Drop for PausedBars {
     fn drop(&mut self) {
@@ -188,6 +313,32 @@ fn sanitize(text: &str) -> String {
 mod tests {
     use super::*;
     #[test]
+    fn log_tee_strips_labels_and_colors_into_info_lines() {
+        use tokio::io::AsyncWriteExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("logs/main.log");
+        let progress = Progress::new(true);
+        progress.open_log(&path).unwrap();
+        progress.set_log_phase("build");
+        let mut sink = Vec::new();
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(async {
+                let mut tee = LogTee::new(&mut sink, &progress, "-> build app: ".into());
+                tee.write_all(b"\x1b[1m-> build app: \x1b[0mcc -c a.c\r\n-> build app: partial")
+                    .await
+                    .unwrap();
+            });
+        progress.warning("careful");
+        progress.close_log();
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            ":info:build cc -c a.c\n:info:build partial\n:warn:build careful\n"
+        );
+        assert!(sink.starts_with(b"\x1b[1m-> build app"));
+    }
+    #[test]
     fn templates_are_valid() {
         for color in [false, true] {
             for known in [false, true] {
@@ -264,6 +415,7 @@ mod tests {
             color: false,
             terminal: true,
             pauses: Arc::new(Mutex::new(0)),
+            log: Arc::new(Mutex::new(None)),
         };
         let first = progress.file("curl.tar.xz");
         let second = progress.clone().file("git.tar.gz");

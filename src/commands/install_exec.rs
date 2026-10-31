@@ -123,9 +123,15 @@ pub(super) fn run_specs(
             .get(&item.port.name)
             .cloned()
             .unwrap_or_else(|| PortSpec::named(&item.port.name));
+        let keeplogs = host
+            .context
+            .variables
+            .get("keeplogs")
+            .is_some_and(|value| matches!(value.as_str(), "yes" | "1" | "true" | "on"));
         let label = super::phase::prepare(session, &host, &worker, &item.port.name)?;
         super::phase::run_targets(session, &label, &super::phase::ORDER)?;
         label.set(crate::build::Phase::Destroot);
+        host.progress.set_log_phase("install");
         let portfile =
             fs::read_to_string(Path::new(&session.scalar("portpath")?).join("Portfile"))?;
         // Hold the registry write lock only while this port installs.
@@ -177,6 +183,15 @@ pub(super) fn run_specs(
             },
         )?;
         notes.extend(session.take_notifications());
+        // Successful installs drop their log unless keeplogs is set.
+        host.progress.close_log();
+        if !keeplogs {
+            let logs = Path::new(&session.scalar("portdbpath")?)
+                .join("logs")
+                .join(session.scalar("portpath")?.replace('/', "_"));
+            let _ = fs::remove_dir_all(logs.join(session.scalar("subport")?));
+            let _ = fs::remove_dir(&logs);
+        }
     }
     if !notes.is_empty() && !quiet {
         writeln!(out, "--->  Some of the ports you installed have notes:")?;

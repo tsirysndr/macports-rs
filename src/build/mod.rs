@@ -82,6 +82,12 @@ pub async fn run_status(
 ) -> Result<ProcessResult> {
     let _paused = progress.pause_bars();
     let prefix = log::prefix(port, phase, progress.color_enabled());
+    if progress.logging() {
+        let mut stderr = tokio::io::stderr();
+        let mut tee =
+            crate::progress::LogTee::new(&mut stderr, progress, log::prefix(port, phase, false));
+        return process::run(command, port, phase, &prefix, &mut tee).await;
+    }
     process::run(command, port, phase, &prefix, &mut tokio::io::stderr()).await
 }
 /// Stream plain-text logs to a caller-owned sink. Each read is flushed, without

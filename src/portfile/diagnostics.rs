@@ -28,10 +28,9 @@ fn message(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
         .unwrap_or_else(|| crate::progress::Progress::new(false));
     match argv[0].as_str() {
         "ui_warn" => progress.warning(text),
-        "ui_error" => progress.message(&format!("Error: {text}")),
+        "ui_error" => progress.error(text),
         "ui_msg" | "ui_notice" => progress.message(text),
-        // Info and debug output belong to verbose logs, which are not kept yet.
-        _ => {}
+        command => progress.log(command.trim_start_matches("ui_"), text),
     }
     // ui_error reports a diagnostic; it does not raise a Tcl exception.
     Ok(Value::empty())

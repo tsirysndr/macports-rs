@@ -44,6 +44,14 @@ pub(super) fn prepare(
     name: &str,
 ) -> Result<Label> {
     session.set_progress(host.progress.clone());
+    let logs = std::path::PathBuf::from(session.scalar("portdbpath")?)
+        .join("logs")
+        .join(session.scalar("portpath")?.replace('/', "_"))
+        .join(session.scalar("subport")?);
+    if let Err(err) = host.progress.open_log(&logs.join("main.log")) {
+        host.progress
+            .warning(&format!("cannot open log {}: {err}", logs.display()));
+    }
     session.set_proxies(Some(host.context.proxies.clone()));
     session.set_mirror_worker(worker.clone());
     let progress = host.progress.clone();
@@ -73,6 +81,9 @@ pub(super) fn prepare(
 pub(super) fn run_targets(session: &mut Session, label: &Label, targets: &[&str]) -> Result<()> {
     for target in targets {
         label.set(label_for(target));
+        if let Some(progress) = session.progress() {
+            progress.set_log_phase(target);
+        }
         let item = session.scalar(&format!("org.macports.{target}"))?;
         session.run_prepared_target(&item, false)?;
     }

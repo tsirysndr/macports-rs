@@ -159,3 +159,73 @@ pub(super) fn set_requested(registry_path: &Path, args: Ports, requested: bool) 
     }
     Ok(())
 }
+
+#[derive(Args)]
+pub struct Log {
+    /// Only show messages from this phase
+    #[arg(long)]
+    phase: Option<String>,
+    /// Show messages up to this priority (error, warn, msg, notice, info, debug)
+    #[arg(long)]
+    level: Option<String>,
+    #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
+    ports: Vec<String>,
+}
+
+const PRIORITIES: [&str; 7] = ["error", "warn", "msg", "notice", "info", "debug", "any"];
+
+/// `port log`: print a port's main.log filtered by phase and priority.
+pub(super) fn log(out: &mut impl Write, index: &Index, args: Log, root: &Path) -> Result<()> {
+    let root = std::fs::canonicalize(root)?;
+    let host = super::local::Host::new(&root, None, true)?;
+    let portdbpath = host
+        .context
+        .variables
+        .get("portdbpath")
+        .cloned()
+        .unwrap_or_default();
+    let priorities: Option<&[&str]> = args.level.as_deref().map(|level| {
+        match PRIORITIES.iter().position(|priority| *priority == level) {
+            Some(index) => &PRIORITIES[..=index],
+            None => &[][..],
+        }
+    });
+    for spec in query::specifications(index, &args.ports)? {
+        let port = query::lookup(index, &spec.name)?;
+        let portdir = root.join(port.get("portdir"));
+        let path = port_path(&portdbpath, "logs", &portdir, &port.name).join("main.log");
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            bail!("Log file for port {} not found", port.name);
+        };
+        for line in text.lines() {
+            let Some((priority, rest)) =
+                line.strip_prefix(':').and_then(|line| line.split_once(':'))
+            else {
+                continue;
+            };
+            let Some((phase, message)) = rest.split_once(' ') else {
+                continue;
+            };
+            let lowercase =
+                |word: &str| !word.is_empty() && word.chars().all(|c| c.is_ascii_lowercase());
+            let priority_matches = match priorities {
+                Some(allowed) => priority == "any" || allowed.contains(&priority),
+                None => lowercase(priority),
+            };
+            let phase_matches = match &args.phase {
+                Some(wanted) => phase == "any" || phase == wanted,
+                None => lowercase(phase),
+            };
+            if priority_matches && phase_matches {
+                let prefix = match priority {
+                    "debug" => "DEBUG: ",
+                    "error" => "Error: ",
+                    "warn" => "Warning: ",
+                    _ => "",
+                };
+                writeln!(out, "{prefix}{message}")?;
+            }
+        }
+    }
+    Ok(())
+}

@@ -29,6 +29,7 @@ use_configure no
 {depends}
 notes "{name} is ready"
 build {{}}
+pre-destroot {{ ui_debug "staging {name}" }}
 destroot {{
     xinstall -d ${{destroot}}${{prefix}}/share/{name}
     system "echo {name}-{version} > ${{destroot}}${{prefix}}/share/{name}/version"
@@ -163,4 +164,32 @@ fn installs_dependencies_first_then_upgrades_and_removes_old_images() {
     tree.ok(&["uninstall", "app"]);
     tree.ok(&["uninstall", "lib"]);
     assert!(!tree.file("share/lib/version").exists());
+}
+
+#[test]
+fn phase_logs_are_filtered_by_phase_and_level_and_dropped_after_install() {
+    let tree = Tree::new();
+    tree.ok(&["destroot", "lib"]);
+    let log = tree.ok(&["log", "lib"]);
+    assert!(log.contains("--->  Staging lib"), "{log}");
+    assert!(log.contains("DEBUG: staging lib"), "{log}");
+    let destroot = tree.ok(&["log", "--phase", "destroot", "lib"]);
+    assert!(
+        destroot.contains("DEBUG: staging lib") && !destroot.contains("Extracting"),
+        "{destroot}"
+    );
+    let messages = tree.ok(&["log", "--level", "msg", "lib"]);
+    assert!(
+        messages.contains("Staging lib") && !messages.contains("DEBUG"),
+        "{messages}"
+    );
+    assert!(
+        tree.ok(&["logfile", "lib"])
+            .trim_end()
+            .ends_with("main.log")
+    );
+    tree.ok(&["install", "lib"]);
+    let missing = tree.run(&["log", "lib"]);
+    assert!(!missing.status.success());
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("Log file for port lib not found"));
 }

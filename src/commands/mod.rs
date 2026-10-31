@@ -89,6 +89,8 @@ pub enum Command {
     File(portcmds::Ports),
     /// Print the path to a port's main build log
     Logfile(portcmds::Ports),
+    /// Show a port's build log, optionally filtered by phase and level
+    Log(portcmds::Log),
     /// Open a port's homepage in the default browser
     Gohome(portcmds::Ports),
     /// Show a port's notes
@@ -317,6 +319,9 @@ impl Session {
                 args,
                 &root,
             )?;
+        } else if let Command::Log(args) = command {
+            let root = local::root(index_file, false, "log")?.unwrap();
+            portcmds::log(&mut out, self.index(index_file, quiet)?, args, &root)?;
         } else if let Command::Upgrade(args) = command {
             let root = local::root(index_file, false, "upgrade")?.unwrap();
             let path = registry_file
@@ -458,6 +463,7 @@ impl Session {
                 | Command::Upgrade(_)
                 | Command::Sync
                 | Command::Select(_)
+                | Command::Log(_)
                 | Command::Selfupdate { .. }
                 | Command::Location(_)
                 | Command::Space(_)

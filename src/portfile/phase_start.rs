@@ -9,6 +9,9 @@ impl Session {
     pub fn set_progress(&mut self, progress: Progress) {
         self.interp.context::<State>(self.id).progress = Some(progress);
     }
+    pub fn progress(&mut self) -> Option<Progress> {
+        self.interp.context::<State>(self.id).progress.clone()
+    }
 }
 pub(super) fn install(interp: &mut Interp, id: ContextID) {
     interp.add_context_command("portbuild::build_start", build, id);
