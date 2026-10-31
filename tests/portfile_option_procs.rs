@@ -106,3 +106,30 @@ fn undescribed_variants_use_tree_descriptions() {
     );
     assert_eq!(variants["other"].description, "");
 }
+
+#[test]
+fn variable_traces_fire_for_writes_reads_and_unsets() {
+    let mut s = open(
+        r#"
+        set seen {}
+        proc watch {name index op} {global seen; lappend seen "$op:$name"}
+        trace add variable watched {write unset} watch
+        set watched 1
+        set watched 2
+        unset watched
+        trace add variable other read watch
+        set other x
+        set copy $other
+        trace remove variable other read watch
+        set copy $other
+    "#,
+    );
+    assert_eq!(
+        s.scalar("seen").unwrap(),
+        "write:watched write:watched unset:watched read:other"
+    );
+    assert!(
+        s.invoke("trace", &["add", "command", "x", "y", "z"])
+            .is_err()
+    );
+}

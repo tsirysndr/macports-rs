@@ -140,6 +140,7 @@ struct State {
     /// until a Portfile assigns a value.
     execution_defaults: BTreeSet<String>,
     option_procs: BTreeMap<String, Vec<String>>,
+    variable_traces: BTreeMap<String, Vec<(Vec<String>, String)>>,
     tracing: BTreeSet<String>,
     callbacks: Vec<String>,
     variant_descriptions: Option<BTreeMap<String, String>>,
@@ -323,6 +324,7 @@ fn open(
     compilers::install(&mut interp, id).map_err(failure)?;
     build_defaults::register_paths(&mut interp, id).map_err(failure)?;
     build_defaults::register_execution(&mut interp, id).map_err(failure)?;
+    startupitem::initialize(&mut interp, id).map_err(failure)?;
     option_procs::install(&mut interp, id).map_err(failure)?;
     build_phase::install(&mut interp, id);
     test_phase::install(&mut interp, id);

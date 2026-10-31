@@ -35,19 +35,15 @@ pub(super) fn run(
     root: Option<&Path>,
 ) -> Result<()> {
     let specs = query::specifications(index, &args.ports)?;
-    let variables = super::local::variables(root)?;
+    let host = root
+        .map(|root| super::local::Host::new(root, None, true))
+        .transpose()?;
     let evaluated = root
-        .map(|root| {
+        .zip(host.as_ref())
+        .map(|(root, host)| {
             specs
                 .iter()
-                .map(|spec| {
-                    crate::portfile::evaluate_from_tree(
-                        root,
-                        query::lookup(index, &spec.name)?,
-                        &variables,
-                        spec,
-                    )
-                })
+                .map(|spec| host.evaluate(root, query::lookup(index, &spec.name)?, spec))
                 .collect::<Result<Vec<_>>>()
         })
         .transpose()?;
@@ -87,9 +83,10 @@ pub(super) fn run(
                         let mut requested = spec.clone();
                         requested.name = indexed.name.clone();
                         requested.version = None;
-                        let value = crate::portfile::evaluate_from_tree(
-                            root, indexed, &variables, &requested,
-                        )?;
+                        let value = host
+                            .as_ref()
+                            .expect("local evaluation has a host")
+                            .evaluate(root, indexed, &requested)?;
                         crate::dependencies::of(&value.port, filter)
                     })
                 } else {

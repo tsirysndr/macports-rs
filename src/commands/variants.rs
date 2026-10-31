@@ -25,14 +25,17 @@ pub(super) fn run(
     root: Option<&Path>,
 ) -> Result<()> {
     let specs = query::specifications(index, &args.ports)?;
-    let variables = super::local::variables(root)?;
+    let host = root
+        .map(|root| super::local::Host::new(root, None, true))
+        .transpose()?;
     let width = usize::from(console::Term::stdout().size().1).max(40);
     let rendered = specs
         .iter()
         .map(|spec| {
             let port = query::lookup(index, &spec.name)?;
             let evaluated = root
-                .map(|root| crate::portfile::evaluate_from_tree(root, port, &variables, spec))
+                .zip(host.as_ref())
+                .map(|(root, host)| host.evaluate(root, port, spec))
                 .transpose()?;
             let port = evaluated.as_ref().map(|value| &value.port).unwrap_or(port);
             render(port, spec, quiet, width)

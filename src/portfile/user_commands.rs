@@ -616,9 +616,16 @@ fn strsed(_: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
     let text = argv[1].as_str();
     let expression = argv[2].as_str();
     let mut characters = expression.chars();
-    if characters.next() != Some('s') {
-        return Err(error("strsed: only s/// expressions are supported"));
-    }
+    // `s/a/b/[g]` substitutes once (or globally); `g/a/b/` always globally.
+    let leading_global = match characters.next() {
+        Some('s') => false,
+        Some('g') => true,
+        _ => {
+            return Err(error(
+                "strsed: only s/// and g/// expressions are supported",
+            ));
+        }
+    };
     let delimiter = characters
         .next()
         .ok_or_else(|| error("strsed: bad expression"))?;
@@ -642,7 +649,7 @@ fn strsed(_: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
     if parts.len() < 3 {
         return Err(error("strsed: bad expression"));
     }
-    let global = parts[2].contains('g');
+    let global = leading_global || parts[2].contains('g');
     // Basic regular expressions: \( \) groups and literal + ? | { }.
     let mut pattern = String::new();
     let mut chars = parts[0].chars().peekable();

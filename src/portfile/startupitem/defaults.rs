@@ -34,6 +34,7 @@ pub(in crate::portfile) fn initialize(interp: &mut Interp, id: ContextID) -> Mol
         let name = format!("startupitem.{name}");
         if !interp.var_exists(&name.clone().into()) {
             crate::portfile::defaults::register(interp, id, &name, value)?;
+            interp.context::<State>(id).execution_defaults.insert(name);
         }
     }
     Ok(Value::empty())

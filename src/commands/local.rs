@@ -24,15 +24,6 @@ pub(super) fn root(index: Option<&Path>, indexed: bool, action: &str) -> Result<
     Ok(Some(PathBuf::from(".")))
 }
 
-/// Host facts merged with macports.conf values and defaults, as every
-/// upstream Portfile interpreter receives them.
-pub(super) fn variables(root: Option<&Path>) -> Result<BTreeMap<String, String>> {
-    let Some(root) = root else {
-        return Ok(BTreeMap::new());
-    };
-    Ok(Host::new(root, None, true)?.context.variables)
-}
-
 fn host_variables(root: Option<&Path>) -> Result<BTreeMap<String, String>> {
     if root.is_none() {
         return Ok(BTreeMap::new());
@@ -109,5 +100,15 @@ impl Host {
         )?;
         session.set_mirror_timings(self.context.mirror_timings.clone());
         Ok(session)
+    }
+
+    /// Metadata for one port, evaluated as `install` would open it.
+    pub fn evaluate(
+        &self,
+        root: &Path,
+        port: &crate::index::Port,
+        spec: &crate::spec::PortSpec,
+    ) -> Result<crate::portfile::Evaluation> {
+        Ok(self.open(root, port, spec)?.into_metadata())
     }
 }

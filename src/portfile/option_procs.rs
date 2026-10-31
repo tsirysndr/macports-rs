@@ -11,6 +11,7 @@ pub(super) fn install(interp: &mut Interp, id: ContextID) -> MoltResult {
     interp.add_context_command("variant_delete", variant_delete, id);
     interp.add_context_command("options_export", options_export, id);
     interp.add_context_command("options::export", export, id);
+    interp.add_context_command("trace", trace, id);
     interp.context::<State>(id).option_procs.extend(
         EXPORTED
             .iter()
@@ -220,6 +221,95 @@ fn handlers(interp: &mut Interp, id: ContextID, name: &str) -> Option<Vec<String
     state.option_procs.get(name).cloned()
 }
 
+/// `trace add|remove|info variable name ?ops cmd?` for global variables.
+fn trace(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(1, argv, 4, 6, "option type name ?ops command?")?;
+    if argv[2].as_str() != "variable" {
+        return Err(error(format!("trace {} is not supported", argv[2])));
+    }
+    let name = argv[3].as_str().trim_start_matches("::").to_string();
+    let state = interp.context::<State>(id);
+    match (argv[1].as_str(), argv.len()) {
+        ("add", 6) => {
+            let ops = argv[4].as_list()?.iter().map(Value::to_string).collect();
+            state
+                .variable_traces
+                .entry(name)
+                .or_default()
+                .push((ops, argv[5].to_string()));
+            Ok(Value::empty())
+        }
+        ("remove", 6) => {
+            let ops: Vec<String> = argv[4].as_list()?.iter().map(Value::to_string).collect();
+            if let Some(traces) = state.variable_traces.get_mut(&name)
+                && let Some(position) = traces
+                    .iter()
+                    .position(|(o, command)| *o == ops && command == argv[5].as_str())
+            {
+                traces.remove(position);
+            }
+            Ok(Value::empty())
+        }
+        ("info", 4) => Ok(Value::from(
+            state
+                .variable_traces
+                .get(&name)
+                .map(|traces| {
+                    traces
+                        .iter()
+                        .map(|(ops, command)| {
+                            Value::from(vec![
+                                Value::from(
+                                    ops.iter()
+                                        .map(|o| Value::from(o.as_str()))
+                                        .collect::<Vec<_>>(),
+                                ),
+                                Value::from(command.as_str()),
+                            ])
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default(),
+        )),
+        _ => Err(error(
+            "wrong # args: should be \"trace add|remove|info variable name ?ops command?\"",
+        )),
+    }
+}
+
+fn variable_traces(interp: &mut Interp, id: ContextID, name: &str, op: &str) -> Vec<String> {
+    let state = interp.context::<State>(id);
+    if state.variable_traces.is_empty() || state.tracing.contains(name) {
+        return Vec::new();
+    }
+    state
+        .variable_traces
+        .get(name)
+        .map(|traces| {
+            traces
+                .iter()
+                .filter(|(ops, _)| ops.iter().any(|o| o == op))
+                .map(|(_, command)| command.clone())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn fire_traces(interp: &mut Interp, id: ContextID, name: &str, op: &str) -> Result<(), Exception> {
+    let commands = variable_traces(interp, id, name, op);
+    if commands.is_empty() {
+        return Ok(());
+    }
+    interp.context::<State>(id).tracing.insert(name.into());
+    let result = commands.into_iter().try_for_each(|command| {
+        let mut words = Value::from(command).as_list()?.to_vec();
+        words.extend([Value::from(name), Value::empty(), Value::from(op)]);
+        call(interp, words).map(|_| ())
+    });
+    interp.context::<State>(id).tracing.remove(name);
+    if op == "unset" { Ok(()) } else { result }
+}
+
 fn call(interp: &mut Interp, words: Vec<Value>) -> MoltResult {
     interp.with_global_scope(|interp| interp.eval_value(&Value::from(words)))
 }
@@ -227,6 +317,7 @@ fn call(interp: &mut Interp, words: Vec<Value>) -> MoltResult {
 /// Run read traces before a global option is read. As with Tcl traces, the
 /// option's own traces are suspended while its handlers run.
 pub(super) fn on_read(interp: &mut Interp, id: ContextID, name: &str) -> Result<(), Exception> {
+    fire_traces(interp, id, name, "read")?;
     let Some(procs) = handlers(interp, id, name) else {
         return Ok(());
     };
@@ -244,6 +335,12 @@ pub(super) fn on_change(
     name: &str,
     change: ScalarChange,
 ) -> Result<(), Exception> {
+    let op = if change == ScalarChange::Write {
+        "write"
+    } else {
+        "unset"
+    };
+    fire_traces(interp, id, name, op)?;
     let Some(procs) = handlers(interp, id, name) else {
         return Ok(());
     };
@@ -281,8 +378,14 @@ fn register_callback(interp: &mut Interp, id: ContextID, argv: &[Value]) -> Molt
 fn run_callbacks(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 1, 1, "")?;
     let callbacks = std::mem::take(&mut interp.context::<State>(id).callbacks);
+    // Upstream calls each callback from the run_callbacks procedure; keep that
+    // frame so callbacks' relative uplevels resolve identically.
+    let frame = Value::from(vec![
+        Value::from(vec![Value::from("callback")]),
+        Value::from("$callback"),
+    ]);
     for callback in callbacks {
-        call(interp, vec![callback.into()])?;
+        call(interp, vec!["apply".into(), frame.clone(), callback.into()])?;
     }
     Ok(Value::empty())
 }

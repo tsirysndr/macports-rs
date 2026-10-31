@@ -223,3 +223,11 @@ fn mutations_require_an_execution_session() {
         assert!(s.invoke(command, &["x", "y"]).is_err(), "{command}");
     }
 }
+
+#[test]
+fn strsed_supports_leading_global_form() {
+    let root = tempfile::tempdir().unwrap();
+    let mut s = session(root.path());
+    assert_eq!(eval(&mut s, "strsed chi_sim {g/_/-/}"), "chi-sim");
+    assert_eq!(eval(&mut s, "strsed a_b_c {s/_/-/}"), "a-b_c");
+}
