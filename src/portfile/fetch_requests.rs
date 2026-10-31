@@ -24,6 +24,7 @@ fn fetch_files(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult
     if requests.is_empty() {
         return Ok(Value::empty());
     }
+    let options = interp.with_global_scope(options)?;
     let state = interp.context::<State>(id);
     let progress = state
         .progress
@@ -38,6 +39,7 @@ fn fetch_files(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult
                     .build()?
                     .block_on(crate::install::source::download(
                         &requests,
+                        &options,
                         &progress,
                         proxies.as_deref(),
                     ))
@@ -47,6 +49,30 @@ fn fetch_files(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult
     })
     .map_err(|err| error(format!("{err:#}")))?;
     Ok(Value::empty())
+}
+fn options(interp: &mut Interp) -> Result<crate::install::source::Options, Exception> {
+    let mut text = |name: &str| -> Result<String, Exception> {
+        Ok(if interp.var_exists(&name.into()) {
+            interp.scalar(name)?.to_string()
+        } else {
+            String::new()
+        })
+    };
+    let (user, password) = (text("fetch.user")?, text("fetch.password")?);
+    let ignore = text("fetch.ignore_sslcert")?;
+    let remote = text("fetch.remote_time")?;
+    let agent = text("fetch.user_agent")?;
+    let prefix = text("UI_PREFIX")?;
+    let flag = |value: &str| -> Result<bool, Exception> {
+        Ok(!value.is_empty() && Value::from(value).as_bool()?)
+    };
+    Ok(crate::install::source::Options {
+        credentials: (!user.is_empty() || !password.is_empty()).then_some((user, password)),
+        ignore_sslcert: flag(&ignore)?,
+        remote_time: flag(&remote)?,
+        user_agent: (!agent.is_empty()).then_some(agent),
+        prefix,
+    })
 }
 fn requests(interp: &mut Interp) -> Result<Vec<Request>, Exception> {
     let candidates = interp.scalar("portfetch::fetch_urls")?.as_list()?;
@@ -73,7 +99,9 @@ fn requests(interp: &mut Interp) -> Result<Vec<Request>, Exception> {
         let sites =
             fetch_selection::sites(interp, pair[0].as_str(), "master_sites", false)?.as_list()?;
         let mut urls = Vec::new();
+        let mut assembled_sites = Vec::new();
         for site in sites.iter() {
+            assembled_sites.push(site.to_string());
             urls.push(
                 interp
                     .eval_value(&Value::from(vec![
@@ -88,6 +116,7 @@ fn requests(interp: &mut Interp) -> Result<Vec<Request>, Exception> {
             filename: filename.into(),
             destination: path.into(),
             urls,
+            sites: assembled_sites,
         });
     }
     Ok(result)

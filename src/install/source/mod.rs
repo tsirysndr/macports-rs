@@ -3,11 +3,23 @@ use std::path::PathBuf;
 pub mod checksum;
 mod download;
 pub use download::run as download;
+/// Per-port `fetch.*` transport options.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Options {
+    pub credentials: Option<(String, String)>,
+    pub ignore_sslcert: bool,
+    pub remote_time: bool,
+    pub user_agent: Option<String>,
+    /// Prefix for "Attempting to fetch" notices; empty disables them.
+    pub prefix: String,
+}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Request {
     pub filename: String,
     pub destination: PathBuf,
     pub urls: Vec<String>,
+    /// The site each URL was assembled from, for progress notices.
+    pub sites: Vec<String>,
 }
 /// Match MacPorts' percent_encode character-code formatting, including its
 /// historical non-ASCII behavior; do not normalize the supplied mirror URL.

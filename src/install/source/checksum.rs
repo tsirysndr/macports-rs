@@ -50,7 +50,7 @@ pub fn parse(words: &[String], distfiles: &[String]) -> Table {
     let is_kind = |word: Option<&String>| word.is_some_and(|word| word.parse::<Kind>().is_ok());
     let mut words = words.to_vec();
     if let [only] = distfiles
-        && words.len() % 2 == 0
+        && words.len().is_multiple_of(2)
         && words.len() / 2 <= 5
         && is_kind(words.first())
     {
