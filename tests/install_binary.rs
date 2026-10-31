@@ -498,6 +498,8 @@ fn registration_and_activation_run_in_separate_hook_boundaries() {
         let work = tempfile::tempdir().unwrap();
         let root = tempfile::tempdir().unwrap();
         let database = tempfile::tempdir().unwrap();
+        let runtime = tempfile::tempdir().unwrap();
+        let runtime_work = runtime.path().join("build/app/work");
         let store = Store::open(software.path()).unwrap();
         let registry_path = database.path().join("registry.db");
         let mut registry = Writer::create(&registry_path).unwrap();
@@ -511,13 +513,18 @@ fn registration_and_activation_run_in_separate_hook_boundaries() {
             limits: Limits::default(),
             progress: &progress,
         };
-        let mut session = Session::open(
-            r#"
+        let source = r#"
             name app; version 1; set events {}
             proc portinstall::install_start args {}
             proc portactivate::activate_start args {}
             proc portactivate::activate_finish args {}
-            pre-install {lappend events pre-install}
+            pre-install {
+                if {![info exists target_state_fd]} {error "missing owned state"}
+                if {$env(HOME) ne "$workpath/.home"} {error "wrong HOME"}
+                if {$env(TMPDIR) ne "$workpath/.tmp"} {error "wrong TMPDIR"}
+                if {$env(DEVELOPER_DIR) ne "/selected/Developer"} {error "wrong developer"}
+                lappend events pre-install
+            }
             post-install {
                 if {![info exists image_id]} {error "not registered"}
                 if {[file exists $payload]} {error "activated too early"}
@@ -532,8 +539,29 @@ fn registration_and_activation_run_in_separate_hook_boundaries() {
                 if {![file exists $payload]} {error "payload not activated"}
                 lappend events post-activate
             }
-        "#,
+        "#;
+        fs::write(runtime.path().join("Portfile"), source).unwrap();
+        let mut session = Session::open(
+            source,
             &BTreeMap::from([
+                ("portpath".into(), runtime.path().to_str().unwrap().into()),
+                (
+                    "portdbpath".into(),
+                    database.path().to_str().unwrap().into(),
+                ),
+                (
+                    "portbuildpath".into(),
+                    runtime.path().join("build").to_str().unwrap().into(),
+                ),
+                (
+                    "subbuildpath".into(),
+                    runtime.path().join("build/app").to_str().unwrap().into(),
+                ),
+                ("workpath".into(), runtime_work.to_str().unwrap().into()),
+                (
+                    "configure.developer_dir".into(),
+                    "/selected/Developer".into(),
+                ),
                 (
                     "payload".into(),
                     root.path().join("opt/local/app").to_str().unwrap().into(),
@@ -550,15 +578,11 @@ fn registration_and_activation_run_in_separate_hook_boundaries() {
         session
             .enable_system(&BTreeMap::new(), |_| panic!("no subprocess expected"))
             .unwrap();
-        let fd = session
-            .attach_build_state(StateFile::open(&database.path().join("state"), None).unwrap())
-            .unwrap();
         let install = session.scalar("org.macports.install").unwrap();
         let activate = session.scalar("org.macports.activate").unwrap();
         let mut pending = None;
-        let result = session.execute_target_with_native_body(
+        let result = session.run_prepared_target_with_native_body(
             &install,
-            Some(&fd),
             false,
             "portinstall::install_main",
             |session| {
@@ -569,6 +593,17 @@ fn registration_and_activation_run_in_separate_hook_boundaries() {
                 Ok(())
             },
         );
+        // The prepared runner owns the state lock across hooks and releases it
+        // even when post-install fails after committing an inactive image.
+        let mut state = StateFile::try_open(&runtime_work.join(".macports.app.state"), None)
+            .unwrap()
+            .expect("prepared target released its state lock");
+        // Install is an always-run target: neither outcome records completion.
+        assert!(!state.contains("target", "org.macports.install").unwrap());
+        drop(state);
+        for key in ["target_state_fd", "env(TMPDIR)", "env(DEVELOPER_DIR)"] {
+            assert_eq!(session.invoke("info", &["exists", key]).unwrap(), "0");
+        }
         let db = rusqlite::Connection::open(&registry_path).unwrap();
         assert_eq!(
             db.query_row("SELECT state FROM ports", [], |r| r.get::<_, String>(0))
@@ -594,9 +629,8 @@ fn registration_and_activation_run_in_separate_hook_boundaries() {
         } else {
             result.unwrap();
             session
-                .execute_target_with_native_body(
+                .run_prepared_target_with_native_body(
                     &activate,
-                    None,
                     false,
                     "portactivate::activate_main",
                     |_| {
