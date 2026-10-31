@@ -9,7 +9,18 @@ pub struct Phase {
     ports: Vec<String>,
 }
 
-/// Run `main`, `fetch` and, when requested, `checksum` for each port in order.
+const ORDER: [&str; 8] = [
+    "main",
+    "fetch",
+    "checksum",
+    "extract",
+    "patch",
+    "configure",
+    "build",
+    "destroot",
+];
+
+/// Run the requested source phase and its prerequisites for each port in order.
 pub(super) fn run(
     index: &Index,
     registry_file: Option<&Path>,
@@ -18,11 +29,10 @@ pub(super) fn run(
     quiet: bool,
     root: &Path,
 ) -> Result<()> {
-    let phases: &[&str] = match target {
-        "fetch" => &["main", "fetch"],
-        "checksum" => &["main", "fetch", "checksum"],
-        _ => bail!("unsupported phase {target}"),
+    let Some(end) = ORDER.iter().position(|phase| *phase == target) else {
+        bail!("unsupported phase {target}");
     };
+    let phases = &ORDER[..=end];
     let mut specs = query::specifications(index, &args.ports)?;
     let host = super::local::Host::new(root, registry_file, quiet)?;
     let worker =
@@ -37,10 +47,14 @@ pub(super) fn run(
         let progress = host.progress.clone();
         let name = spec.name.clone();
         let directory = std::env::current_dir()?;
-        let phase = if target == "fetch" {
-            build::Phase::Fetch
-        } else {
-            build::Phase::Checksum
+        let phase = match target {
+            "fetch" => build::Phase::Fetch,
+            "checksum" => build::Phase::Checksum,
+            "extract" => build::Phase::Extract,
+            "patch" => build::Phase::Patch,
+            "configure" => build::Phase::Configure,
+            "build" => build::Phase::Build,
+            _ => build::Phase::Destroot,
         };
         session.enable_system(&host.context.environment, move |request| {
             let command = request.into_command(&directory)?;

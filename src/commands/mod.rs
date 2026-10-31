@@ -72,6 +72,16 @@ pub enum Command {
     Fetch(phase::Phase),
     /// Fetch and verify distfile checksums for ports in a local ports tree
     Checksum(phase::Phase),
+    /// Extract distfiles for ports in a local ports tree
+    Extract(phase::Phase),
+    /// Apply patches for ports in a local ports tree
+    Patch(phase::Phase),
+    /// Configure ports in a local ports tree
+    Configure(phase::Phase),
+    /// Build ports in a local ports tree
+    Build(phase::Phase),
+    /// Stage ports into their destroot in a local ports tree
+    Destroot(phase::Phase),
     #[command(external_subcommand)]
     Unsupported(Vec<String>),
 }
@@ -156,10 +166,22 @@ impl Session {
             }
         } else if let Command::Download(args) = command {
             download::run(&mut out, args, quiet)?;
-        } else if let Command::Fetch(_) | Command::Checksum(_) = command {
+        } else if let Command::Fetch(_)
+        | Command::Checksum(_)
+        | Command::Extract(_)
+        | Command::Patch(_)
+        | Command::Configure(_)
+        | Command::Build(_)
+        | Command::Destroot(_) = command
+        {
             let (target, args) = match command {
                 Command::Fetch(args) => ("fetch", args),
                 Command::Checksum(args) => ("checksum", args),
+                Command::Extract(args) => ("extract", args),
+                Command::Patch(args) => ("patch", args),
+                Command::Configure(args) => ("configure", args),
+                Command::Build(args) => ("build", args),
+                Command::Destroot(args) => ("destroot", args),
                 _ => unreachable!(),
             };
             let root = local::root(index_file, false, target)?.unwrap();
@@ -242,6 +264,11 @@ impl Session {
                 | Command::Download(_)
                 | Command::Fetch(_)
                 | Command::Checksum(_)
+                | Command::Extract(_)
+                | Command::Patch(_)
+                | Command::Configure(_)
+                | Command::Build(_)
+                | Command::Destroot(_)
                 | Command::Location(_)
                 | Command::Space(_)
                 | Command::Deps(_)

@@ -45,6 +45,8 @@ impl ProcessResult {
 pub enum Phase {
     Fetch,
     Checksum,
+    Extract,
+    Patch,
     Configure,
     Build,
     Test,
@@ -55,6 +57,8 @@ impl Phase {
         match self {
             Self::Fetch => "fetching",
             Self::Checksum => "verifying",
+            Self::Extract => "extracting",
+            Self::Patch => "patching",
             Self::Configure => "configuring",
             Self::Build => "building",
             Self::Test => "testing",
