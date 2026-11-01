@@ -1,5 +1,5 @@
 //! Native application of the directory-only mtree format used by MacPorts.
-//! Ownership changes are reserved for the privileged installation worker.
+//! Ownership is applied only when running as root, as `mtree -U` can.
 use anyhow::{Context, Result, bail, ensure};
 use std::{
     collections::BTreeMap,
@@ -12,6 +12,7 @@ use std::{
 struct Entry {
     path: PathBuf,
     mode: u32,
+    attrs: BTreeMap<String, String>,
 }
 
 /// A validated directory specification. Parsing completes before any mutation.
@@ -85,7 +86,7 @@ impl DirectorySpec {
             let mode = u32::from_str_radix(raw, 8).context("invalid mtree octal mode")?;
             ensure!(mode <= 0o7777, "invalid mtree mode {raw}");
             current = Some(path.clone());
-            entries.push(Entry { path, mode });
+            entries.push(Entry { path, mode, attrs });
         }
         ensure!(!entries.is_empty(), "empty mtree directory specification");
         Ok(Self { entries })
@@ -100,6 +101,30 @@ impl DirectorySpec {
             unsafe { libc::getuid() != 0 && libc::geteuid() != 0 },
             "privileged mtree ownership requires the installation worker"
         );
+        self.apply_modes(root)
+    }
+
+    /// `mtree -e -U`: as root, also give each directory its specified owner
+    /// and group; otherwise the caller keeps ownership.
+    pub fn apply(&self, root: &Path) -> Result<()> {
+        self.apply_modes(root)?;
+        // SAFETY: identity queries have no preconditions.
+        if unsafe { libc::geteuid() } != 0 {
+            return Ok(());
+        }
+        for entry in &self.entries {
+            let (uid, gid) = owner(&entry.attrs)?;
+            if uid.is_none() && gid.is_none() {
+                continue;
+            }
+            let path = root.join(&entry.path);
+            std::os::unix::fs::lchown(&path, uid, gid)
+                .with_context(|| format!("cannot set owner of {}", path.display()))?;
+        }
+        Ok(())
+    }
+
+    fn apply_modes(&self, root: &Path) -> Result<()> {
         ensure!(
             fs::symlink_metadata(root)?.file_type().is_dir(),
             "mtree root must be a physical directory"
@@ -139,6 +164,41 @@ impl DirectorySpec {
         }
         Ok(())
     }
+}
+/// The ids named by `uid`/`uname` and `gid`/`gname`, numeric ids first.
+fn owner(attrs: &BTreeMap<String, String>) -> Result<(Option<u32>, Option<u32>)> {
+    use std::ffi::CString;
+    let uid = match (attrs.get("uid"), attrs.get("uname")) {
+        (Some(uid), _) => Some(uid.parse().context("invalid mtree uid")?),
+        (None, Some(name)) => {
+            let name = CString::new(name.as_str())?;
+            // SAFETY: the name is NUL terminated; the record is read immediately.
+            let record = unsafe { libc::getpwnam(name.as_ptr()) };
+            ensure!(
+                !record.is_null(),
+                "unknown mtree user {}",
+                name.to_string_lossy()
+            );
+            Some(unsafe { (*record).pw_uid })
+        }
+        (None, None) => None,
+    };
+    let gid = match (attrs.get("gid"), attrs.get("gname")) {
+        (Some(gid), _) => Some(gid.parse().context("invalid mtree gid")?),
+        (None, Some(name)) => {
+            let name = CString::new(name.as_str())?;
+            // SAFETY: the name is NUL terminated; the record is read immediately.
+            let record = unsafe { libc::getgrnam(name.as_ptr()) };
+            ensure!(
+                !record.is_null(),
+                "unknown mtree group {}",
+                name.to_string_lossy()
+            );
+            Some(unsafe { (*record).gr_gid })
+        }
+        (None, None) => None,
+    };
+    Ok((uid, gid))
 }
 fn attributes<'a>(
     words: impl Iterator<Item = &'a str>,

@@ -8,8 +8,8 @@ use std::{
 };
 
 impl StageContext<'_> {
-    /// Populate an already prepared, private destroot using installed MacPorts
-    /// directory specifications. Cleanup, mask setup, and startup items belong
+    /// Populate an already prepared destroot using installed MacPorts directory
+    /// specifications, as `mtree -e -U` (with ownership when run as root). Cleanup, mask setup, and startup items belong
     /// to the surrounding destroot_start lifecycle.
     pub fn prepare_destroot_hierarchy(&mut self) -> Result<()> {
         check_supported(self.interp, self.id)?;
@@ -19,10 +19,6 @@ impl StageContext<'_> {
                 .system_executor
                 .is_some(),
             "destroot preparation requires an execution-enabled session"
-        );
-        ensure!(
-            unsafe { libc::getuid() != 0 && libc::geteuid() != 0 },
-            "privileged mtree ownership requires the installation worker"
         );
         let root = PathBuf::from(self.scalar("destroot")?);
         ensure!(
@@ -48,12 +44,12 @@ impl StageContext<'_> {
             .creation_mask
             .context("creation mask is not initialized")?;
         if let Some((spec, applications, frameworks)) = platform {
-            spec.apply_unprivileged(&root)?;
+            spec.apply(&root)?;
             crate::build::directories::create_all(&applications, Some(mask))?;
             crate::build::directories::create_all(&frameworks, Some(mask))?;
         }
         crate::build::directories::create_all(&prefix, Some(mask))?;
-        prefix_spec.apply_unprivileged(&prefix)?;
+        prefix_spec.apply(&prefix)?;
         Ok(())
     }
 }
