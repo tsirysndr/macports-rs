@@ -3,6 +3,7 @@
 //! these primitives. Receipts provide in-process rollback, not crash recovery.
 use super::inspect::Timestamp;
 use anyhow::{Context, Result, ensure};
+use std::collections::HashMap;
 use std::{
     ffi::CString,
     fs::{File, OpenOptions},
@@ -14,7 +15,7 @@ use std::{
     },
     path::{Component, Path, PathBuf},
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicU64, Ordering},
     },
 };
@@ -22,6 +23,9 @@ static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 
 pub struct Root {
     directory: File,
+    /// Parent directories opened so far, shared by the receipts below them so
+    /// large images need one descriptor per file rather than two.
+    parents: Mutex<HashMap<PathBuf, Arc<File>>>,
 }
 impl Root {
     /// Read a physical regular file through held parent descriptors. O_NONBLOCK
@@ -53,7 +57,10 @@ impl Root {
             .read(true)
             .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
             .open(path)?;
-        Ok(Self { directory })
+        Ok(Self {
+            directory,
+            parents: Mutex::new(HashMap::new()),
+        })
     }
     /// Publish complete bytes and mode atomically without replacing an existing
     /// destination. Parents must already exist as physical directories. Dropping
@@ -317,7 +324,7 @@ impl Root {
         published.parent.sync_all()?;
         Ok(published)
     }
-    fn parent(&self, path: &Path) -> Result<(File, CString)> {
+    fn parent(&self, path: &Path) -> Result<(Arc<File>, CString)> {
         ensure!(
             !path.as_os_str().is_empty()
                 && path.components().all(|c| matches!(c, Component::Normal(_))),
@@ -325,6 +332,14 @@ impl Root {
         );
         let mut components: Vec<_> = path.components().collect();
         let name = CString::new(components.pop().unwrap().as_os_str().as_bytes())?;
+        let key: PathBuf = components.iter().collect();
+        let mut parents = self
+            .parents
+            .lock()
+            .map_err(|_| anyhow::anyhow!("publication parent cache is poisoned"))?;
+        if let Some(parent) = parents.get(&key) {
+            return Ok((Arc::clone(parent), name));
+        }
         let mut parent = self.directory.try_clone()?;
         for component in components {
             let name = CString::new(component.as_os_str().as_bytes())?;
@@ -343,6 +358,8 @@ impl Root {
             // SAFETY: openat returned a new owned descriptor.
             parent = unsafe { File::from_raw_fd(fd) };
         }
+        let parent = Arc::new(parent);
+        parents.insert(key, Arc::clone(&parent));
         Ok((parent, name))
     }
 }
@@ -386,7 +403,7 @@ impl PublishedDirectory {
 /// A published inode held pending registry commit. Rollback refuses to unlink a
 /// replacement inode. Explicit rollback reports failures; Drop is best effort.
 pub struct PublishedFile {
-    parent: File,
+    parent: Arc<File>,
     name: CString,
     device: u64,
     inode: u64,
@@ -521,8 +538,8 @@ impl Drop for PublishedFile {
         }
     }
 }
-fn temporary(parent: &File) -> Result<(Arc<File>, PublishedFile)> {
-    let parent = parent.try_clone()?;
+fn temporary(parent: &Arc<File>) -> Result<(Arc<File>, PublishedFile)> {
+    let parent = Arc::clone(parent);
     for _ in 0..128 {
         let sequence = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
         let name = CString::new(format!(

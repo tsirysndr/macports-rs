@@ -204,12 +204,48 @@ fn run() -> anyhow::Result<bool> {
     Ok(ok)
 }
 
+/// Activating a large image holds a descriptor per published file until the
+/// registry commits; lift the soft limit (256 under sudo) to what macOS allows.
+fn raise_file_limit() {
+    let mut maximum: libc::c_int = 0;
+    let mut size = std::mem::size_of::<libc::c_int>();
+    // SAFETY: the name is NUL terminated and the output buffer matches its size.
+    let per_process = unsafe {
+        libc::sysctlbyname(
+            c"kern.maxfilesperproc".as_ptr(),
+            (&mut maximum as *mut libc::c_int).cast(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    } == 0;
+    let mut limit = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    // SAFETY: getrlimit initializes the struct; setrlimit only reads it.
+    unsafe {
+        if libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) != 0 {
+            return;
+        }
+        let mut wanted = limit.rlim_max;
+        if per_process && maximum > 0 {
+            wanted = wanted.min(maximum as libc::rlim_t);
+        }
+        if wanted > limit.rlim_cur {
+            limit.rlim_cur = wanted;
+            libc::setrlimit(libc::RLIMIT_NOFILE, &limit);
+        }
+    }
+}
+
 fn main() {
     // SAFETY: this is the first operation in main, before CLI dispatch creates
     // runtimes or starts concurrent downloads/build work.
     unsafe {
         port_rs::source::capture_creation_mask_before_threads();
     }
+    raise_file_limit();
     // Invoked as `portindex` (a link to this binary), act as that tool.
     let mut args = std::env::args();
     let program = args.next().unwrap_or_default();

@@ -946,6 +946,39 @@ fn install_skips_build_dependencies_of_ports_with_archives() {
 }
 
 #[test]
+fn install_activates_images_with_more_files_than_the_default_descriptor_limit() {
+    let tree = Tree::new();
+    let directory = tree.root.join("ports/devel/many");
+    tree.port("many", "1", "");
+    fs::write(
+        directory.join("Portfile"),
+        portfile("many", "1", "").replace(
+            "    system \"echo many-1",
+            "    for {set i 0} {$i < 600} {incr i} {\n        xinstall -d ${destroot}${prefix}/share/many/d[expr {$i % 3}]\n        system \"touch ${destroot}${prefix}/share/many/d[expr {$i % 3}]/f$i\"\n    }\n    system \"echo many-1",
+        ),
+    )
+    .unwrap();
+    let output = Command::new("/bin/sh")
+        .arg("-c")
+        .arg("ulimit -Sn 256 && exec \"$0\" \"$@\"")
+        .arg(env!("CARGO_BIN_EXE_port"))
+        .arg("--index-file")
+        .arg(tree.root.join("ports/PortIndex"))
+        .args(["install", "many"])
+        .env("PORTSRC", tree.root.join("macports.conf"))
+        .env("HOME", &tree.root)
+        .env("NO_COLOR", "1")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(tree.file("share/many/d2/f599").is_file());
+}
+
+#[test]
 fn packages_build_installer_pkgs_meta_packages_and_disk_images() {
     let tree = Tree::new();
     tree.ok(&["pkg", "app"]);
