@@ -286,9 +286,26 @@ pub(super) fn available(host: &Host, session: &mut Session, machine: &Platform) 
                     .timeout(std::time::Duration::from_secs(30))
                     .build()
                     .ok()?;
+                // As upstream, the archive and its signature must both exist at
+                // one site; some mirrors answer missing files with an HTML page.
+                let exists = |url: String| {
+                    let request = client.head(url);
+                    async move {
+                        request.send().await.is_ok_and(|response| {
+                            response.status().is_success()
+                                && response.content_length() != Some(0)
+                                && !response
+                                    .headers()
+                                    .get(reqwest::header::CONTENT_TYPE)
+                                    .and_then(|value| value.to_str().ok())
+                                    .is_some_and(|value| value.starts_with("text/html"))
+                        })
+                    }
+                };
                 for url in &urls {
-                    if let Ok(response) = client.head(url).send().await
-                        && response.status().is_success()
+                    if exists(url.clone()).await
+                        && (exists(format!("{url}.sig")).await
+                            || exists(format!("{url}.rmd160")).await)
                     {
                         return Some(url.clone());
                     }
