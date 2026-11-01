@@ -47,6 +47,22 @@ its Portfiles; the downloaded index alone only supports indexed queries. A tree
 without an index can be indexed with `portindex` (or by listing it as a
 `file://` source in `sources.conf` and running `port sync`).
 
+## Binary archives
+
+`port install` prefers signed binary archives from the MacPorts package
+servers. A port whose archive is available needs only its runtime
+dependencies, so build-only dependencies are skipped. All archives an install
+needs are downloaded concurrently before installation starts, up to four
+transfers at a time. Set `fetch_threads` in `macports.conf` to change the
+limit (1 to 128):
+
+```
+fetch_threads 8
+```
+
+Ports without an archive, or whose download fails, are built from source.
+`-s` always builds from source and `-b` requires binaries.
+
 ## Development
 
 ```sh
