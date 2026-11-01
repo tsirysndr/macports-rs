@@ -282,8 +282,8 @@ pub(super) fn available(host: &Host, session: &mut Session, machine: &Platform) 
         .and_then(|runtime| {
             runtime.block_on(async {
                 let client = reqwest::Client::builder()
-                    .connect_timeout(std::time::Duration::from_secs(10))
-                    .timeout(std::time::Duration::from_secs(30))
+                    .connect_timeout(std::time::Duration::from_secs(5))
+                    .timeout(std::time::Duration::from_secs(15))
                     .build()
                     .ok()?;
                 // As upstream, the archive and its signature must both exist at
@@ -307,12 +307,19 @@ pub(super) fn available(host: &Host, session: &mut Session, machine: &Platform) 
                         })
                     }
                 };
-                for url in &urls {
-                    if exists(url.clone()).await
-                        && (exists(format!("{url}.sig")).await
-                            || exists(format!("{url}.rmd160")).await)
-                    {
-                        return Some(url.clone());
+                // Ask every site at once; the first complete answer wins.
+                let mut probes: futures_util::stream::FuturesUnordered<_> = urls
+                    .iter()
+                    .map(|url| async move {
+                        let found = exists(url.clone()).await
+                            && (exists(format!("{url}.sig")).await
+                                || exists(format!("{url}.rmd160")).await);
+                        found.then(|| url.clone())
+                    })
+                    .collect();
+                while let Some(result) = futures_util::StreamExt::next(&mut probes).await {
+                    if result.is_some() {
+                        return result;
                     }
                 }
                 None

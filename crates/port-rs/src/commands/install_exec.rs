@@ -108,9 +108,18 @@ pub(super) fn run_specs(
     let mut requested_specs = BTreeMap::new();
     let machine = crate::source::detect_platform()?;
     let plan = install::plan_install_sessions(index, &specs, registry.as_ref(), |port, spec| {
+        let first = !requested_specs.contains_key(&port.name);
         requested_specs
             .entry(port.name.clone())
             .or_insert_with(|| spec.clone());
+        if first
+            && specs
+                .iter()
+                .any(|requested| requested.name.eq_ignore_ascii_case(&port.name))
+        {
+            host.progress
+                .phase(&format!("Computing dependencies for {}", port.name));
+        }
         let mut session = host.open(root, port, spec)?;
         let binary = super::archivefetch::available(&host, &mut session, &machine);
         Ok((session, binary))
