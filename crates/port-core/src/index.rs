@@ -276,7 +276,7 @@ mod tests {
     fn subset_parses_only_requested_records() {
         let s = record("Curl", "name Curl version 8")
             + &record("{odd name}", "name {odd name} version 1")
-            + "zlib 9\n{broken\n";
+            + &record("zlib", "{broken");
         let index = Index::parse_subset(&s, &["curl", "odd name"]).unwrap();
         assert_eq!(index.ports().len(), 2);
         assert_eq!(index.lookup("curl").unwrap().get("version"), "8");

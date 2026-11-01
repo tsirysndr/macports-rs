@@ -80,7 +80,7 @@ command, both binaries interleaved:
 | `port rdeps curl`         |   724 ms |  555 ms |    1.3× |
 | `port echo all`           |  1622 ms |  118 ms |   13.7× |
 | `port installed`          |    64 ms |    6 ms |   10.4× |
-| `port outdated`           |    78 ms |   92 ms |    0.9× |
+| `port outdated`           |    87 ms |   22 ms |    4.0× |
 
 Commands that only read the registry start in a few milliseconds, and
 `installed` and `outdated` parse only the index records of installed ports.
