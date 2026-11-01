@@ -329,3 +329,20 @@ async fn concurrent_children_use_independent_creation_masks() {
         0o644
     );
 }
+#[tokio::test]
+async fn an_empty_directory_inherits_the_current_one_without_entering_it() {
+    let mut output = Vec::new();
+    build::run_to(
+        &command(Path::new(""), "/bin/pwd -P"),
+        "git",
+        Phase::Build,
+        &mut output,
+    )
+    .await
+    .unwrap();
+    let current = std::env::current_dir().unwrap().canonicalize().unwrap();
+    assert_eq!(
+        String::from_utf8(output).unwrap(),
+        format!("-> building git: {}\n", current.display())
+    );
+}

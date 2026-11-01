@@ -56,9 +56,12 @@ pub(super) async fn run(
             });
         }
     }
+    // An empty directory inherits ours.
+    if !command.directory.as_os_str().is_empty() {
+        builder.current_dir(&command.directory);
+    }
     let mut child = builder
         .args(&command.args)
-        .current_dir(&command.directory)
         .envs(&command.environment)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
