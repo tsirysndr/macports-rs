@@ -371,6 +371,9 @@ impl PublishedDirectory {
     pub fn set_times(&self, atime: Option<Timestamp>, mtime: Timestamp) -> Result<()> {
         self.entry.set_times(atime, mtime)
     }
+    pub fn set_flags(&self, flags: u32) -> Result<()> {
+        self.entry.set_flags(flags)
+    }
     pub fn persist(self) {
         self.entry.persist();
     }
@@ -452,6 +455,17 @@ impl PublishedFile {
         if unsafe { libc::futimens(self._anchor.as_raw_fd(), times.as_ptr()) } != 0 {
             return Err(io::Error::last_os_error())
                 .context("cannot restore publication timestamps");
+        }
+        Ok(())
+    }
+    /// Apply BSD file flags (chflags) to the held inode; none is a no-op.
+    pub fn set_flags(&self, flags: u32) -> Result<()> {
+        if flags == 0 {
+            return Ok(());
+        }
+        // SAFETY: the receipt owns this descriptor for the syscall.
+        if unsafe { libc::fchflags(self._anchor.as_raw_fd(), flags) } != 0 {
+            return Err(io::Error::last_os_error()).context("cannot restore publication flags");
         }
         Ok(())
     }

@@ -138,6 +138,88 @@ fn fetch_signify(
     archives.pop().context("archive fetch returned nothing")
 }
 
+/// Whether a binary archive exists for the evaluated port (upstream
+/// `_archive_available`): a verified local archive, or one an archive site
+/// answers for.
+pub(super) fn available(host: &Host, session: &mut Session, machine: &Platform) -> bool {
+    if super::archive_mode() == super::ArchiveMode::SourceOnly {
+        return false;
+    }
+    let evaluation = session.metadata().clone();
+    let item = Item {
+        port: &evaluation.port,
+        variants: evaluation.enabled.clone(),
+        variants_resolved: true,
+        provider_fallbacks: Vec::new(),
+        requested: false,
+        action: install::Action::Install,
+    };
+    let urls = (|| -> Result<Vec<String>> {
+        let target = Target::from_session(session, machine)?;
+        let filename = target.filename(&item)?;
+        if let Some(portdbpath) = host.context.variables.get("portdbpath")
+            && Path::new(portdbpath)
+                .join("incoming/verified")
+                .join(&filename)
+                .is_file()
+        {
+            return Ok(Vec::new());
+        }
+        let selection = session
+            .archive_selection()?
+            .context("no archive sites are configured")?;
+        let mut urls = selection
+            .request_from_session(session, &target, &item, MAX_ARCHIVE_BYTES)
+            .map(|prepared| prepared.request.urls)
+            .unwrap_or_default();
+        if let Ok(legacy) = selection.legacy_request(session, &target, &item) {
+            urls.extend(legacy.urls);
+        }
+        ensure!(!urls.is_empty(), "no archive URLs");
+        Ok(urls)
+    })();
+    let urls = match urls {
+        Ok(urls) if urls.is_empty() => return true,
+        Ok(urls) => urls,
+        Err(err) => {
+            host.progress.log(
+                "debug",
+                &format!("no archive for {}: {err:#}", evaluation.port.name),
+            );
+            return false;
+        }
+    };
+    let found = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .ok()
+        .and_then(|runtime| {
+            runtime.block_on(async {
+                let client = reqwest::Client::builder()
+                    .connect_timeout(std::time::Duration::from_secs(10))
+                    .timeout(std::time::Duration::from_secs(30))
+                    .build()
+                    .ok()?;
+                for url in &urls {
+                    if let Ok(response) = client.head(url).send().await
+                        && response.status().is_success()
+                    {
+                        return Some(url.clone());
+                    }
+                }
+                None
+            })
+        });
+    host.progress.log(
+        "debug",
+        &match &found {
+            Some(url) => format!("archive for {} is available at {url}", evaluation.port.name),
+            None => format!("no archive found for {}", evaluation.port.name),
+        },
+    );
+    found.is_some()
+}
+
 /// `port archivefetch`: fetch and verify archives into `incoming/verified`.
 pub(super) fn run(index: &Index, ports: &[String], quiet: bool, root: &Path) -> Result<()> {
     let host = Host::new(root, None, quiet)?;

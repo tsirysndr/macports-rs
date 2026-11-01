@@ -1,8 +1,8 @@
 //! Preliminary binary installation planning from indexed or evaluated metadata.
 mod evaluated;
 pub use evaluated::{
-    EvaluatedPlan, SessionPlan, plan_evaluated, plan_evaluated_with_providers, plan_sessions,
-    plan_source_sessions,
+    EvaluatedPlan, SessionPlan, plan_evaluated, plan_evaluated_with_providers,
+    plan_install_sessions, plan_sessions, plan_source_sessions,
 };
 mod plan;
 pub mod signature;

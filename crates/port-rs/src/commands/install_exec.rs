@@ -106,11 +106,14 @@ pub(super) fn run_specs(
     }
     let registry = host.context.open_registry(registry_file)?;
     let mut requested_specs = BTreeMap::new();
-    let plan = install::plan_source_sessions(index, &specs, registry.as_ref(), |port, spec| {
+    let machine = crate::source::detect_platform()?;
+    let plan = install::plan_install_sessions(index, &specs, registry.as_ref(), |port, spec| {
         requested_specs
             .entry(port.name.clone())
             .or_insert_with(|| spec.clone());
-        host.open(root, port, spec)
+        let mut session = host.open(root, port, spec)?;
+        let binary = super::archivefetch::available(&host, &mut session, &machine);
+        Ok((session, binary))
     })?;
     drop(registry);
     let install::SessionPlan { plan, mut sessions } = plan;
@@ -151,7 +154,6 @@ pub(super) fn run_specs(
         .prefix("port-rs-install.")
         .tempdir_in(&portdbpath)
         .context("cannot create installation staging directory")?;
-    let machine = crate::source::detect_platform()?;
     let worker =
         crate::install::mirror_worker::MirrorWorker::new(host.context.mirror_timings.clone(), 8)?;
 

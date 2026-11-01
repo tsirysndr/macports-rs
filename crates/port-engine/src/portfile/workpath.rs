@@ -116,25 +116,23 @@ fn chown_as_root(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResu
     if unsafe { libc::getuid() } != 0 {
         return Ok(Value::empty());
     }
-    interp.with_global_scope(|interp| {
-        let user = interp.scalar("macports::macportsuser")?;
-        let uid = if let Ok(value) = user.as_int() {
-            value as u32
-        } else {
-            accounts::by_name(user.as_str(), false)
-                .ok()
-                .flatten()
-                .map(|account| account.id)
-                .ok_or_else(|| error(format!("unknown user {user}")))?
-        };
-        let path = PathBuf::from(argv[1].as_str());
-        crate::privileges::as_root(user.as_str(), || {
-            lchown(&path, uid)?;
-            if path.is_dir() {
-                traverse::visit_paths(vec![path], |path| lchown(path, uid))?;
-            }
-            Ok(Value::empty())
-        })
+    let user = Value::from(build_user(interp));
+    let uid = if let Ok(value) = user.as_int() {
+        value as u32
+    } else {
+        accounts::by_name(user.as_str(), false)
+            .ok()
+            .flatten()
+            .map(|account| account.id)
+            .ok_or_else(|| error(format!("unknown user {user}")))?
+    };
+    let path = PathBuf::from(argv[1].as_str());
+    crate::privileges::as_root(user.as_str(), || {
+        lchown(&path, uid)?;
+        if path.is_dir() {
+            traverse::visit_paths(vec![path], |path| lchown(path, uid))?;
+        }
+        Ok(Value::empty())
     })
 }
 fn lchown(path: &Path, uid: u32) -> Result<(), Exception> {

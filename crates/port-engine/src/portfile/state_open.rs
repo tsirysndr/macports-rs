@@ -31,6 +31,10 @@ pub(super) fn open(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltRe
                 || !Path::new(&work).join(".tmp").is_dir()
             {
                 call(interp, &["portutil::create_workpath"])?;
+            } else if foreign_owner(&work, &build_user(interp)) {
+                // A build tree left by a run that kept root ownership.
+                let build = interp.scalar("subbuildpath")?.to_string();
+                call(interp, &["chownAsRoot", &build])?;
             }
             if enabled(interp, "place_worksymlink")? {
                 let link = interp.scalar("worksymlink")?.to_string();
@@ -70,4 +74,17 @@ pub(super) fn open(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltRe
             .map(Value::from)
             .map_err(|err| error(err.to_string()))
     })
+}
+
+/// Started as root, and `path` is not owned by the build account.
+fn foreign_owner(path: &str, user: &str) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    // SAFETY: getuid has no preconditions.
+    if unsafe { libc::getuid() } != 0 {
+        return false;
+    }
+    let Some((uid, _)) = crate::privileges::account(user) else {
+        return false;
+    };
+    fs::symlink_metadata(path).is_ok_and(|metadata| metadata.uid() != uid)
 }

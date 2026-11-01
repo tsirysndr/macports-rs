@@ -108,11 +108,12 @@ impl Tree {
                 .find_map(|line| line.strip_prefix("version "))
                 .unwrap()
                 .trim();
-            let depends = if port == "app" {
-                " depends_lib port:lib"
-            } else {
-                ""
-            };
+            let depends: String = text
+                .lines()
+                .filter(|line| line.starts_with("depends_"))
+                .filter_map(|line| line.split_once(' '))
+                .map(|(field, value)| format!(" {field} {{{value}}}"))
+                .collect();
             let body =
                 format!("name {port} portdir devel/{port} version {version} revision 0{depends}");
             index.push_str(&format!("{port} {}\n{body}\n", body.len() + 1));
@@ -874,6 +875,74 @@ fn install_prefers_signed_archives_and_honors_source_and_binary_only() {
         "{progress}"
     );
     assert!(!progress.contains("Fetching archive"), "{progress}");
+}
+
+#[test]
+fn install_skips_build_dependencies_of_ports_with_archives() {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    use ed25519_compact::{KeyPair, Seed};
+    let tree = Tree::new();
+    tree.port("tool", "1", "build { error \"tool must not be built\" }");
+    tree.port("cli", "1", "depends_build port:tool\ndepends_lib port:lib");
+    tree.ok(&["-s", "archive", "lib"]);
+    let directory = tree.root.join("ports/devel/cli");
+    let portfile = fs::read_to_string(directory.join("Portfile")).unwrap();
+    fs::write(
+        directory.join("Portfile"),
+        portfile.replace("depends_build port:tool\n", ""),
+    )
+    .unwrap();
+    tree.ok(&["-s", "archive", "cli"]);
+    fs::write(directory.join("Portfile"), portfile).unwrap();
+    let key = KeyPair::from_seed(Seed::new([9; 32]));
+    let envelope = |data: &[u8]| {
+        let mut packet = b"Ed12345678".to_vec();
+        packet.extend(data);
+        format!("untrusted comment: test\n{}\n", STANDARD.encode(packet))
+    };
+    let mut files = std::collections::HashMap::new();
+    for port in ["lib", "cli"] {
+        let image = fs::read_dir(tree.root.join("db/software").join(port))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .find(|path| path.extension().is_some_and(|ext| ext == "tbz2"))
+            .unwrap();
+        let filename = image.file_name().unwrap().to_string_lossy().into_owned();
+        let bytes = fs::read(&image).unwrap();
+        let signature = envelope(key.sk.sign(&bytes, None).as_ref());
+        files.insert(format!("/{port}/{filename}.sig"), signature.into_bytes());
+        files.insert(format!("/{port}/{filename}"), bytes);
+    }
+    tree.ok(&["uninstall", "cli"]);
+    tree.ok(&["uninstall", "lib"]);
+    let public = tree.root.join("archives.pub");
+    fs::write(&public, envelope(key.pk.as_ref())).unwrap();
+    let url = serve_files(files);
+    let prefix = tree.root.join("prefix");
+    let fetch = tree.root.join("ports/_resources/port1.0/fetch");
+    fs::create_dir_all(&fetch).unwrap();
+    fs::write(
+        fetch.join("archive_sites.tcl"),
+        format!(
+            "namespace eval ::portfetch::mirror_sites {{\nvariable sites\nset sites(test_archives) {{{url}:nosubdir}}\nvariable archive_type\nset archive_type(test_archives) tbz2\nvariable archive_prefix\nset archive_prefix(test_archives) {p}\nvariable archive_frameworks_dir\nset archive_frameworks_dir(test_archives) {p}/Library/Frameworks\nvariable archive_applications_dir\nset archive_applications_dir(test_archives) {p}/Applications\nvariable archive_cxx_stdlib\nset archive_cxx_stdlib(test_archives) libc++\nvariable archive_delete_la_files\nset archive_delete_la_files(test_archives) yes\nvariable archive_sigtype\nset archive_sigtype(test_archives) sig\nvariable archive_pubkey\nset archive_pubkey(test_archives) {key}\n}}\n",
+            p = prefix.display(),
+            key = public.display()
+        ),
+    )
+    .unwrap();
+
+    let output = tree.run(&["install", "cli"]);
+    let progress = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{progress}");
+    assert!(
+        progress.contains("Fetching archive for cli")
+            && progress.contains("Fetching archive for lib")
+            && !progress.contains("tool"),
+        "{progress}"
+    );
+    let installed = tree.ok(&["installed"]);
+    assert!(installed.contains("cli @1_0 (active)"), "{installed}");
+    assert!(!installed.contains("tool"), "{installed}");
 }
 
 #[test]

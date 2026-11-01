@@ -108,13 +108,6 @@ impl Plan<'_> {
         let mappings = plan.check_registry(transaction, image_id)?;
         for member in plan.image.inspection().members.values() {
             ensure!(
-                member
-                    .attributes
-                    .get("SCHILY.fflags")
-                    .is_none_or(String::is_empty),
-                "archive file flags are not supported by activation yet"
-            );
-            ensure!(
                 member.mode <= 0o7777
                     && member.metadata.uid < u64::from(u32::MAX)
                     && member.metadata.gid < u64::from(u32::MAX),
@@ -167,6 +160,7 @@ impl Plan<'_> {
                 let metadata = &file.member.metadata;
                 receipt.set_owner_mode(metadata.uid, metadata.gid, file.member.mode)?;
                 receipt.set_times(metadata.atime, metadata.mtime)?;
+                receipt.set_flags(file_flags(&file.member.attributes))?;
             }
             for file in &plan.files {
                 if let Kind::Hardlink(target) = &file.member.kind {
@@ -186,6 +180,7 @@ impl Plan<'_> {
                     let metadata = &member.metadata;
                     receipt.set_owner_mode(metadata.uid, metadata.gid, member.mode)?;
                     receipt.set_times(metadata.atime, metadata.mtime)?;
+                    receipt.set_flags(file_flags(&member.attributes))?;
                 } else {
                     // Preserve creation ownership, including inherited groups.
                     receipt.set_mode(0o755)?;
@@ -202,5 +197,48 @@ impl Plan<'_> {
             return Err(error);
         }
         Ok(published)
+    }
+}
+
+/// The chflags bits for an archive member's `SCHILY.fflags` (names as
+/// strtofflags). `compressed` only marks transparent compression, which the
+/// published copy does not carry, and `restricted` belongs to the system.
+fn file_flags(attributes: &BTreeMap<String, String>) -> u32 {
+    let Some(names) = attributes.get("SCHILY.fflags") else {
+        return 0;
+    };
+    names
+        .split(',')
+        .map(|name| match name.trim() {
+            "arch" | "archived" => 0x0001_0000,
+            "opaque" => 0x0000_0008,
+            "nodump" => 0x0000_0001,
+            "sappnd" | "sappend" => 0x0004_0000,
+            "schg" | "schange" | "simmutable" => 0x0002_0000,
+            "sunlnk" | "sunlink" => 0x0010_0000,
+            "uappnd" | "uappend" => 0x0000_0004,
+            "uchg" | "uchange" | "uimmutable" => 0x0000_0002,
+            "hidden" => 0x0000_8000,
+            _ => 0,
+        })
+        .fold(0, |flags, flag| flags | flag)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn archive_flags_skip_compression() {
+        let flags = |value: &str| {
+            file_flags(&BTreeMap::from([(
+                "SCHILY.fflags".to_string(),
+                value.to_string(),
+            )]))
+        };
+        assert_eq!(flags("compressed"), 0);
+        assert_eq!(flags("hidden,compressed"), 0x8000);
+        assert_eq!(flags("uchg,nodump"), 0x3);
+        assert_eq!(file_flags(&BTreeMap::new()), 0);
     }
 }

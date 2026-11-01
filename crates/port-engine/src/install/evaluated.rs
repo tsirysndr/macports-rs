@@ -50,7 +50,7 @@ pub fn plan_evaluated(
     installed: &[Entry],
     load: impl FnMut(&Port, &PortSpec) -> Result<Evaluation>,
 ) -> Result<EvaluatedPlan> {
-    plan_inner(index, specs, installed, RUNTIME, |_, _| Ok(None), load)
+    plan_inner(index, specs, installed, &|_| RUNTIME, |_, _| Ok(None), load)
 }
 
 /// Evaluate only the dependency closure not already satisfied by provider
@@ -68,7 +68,7 @@ pub fn plan_evaluated_with_providers(
         index,
         specs,
         installed,
-        RUNTIME,
+        &|_| RUNTIME,
         |_, dependency| {
             if let Some(value) = decisions.get(dependency) {
                 return Ok(Some(*value));
@@ -94,9 +94,11 @@ pub fn plan_sessions(
     index: &Index,
     specs: &[PortSpec],
     registry: Option<&crate::registry::Registry>,
-    load: impl FnMut(&Port, &PortSpec) -> Result<crate::portfile::Session>,
+    mut load: impl FnMut(&Port, &PortSpec) -> Result<crate::portfile::Session>,
 ) -> Result<SessionPlan> {
-    plan_sessions_for(index, specs, registry, RUNTIME, load)
+    plan_sessions_for(index, specs, registry, false, |port, spec| {
+        Ok((load(port, spec)?, false))
+    })
 }
 
 /// Plan a source installation: every dependency the build phases need must be
@@ -105,9 +107,23 @@ pub fn plan_source_sessions(
     index: &Index,
     specs: &[PortSpec],
     registry: Option<&crate::registry::Registry>,
-    load: impl FnMut(&Port, &PortSpec) -> Result<crate::portfile::Session>,
+    mut load: impl FnMut(&Port, &PortSpec) -> Result<crate::portfile::Session>,
 ) -> Result<SessionPlan> {
-    plan_sessions_for(index, specs, registry, SOURCE, load)
+    plan_sessions_for(index, specs, registry, true, |port, spec| {
+        Ok((load(port, spec)?, false))
+    })
+}
+
+/// Plan an installation as upstream `mportdepends`: ports whose binary
+/// archive is available (the loader's flag) need only their runtime
+/// dependencies; the others need every dependency the build phases use.
+pub fn plan_install_sessions(
+    index: &Index,
+    specs: &[PortSpec],
+    registry: Option<&crate::registry::Registry>,
+    load: impl FnMut(&Port, &PortSpec) -> Result<(crate::portfile::Session, bool)>,
+) -> Result<SessionPlan> {
+    plan_sessions_for(index, specs, registry, true, load)
 }
 
 use plan::RUNTIME;
@@ -124,8 +140,8 @@ fn plan_sessions_for(
     index: &Index,
     specs: &[PortSpec],
     registry: Option<&crate::registry::Registry>,
-    fields: &[&str],
-    mut load: impl FnMut(&Port, &PortSpec) -> Result<crate::portfile::Session>,
+    source: bool,
+    mut load: impl FnMut(&Port, &PortSpec) -> Result<(crate::portfile::Session, bool)>,
 ) -> Result<SessionPlan> {
     use dependencies::provider::{Resolver, Search};
     use std::cell::RefCell;
@@ -136,11 +152,19 @@ fn plan_sessions_for(
     let resolvers = RefCell::new(HashMap::new());
     let mut contexts = HashMap::new();
     let mut sessions = BTreeMap::new();
+    let archived = RefCell::new(HashSet::new());
+    let fields = |port: &Port| -> &'static [&'static str] {
+        if source && !archived.borrow().contains(&port.name) {
+            SOURCE
+        } else {
+            RUNTIME
+        }
+    };
     let plan = plan_inner(
         index,
         specs,
         &installed,
-        fields,
+        &fields,
         |port, dependency| {
             let resolvers = resolvers.borrow();
             let resolver: &Resolver<'_> = resolvers
@@ -149,7 +173,10 @@ fn plan_sessions_for(
             Ok(Some(resolver.probe(dependency)?.is_satisfied()))
         },
         |port, spec| {
-            let mut session = load(port, spec)?;
+            let (mut session, binary) = load(port, spec)?;
+            if binary {
+                archived.borrow_mut().insert(port.name.clone());
+            }
             let search = Search::from_session(&mut session)?;
             let mut resolvers = resolvers.borrow_mut();
             // Different inherited inputs may evaluate a shared port repeatedly.
@@ -178,7 +205,7 @@ fn plan_inner(
     index: &Index,
     specs: &[PortSpec],
     installed: &[Entry],
-    fields: &[&str],
+    fields: &dyn Fn(&Port) -> &'static [&'static str],
     mut probe: impl FnMut(&Port, &str) -> Result<Option<bool>>,
     mut load: impl FnMut(&Port, &PortSpec) -> Result<Evaluation>,
 ) -> Result<EvaluatedPlan> {
@@ -240,7 +267,7 @@ fn plan_inner(
         ) {
             continue;
         }
-        for field in fields {
+        for field in fields(&value.port) {
             for dependency in dependencies::in_field(&value.port, field)? {
                 let context = format!("{}: {field} {}", spec.name, dependency.specification);
                 let key = (value.port.name.clone(), dependency.specification.clone());
