@@ -36,7 +36,13 @@ pub(super) async fn run(
     if !new_session {
         builder.process_group(0);
     }
-    if new_session || nice.is_some() || creation_mask.is_some() {
+    // Started as root with privileges dropped: like upstream's system, the
+    // child becomes the build user entirely, so shells cannot regain root.
+    // SAFETY: identity queries have no preconditions.
+    let identity = unsafe {
+        (libc::getuid() == 0 && libc::geteuid() != 0).then(|| (libc::geteuid(), libc::getegid()))
+    };
+    if new_session || nice.is_some() || creation_mask.is_some() || identity.is_some() {
         // SAFETY: this post-fork hook only uses captured Copy values and leaf OS
         // calls. It does not allocate, acquire locks, or access the Tokio runtime.
         unsafe {
@@ -51,6 +57,11 @@ pub(super) async fn run(
                 }
                 if let Some(mask) = creation_mask {
                     libc::umask(mask as libc::mode_t);
+                }
+                if let Some((uid, gid)) = identity
+                    && (libc::seteuid(0) != 0 || libc::setgid(gid) != 0 || libc::setuid(uid) != 0)
+                {
+                    return Err(std::io::Error::last_os_error());
                 }
                 Ok(())
             });
