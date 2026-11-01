@@ -71,23 +71,23 @@ command, both binaries interleaved:
 
 | Command                   | MacPorts | port-rs | Speedup |
 | ------------------------- | -------: | ------: | ------: |
-| `port version`            |    58 ms |    5 ms |   11.8× |
-| `port info curl`          |   203 ms |  178 ms |    1.1× |
-| `port search --name curl` |   136 ms |  118 ms |    1.2× |
-| `port list curl`          |   160 ms |   97 ms |    1.7× |
-| `port deps curl`          |   186 ms |  177 ms |    1.1× |
-| `port variants curl`      |   183 ms |  170 ms |    1.1× |
-| `port rdeps curl`         |   724 ms |  555 ms |    1.3× |
-| `port echo all`           |  1622 ms |  118 ms |   13.7× |
-| `port installed`          |    64 ms |    6 ms |   10.4× |
-| `port outdated`           |    87 ms |   22 ms |    4.0× |
+| `port version`            |    69 ms |    6 ms |   11.6× |
+| `port info curl`          |   245 ms |   63 ms |    3.9× |
+| `port search --name curl` |   189 ms |  143 ms |    1.3× |
+| `port list curl`          |   198 ms |   26 ms |    7.6× |
+| `port deps curl`          |   273 ms |   58 ms |    4.7× |
+| `port variants curl`      |   222 ms |   66 ms |    3.4× |
+| `port rdeps curl`         |   833 ms |  595 ms |    1.4× |
+| `port echo all`           |  2018 ms |  137 ms |   14.8× |
+| `port installed`          |    83 ms |    8 ms |   10.6× |
+| `port outdated`           |    94 ms |   27 ms |    3.5× |
 
-Commands that only read the registry start in a few milliseconds, and
-`installed` and `outdated` parse only the index records of installed ports.
-Queries over the whole index parse all of it (about 90 ms), where MacPorts
-seeks to one record through `PortIndex.quick`, so single-port lookups gain
-least. Commands that evaluate Portfiles (`info`, `deps`, `variants`)
-spend most of their time in the Tcl interpreter. Reproduce with:
+The index is read lazily: only record boundaries are scanned up front, and a
+port's fields are parsed when it is first looked up, so single-port queries
+(`info`, `deps`, `list`, `outdated`) skip most of the 26 MB PortIndex. Portfile
+evaluation reads the Xcode version from the selected Xcode's `version.plist`
+instead of running `xcodebuild`. Queries that visit every port (`search`,
+`rdeps`) still parse the whole index. Reproduce with:
 
 ```sh
 cargo build --release --locked
