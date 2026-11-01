@@ -79,7 +79,7 @@ fn unsupported(interp: &mut Interp, id: ContextID) -> MoltResult {
         .insert("file attributes".into());
     Err(error("unsupported Portfile command file attributes"))
 }
-fn numeric(text: &str) -> Option<u32> {
+pub(super) fn numeric(text: &str) -> Option<u32> {
     let text = text.trim();
     // Tcl's permission setter retains legacy leading-zero octal independently
     // of Tcl 9's normal decimal integer syntax.

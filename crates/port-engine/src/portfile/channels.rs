@@ -55,7 +55,9 @@ fn open(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
         .map(Value::to_string)
         .unwrap_or_else(|| "r".into());
     let mode = match argv.get(3) {
-        Some(value) => u32::try_from(value.as_int()?).map_err(|_| error("invalid permissions"))?,
+        // Tcl 8.6 reads a leading zero as octal: `open $f w 0755`.
+        Some(value) => super::file_permissions::numeric(value.as_str())
+            .ok_or_else(|| error(format!("expected integer but got \"{value}\"")))?,
         None => 0o666,
     };
     let mut options = OpenOptions::new();

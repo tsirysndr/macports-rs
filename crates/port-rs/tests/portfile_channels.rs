@@ -84,3 +84,21 @@ fn evaluation_may_read_files_but_not_write_them() {
             .is_err()
     );
 }
+
+#[test]
+fn open_reads_leading_zero_permissions_as_octal() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("wrapper");
+    let file = path.to_str().unwrap();
+    let mut s = session(true);
+    s.invoke("eval", &[&format!("close [open {file} w 0755]")])
+        .unwrap();
+    let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+    let mask = unsafe {
+        let mask = libc::umask(0);
+        libc::umask(mask);
+        mask as u32
+    };
+    assert_eq!(mode, 0o755 & !mask);
+}
