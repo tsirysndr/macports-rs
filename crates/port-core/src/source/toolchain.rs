@@ -1,5 +1,9 @@
 //! Lazily detected Xcode and Command Line Tools facts, cached per process.
-use std::{path::Path, process::Command, sync::OnceLock};
+use std::{
+    path::{Path, PathBuf},
+    process::Command,
+    sync::OnceLock,
+};
 
 const CLT: &str = "/Library/Developer/CommandLineTools";
 
@@ -11,12 +15,30 @@ fn output(program: &str, args: &[&str]) -> Option<String> {
         .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
+/// What `xcode-select -print-path` prints, read without running it.
+fn selected_developer_dir() -> Option<PathBuf> {
+    let path = match std::env::var_os("DEVELOPER_DIR").filter(|dir| !dir.is_empty()) {
+        Some(dir) => {
+            let dir = PathBuf::from(dir);
+            if dir.extension().is_some_and(|extension| extension == "app") {
+                dir.join("Contents/Developer")
+            } else {
+                dir
+            }
+        }
+        None => std::fs::read_link("/var/db/xcode_select_link").ok()?,
+    };
+    path.is_absolute().then_some(path)
+}
+
 /// `xcode-select -print-path`, falling back to the upstream default location.
 pub fn developer_dir(darwin_major: u32) -> String {
     static VALUE: OnceLock<String> = OnceLock::new();
     VALUE
         .get_or_init(|| {
-            output("/usr/bin/xcode-select", &["-print-path"])
+            selected_developer_dir()
+                .and_then(|path| path.into_os_string().into_string().ok())
+                .or_else(|| output("/usr/bin/xcode-select", &["-print-path"]))
                 .filter(|path| Path::new(path).is_dir())
                 .unwrap_or_else(|| {
                     if darwin_major < 11 {
@@ -37,6 +59,9 @@ pub fn xcode_version() -> String {
             if !Path::new("/usr/bin/xcodebuild").exists() {
                 return "none".into();
             }
+            if let Some(version) = bundle_xcode_version() {
+                return version;
+            }
             output("/usr/bin/xcodebuild", &["-version"])
                 .and_then(|text| {
                     text.lines()
@@ -46,6 +71,38 @@ pub fn xcode_version() -> String {
                 .unwrap_or_else(|| "none".into())
         })
         .clone()
+}
+
+/// What `xcodebuild -version` reports, from the selected Xcode's version.plist.
+fn bundle_xcode_version() -> Option<String> {
+    let developer = selected_developer_dir()?;
+    if developer == Path::new(CLT) {
+        // xcodebuild refuses to run from the Command Line Tools.
+        return Some("none".into());
+    }
+    let contents = developer
+        .parent()
+        .filter(|_| {
+            developer
+                .file_name()
+                .is_some_and(|name| name == "Developer")
+        })
+        .filter(|contents| contents.file_name().is_some_and(|name| name == "Contents"))?;
+    contents.parent().filter(|bundle| {
+        bundle
+            .extension()
+            .is_some_and(|extension| extension == "app")
+    })?;
+    let plist = std::fs::read_to_string(contents.join("version.plist")).ok()?;
+    let (_, rest) = plist.split_once("<key>CFBundleShortVersionString</key>")?;
+    let rest = rest.trim_start().strip_prefix("<string>")?;
+    let (version, _) = rest.split_once("</string>")?;
+    let version = version.trim();
+    (!version.is_empty()
+        && version
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || byte == b'.'))
+    .then(|| version.to_owned())
 }
 
 pub fn xcodebuild_command() -> String {
