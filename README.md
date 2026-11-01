@@ -60,6 +60,10 @@ limit (1 to 128):
 fetch_threads 8
 ```
 
+The downloaded archives are then unpacked and inspected in parallel, one per
+CPU core. Storing, registering and activating still run one port at a time,
+in dependency order, so activation hooks see the same state as with MacPorts.
+
 Ports without an archive, or whose download fails, are built from source.
 `-s` always builds from source and `-b` requires binaries.
 
