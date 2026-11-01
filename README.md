@@ -63,6 +63,36 @@ fetch_threads 8
 Ports without an archive, or whose download fails, are built from source.
 `-s` always builds from source and `-b` requires binaries.
 
+## Benchmarks
+
+Read-only queries against the same ports tree (42,470 ports) and registry as
+MacPorts 2.12.7, on an Apple M4 (10 cores, macOS 15.6). Best of 20 runs per
+command, both binaries interleaved:
+
+| Command                   | MacPorts | port-rs | Speedup |
+| ------------------------- | -------: | ------: | ------: |
+| `port version`            |    58 ms |    5 ms |   11.8× |
+| `port info curl`          |   203 ms |  178 ms |    1.1× |
+| `port search --name curl` |   136 ms |  118 ms |    1.2× |
+| `port list curl`          |   160 ms |   97 ms |    1.7× |
+| `port deps curl`          |   186 ms |  177 ms |    1.1× |
+| `port variants curl`      |   183 ms |  170 ms |    1.1× |
+| `port rdeps curl`         |   724 ms |  555 ms |    1.3× |
+| `port echo all`           |  1622 ms |  118 ms |   13.7× |
+| `port installed`          |    64 ms |    6 ms |   10.4× |
+| `port outdated`           |    78 ms |   92 ms |    0.9× |
+
+Commands that only read the registry start in a few milliseconds. Queries
+that read the index parse all of it (about 90 ms), where MacPorts seeks to one
+record through `PortIndex.quick`, so single-port lookups such as `outdated`
+gain least. Commands that evaluate Portfiles (`info`, `deps`, `variants`)
+spend most of their time in the Tcl interpreter. Reproduce with:
+
+```sh
+cargo build --release --locked
+python3 scripts/compare.py target/release/port
+```
+
 ## Development
 
 ```sh
