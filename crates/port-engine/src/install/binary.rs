@@ -27,6 +27,8 @@ pub struct Installer<'a> {
     pub root: &'a Path,
     pub limits: Limits,
     pub progress: &'a Progress,
+    /// An image already prepared from the archive the next registration uses.
+    pub prepared: Option<extract::PreparedImage>,
 }
 #[derive(Debug)]
 pub struct InstalledImage {
@@ -70,8 +72,10 @@ impl<'resources> Installer<'resources> {
             item.port.version(),
             item.variants
         ));
-        let prepared =
-            extract::prepare_for_target(archive, item, target, self.staging, self.limits)?;
+        let prepared = match self.prepared.take() {
+            Some(prepared) => extract::reuse_for_target(prepared, archive, item, target)?,
+            None => extract::prepare_for_target(archive, item, target, self.staging, self.limits)?,
+        };
         registration.files = prepared.registry_files()?;
         registration.requested = item.requested;
         self.progress.phase(&format!("Storing {}", item.port.name));

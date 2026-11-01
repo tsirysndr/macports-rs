@@ -87,6 +87,7 @@ fn installs_verified_binary_with_generated_inventory_and_requested_status() {
         root: root.path(),
         limits: Limits::default(),
         progress: &progress,
+        prepared: None,
     }
     .install(&mut archive(), &item(&port), &target(), record())
     .unwrap();
@@ -146,6 +147,7 @@ fn rejects_unresolved_plans_before_mutation_and_retains_registered_image_on_acti
         root: root.path(),
         limits: Limits::default(),
         progress: &progress,
+        prepared: None,
     };
     for step in [Action::Activate, Action::AlreadyActive, Action::Resolve] {
         let mut item = item(&port);
@@ -465,6 +467,7 @@ async fn batch_downloads_concurrently_then_installs_dependencies_in_order() {
                 root: root.path(),
                 limits: Limits::default(),
                 progress: &progress,
+                prepared: None,
             };
             let runtime = tempfile::tempdir().unwrap();
             let installed = if isolated {
@@ -608,6 +611,7 @@ fn registration_and_activation_run_in_separate_hook_boundaries() {
             root: root.path(),
             limits: Limits::default(),
             progress: &progress,
+            prepared: None,
         };
         let source = r#"
             name app; version 1; set events {}
@@ -889,6 +893,7 @@ fn prepared_install_dry_run_and_custom_targets_skip_native_registration() {
             root: root.path(),
             limits: Limits::default(),
             progress: &progress,
+            prepared: None,
         };
         let outcome = installer
             .install_prepared(

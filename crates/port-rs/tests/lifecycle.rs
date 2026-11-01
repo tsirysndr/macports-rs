@@ -92,6 +92,7 @@ fn install(root: &Path, prefix: &Path, name: &str, deps: &[&str]) {
         root: Path::new("/"),
         limits: Limits::default(),
         progress: &progress,
+        prepared: None,
     }
     .install(
         &mut VerifiedArchive::local(fs::File::open(&output).unwrap()).unwrap(),

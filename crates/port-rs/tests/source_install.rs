@@ -938,6 +938,7 @@ fn install_skips_build_dependencies_of_ports_with_archives() {
         progress.contains("Fetching archive for cli")
             && progress.contains("Fetching archive for lib")
             && progress.contains("Fetching 2 signed archives (2 concurrent transfers)")
+            && progress.contains("Preparing 2 archives (")
             && !progress.contains("tool"),
         "{progress}"
     );

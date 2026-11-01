@@ -10,13 +10,14 @@ use std::{
     io::{self, Read},
     os::unix::fs::{OpenOptionsExt, symlink},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, OnceLock},
 };
 
 pub struct PreparedImage {
     directory: tempfile::TempDir,
     inspection: Arc<Inspection>,
     archive_digest: [u8; 32],
+    files: OnceLock<Vec<crate::registry::write::ImageFile>>,
 }
 impl PreparedImage {
     pub fn inspection_for(&self, archive: &VerifiedArchive) -> Result<Arc<Inspection>> {
@@ -30,6 +31,13 @@ impl PreparedImage {
     /// image. Symlinks are recorded but never opened; hardlinks classify their
     /// regular inode, and archive control files/directories are excluded.
     pub fn registry_files(&self) -> Result<Vec<crate::registry::write::ImageFile>> {
+        if let Some(files) = self.files.get() {
+            return Ok(files.clone());
+        }
+        let files = self.classify()?;
+        Ok(self.files.get_or_init(|| files).clone())
+    }
+    fn classify(&self) -> Result<Vec<crate::registry::write::ImageFile>> {
         let root = super::publication::Root::open(&self.payload())?;
         let mut files = Vec::new();
         for (name, member) in &self.inspection.members {
@@ -87,6 +95,19 @@ pub fn prepare_for_target(
 ) -> Result<PreparedImage> {
     prepare_checked(archive, expected, Some(target), directory, limits)
 }
+/// Accept an image prepared ahead of time only for the same authenticated
+/// archive, port and build target.
+pub fn reuse_for_target(
+    prepared: PreparedImage,
+    archive: &VerifiedArchive,
+    expected: &Item<'_>,
+    target: &super::target::Target,
+) -> Result<PreparedImage> {
+    let inspection = prepared.inspection_for(archive)?;
+    inspection.contents.matches(expected)?;
+    target.matches(&inspection.contents)?;
+    Ok(prepared)
+}
 fn prepare_checked(
     archive: &mut VerifiedArchive,
     expected: &Item<'_>,
@@ -105,6 +126,7 @@ fn prepare_checked(
             .tempdir_in(directory)?,
         inspection: Arc::new(inspection),
         archive_digest: archive.verification().sha256,
+        files: OnceLock::new(),
     };
     let payload = prepared.payload();
     let controls = prepared.controls();

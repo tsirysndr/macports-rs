@@ -190,6 +190,14 @@ pub(super) fn run_specs(
             .collect();
         super::archivefetch::prefetch(&host, &mut sessions, &wanted, &machine, staging.path())
     };
+    let mut ready = super::archivefetch::prepare_all(
+        &host,
+        &mut sessions,
+        &items,
+        &mut prefetched,
+        &machine,
+        staging.path(),
+    );
     for item in &items {
         // -n: act on the requested ports only, not their dependencies.
         if options.nodeps && !item.requested {
@@ -320,6 +328,7 @@ pub(super) fn run_specs(
             root: Path::new("/"),
             limits: Limits::default(),
             progress: &host.progress,
+            prepared: ready.remove(&item.port.name),
         };
         installer.install_built(
             item,

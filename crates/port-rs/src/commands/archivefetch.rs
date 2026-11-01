@@ -493,3 +493,91 @@ pub(super) fn plan_requested(
         host.open(root, port, spec)
     })
 }
+
+/// Unpack and inspect downloaded archives on every core before installing in
+/// order; a failure leaves that port to the sequential path, which reports it.
+pub(super) fn prepare_all(
+    host: &Host,
+    sessions: &mut std::collections::BTreeMap<String, Session>,
+    items: &[Item<'_>],
+    archives: &mut std::collections::HashMap<String, VerifiedArchive>,
+    machine: &Platform,
+    staging: &Path,
+) -> std::collections::HashMap<String, install::extract::PreparedImage> {
+    let mut jobs = Vec::new();
+    for item in items {
+        let (Some(session), Some(archive)) = (
+            sessions.get_mut(&item.port.name),
+            archives.remove(&item.port.name),
+        ) else {
+            continue;
+        };
+        match Target::from_session(session, machine) {
+            Ok(target) => jobs.push((item, target, archive)),
+            Err(_) => {
+                archives.insert(item.port.name.clone(), archive);
+            }
+        }
+    }
+    if jobs.len() < 2 {
+        for (item, _, archive) in jobs {
+            archives.insert(item.port.name.clone(), archive);
+        }
+        return Default::default();
+    }
+    let threads = std::thread::available_parallelism()
+        .map(usize::from)
+        .unwrap_or(1)
+        .min(jobs.len());
+    host.progress.phase(&format!(
+        "Preparing {} archives ({threads} concurrent)",
+        jobs.len()
+    ));
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let slots: Vec<_> = jobs.into_iter().map(std::sync::Mutex::new).collect();
+    let prepared: Vec<_> = std::thread::scope(|scope| {
+        let workers: Vec<_> = (0..threads)
+            .map(|_| {
+                scope.spawn(|| {
+                    let mut done = Vec::new();
+                    loop {
+                        let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let Some(slot) = slots.get(index) else {
+                            return done;
+                        };
+                        let mut job = slot.lock().unwrap();
+                        let (item, target, archive) = &mut *job;
+                        let image = install::extract::prepare_for_target(
+                            archive,
+                            item,
+                            target,
+                            staging,
+                            install::inspect::Limits::default(),
+                        )
+                        .and_then(|image| image.registry_files().map(|_| image));
+                        done.push((item.port.name.clone(), image));
+                    }
+                })
+            })
+            .collect();
+        workers
+            .into_iter()
+            .flat_map(|worker| worker.join().expect("archive preparation panicked"))
+            .collect()
+    });
+    for slot in slots {
+        let (item, _, archive) = slot.into_inner().unwrap();
+        archives.insert(item.port.name.clone(), archive);
+    }
+    prepared
+        .into_iter()
+        .filter_map(|(name, image)| match image {
+            Ok(image) => Some((name, image)),
+            Err(err) => {
+                host.progress
+                    .log("debug", &format!("cannot prepare {name} ahead: {err:#}"));
+                None
+            }
+        })
+        .collect()
+}
