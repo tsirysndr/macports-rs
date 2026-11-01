@@ -118,7 +118,13 @@ pub(super) fn prepare(
     session.set_mirror_worker(worker.clone());
     let progress = host.progress.clone();
     let name = name.to_string();
-    let directory = std::env::current_dir()?;
+    // Upstream runs each target from portdbpath, readable by the build user.
+    let directory = std::path::PathBuf::from(session.scalar("portdbpath")?);
+    let directory = if directory.is_dir() {
+        directory
+    } else {
+        std::env::current_dir()?
+    };
     let label: Label = Rc::new(Running {
         phase: Cell::new(build::Phase::Build),
         profile: Default::default(),
@@ -129,13 +135,7 @@ pub(super) fn prepare(
     });
     let current = label.clone();
     session.enable_system(&host.context.environment, move |request| {
-        // Without -W upstream runs in the current directory, which the
-        // unprivileged build user may not be able to enter again.
-        let inherit = request.directory.is_none();
         let mut command = request.into_command(&directory)?;
-        if inherit {
-            command.directory = std::path::PathBuf::new();
-        }
         if let Some(tracer) = current.trace.borrow().as_ref() {
             tracer.wrap(&mut command)?;
         }
