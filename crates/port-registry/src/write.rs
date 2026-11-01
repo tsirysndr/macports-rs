@@ -42,7 +42,6 @@ pub struct NewImage {
     pub dependencies: Vec<String>,
     pub portgroups: Vec<crate::saved::SavedGroup>,
 }
-#[derive(Clone)]
 pub struct ImageFile {
     pub path: String,
     pub binary: bool,

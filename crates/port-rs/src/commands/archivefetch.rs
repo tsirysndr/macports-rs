@@ -553,8 +553,7 @@ pub(super) fn prepare_all(
                             target,
                             staging,
                             install::inspect::Limits::default(),
-                        )
-                        .and_then(|image| image.registry_files().map(|_| image));
+                        );
                         done.push((item.port.name.clone(), image));
                     }
                 })

@@ -10,14 +10,13 @@ use std::{
     io::{self, Read},
     os::unix::fs::{OpenOptionsExt, symlink},
     path::{Path, PathBuf},
-    sync::{Arc, OnceLock},
+    sync::Arc,
 };
 
 pub struct PreparedImage {
     directory: tempfile::TempDir,
     inspection: Arc<Inspection>,
     archive_digest: [u8; 32],
-    files: OnceLock<Vec<crate::registry::write::ImageFile>>,
 }
 impl PreparedImage {
     pub fn inspection_for(&self, archive: &VerifiedArchive) -> Result<Arc<Inspection>> {
@@ -31,13 +30,6 @@ impl PreparedImage {
     /// image. Symlinks are recorded but never opened; hardlinks classify their
     /// regular inode, and archive control files/directories are excluded.
     pub fn registry_files(&self) -> Result<Vec<crate::registry::write::ImageFile>> {
-        if let Some(files) = self.files.get() {
-            return Ok(files.clone());
-        }
-        let files = self.classify()?;
-        Ok(self.files.get_or_init(|| files).clone())
-    }
-    fn classify(&self) -> Result<Vec<crate::registry::write::ImageFile>> {
         let root = super::publication::Root::open(&self.payload())?;
         let mut files = Vec::new();
         for (name, member) in &self.inspection.members {
@@ -126,7 +118,6 @@ fn prepare_checked(
             .tempdir_in(directory)?,
         inspection: Arc::new(inspection),
         archive_digest: archive.verification().sha256,
-        files: OnceLock::new(),
     };
     let payload = prepared.payload();
     let controls = prepared.controls();
