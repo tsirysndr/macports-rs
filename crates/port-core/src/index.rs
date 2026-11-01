@@ -1,7 +1,7 @@
 use crate::tcl_list;
 use anyhow::{Context, Result, ensure};
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     path::Path,
     sync::OnceLock,
 };
@@ -108,6 +108,51 @@ pub fn record_end(body: &str, length: usize) -> Option<usize> {
     (units == length).then_some(body.len())
 }
 
+fn read_index(path: &Path) -> Result<String> {
+    std::fs::read_to_string(path).with_context(|| {
+        format!(
+            "cannot read index {} (use --index-file or PORT_RS_INDEX)",
+            path.display()
+        )
+    })
+}
+
+/// Each record's name and unparsed field list.
+fn headers(input: &str) -> Result<Vec<(String, &str)>> {
+    let mut rest = input;
+    let mut records = Vec::new();
+    while !rest.is_empty() {
+        let (header, body) = rest
+            .split_once('\n')
+            .context("truncated PortIndex header")?;
+        let (name, length) = match header.rsplit_once(' ') {
+            // Plain names need no Tcl list parsing.
+            Some((name, length))
+                if !name.is_empty()
+                    && !name.bytes().any(|byte| {
+                        byte.is_ascii_whitespace() || b"{}\\\"[]$;".contains(&byte)
+                    }) =>
+            {
+                (name.to_owned(), length.to_owned())
+            }
+            _ => {
+                let header = tcl_list::parse(header)?;
+                ensure!(header.len() == 2, "invalid PortIndex header");
+                let [name, length] = <[String; 2]>::try_from(header).unwrap();
+                (name, length)
+            }
+        };
+        let length: usize = length.parse().context("invalid PortIndex record length")?;
+        ensure!(length > 0, "empty PortIndex record");
+        let end = record_end(body, length)
+            .filter(|end| body[..*end].ends_with('\n'))
+            .with_context(|| format!("truncated or invalid record for {name}"))?;
+        records.push((name, &body[..end - 1]));
+        rest = &body[end..];
+    }
+    Ok(records)
+}
+
 /// One record's fields, checked against the name in its header.
 fn record((name, body): &(String, &str)) -> Result<Port> {
     let values = tcl_list::parse(body).with_context(|| format!("invalid fields for {name}"))?;
@@ -155,33 +200,24 @@ impl Index {
     }
 
     pub fn read(path: &Path) -> Result<Self> {
-        Self::parse(&std::fs::read_to_string(path).with_context(|| {
-            format!(
-                "cannot read index {} (use --index-file or PORT_RS_INDEX)",
-                path.display()
-            )
-        })?)
+        Self::parse(&read_index(path)?)
+    }
+    /// Parses only the records whose names match `names` ignoring ASCII case.
+    pub fn read_subset(path: &Path, names: &[&str]) -> Result<Self> {
+        Self::parse_subset(&read_index(path)?, names)
+    }
+    pub fn parse_subset(input: &str, names: &[&str]) -> Result<Self> {
+        let wanted: HashSet<String> = names.iter().map(|name| name.to_ascii_lowercase()).collect();
+        let records = headers(input)?
+            .into_iter()
+            .filter(|(name, _)| wanted.contains(&name.to_ascii_lowercase()))
+            .collect();
+        Self::from_records(records)
     }
     pub fn parse(input: &str) -> Result<Self> {
-        let mut rest = input;
-        let mut records = Vec::new();
-        while !rest.is_empty() {
-            let (header, body) = rest
-                .split_once('\n')
-                .context("truncated PortIndex header")?;
-            let header = tcl_list::parse(header)?;
-            ensure!(header.len() == 2, "invalid PortIndex header");
-            let length: usize = header[1]
-                .parse()
-                .context("invalid PortIndex record length")?;
-            ensure!(length > 0, "empty PortIndex record");
-            let end = record_end(body, length)
-                .filter(|end| body[..*end].ends_with('\n'))
-                .with_context(|| format!("truncated or invalid record for {}", header[0]))?;
-            let [name, _] = <[String; 2]>::try_from(header).unwrap();
-            records.push((name, &body[..end - 1]));
-            rest = &body[end..];
-        }
+        Self::from_records(headers(input)?)
+    }
+    fn from_records(records: Vec<(String, &str)>) -> Result<Self> {
         // Field lists are independent; parse them on every core.
         let threads = std::thread::available_parallelism()
             .map(usize::from)
@@ -235,6 +271,16 @@ mod tests {
             "café 😀\nsecond line"
         );
         assert_eq!(index.ports["hello"].version(), "1.0_0");
+    }
+    #[test]
+    fn subset_parses_only_requested_records() {
+        let s = record("Curl", "name Curl version 8")
+            + &record("{odd name}", "name {odd name} version 1")
+            + "zlib 9\n{broken\n";
+        let index = Index::parse_subset(&s, &["curl", "odd name"]).unwrap();
+        assert_eq!(index.ports().len(), 2);
+        assert_eq!(index.lookup("curl").unwrap().get("version"), "8");
+        assert!(index.lookup("zlib").is_none());
     }
     #[test]
     fn rejects_corruption() {

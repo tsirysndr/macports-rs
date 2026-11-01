@@ -82,10 +82,11 @@ command, both binaries interleaved:
 | `port installed`          |    64 ms |    6 ms |   10.4× |
 | `port outdated`           |    78 ms |   92 ms |    0.9× |
 
-Commands that only read the registry start in a few milliseconds. Queries
-that read the index parse all of it (about 90 ms), where MacPorts seeks to one
-record through `PortIndex.quick`, so single-port lookups such as `outdated`
-gain least. Commands that evaluate Portfiles (`info`, `deps`, `variants`)
+Commands that only read the registry start in a few milliseconds, and
+`installed` and `outdated` parse only the index records of installed ports.
+Queries over the whole index parse all of it (about 90 ms), where MacPorts
+seeks to one record through `PortIndex.quick`, so single-port lookups gain
+least. Commands that evaluate Portfiles (`info`, `deps`, `variants`)
 spend most of their time in the Tcl interpreter. Reproduce with:
 
 ```sh

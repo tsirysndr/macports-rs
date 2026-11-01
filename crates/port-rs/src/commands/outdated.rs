@@ -13,13 +13,13 @@ pub struct Outdated {
     ports: Vec<String>,
 }
 
-pub(super) fn run<'a>(
+pub(super) fn run(
     out: &mut impl Write,
     path: Option<&Path>,
     args: Outdated,
     quiet: bool,
     verbose: bool,
-    load_index: impl FnOnce() -> Result<&'a Index>,
+    load_index: impl FnOnce(&[&str]) -> Result<Index>,
 ) -> Result<()> {
     let registry = registry::Registry::open(path)?;
     let entries = registry
@@ -27,6 +27,8 @@ pub(super) fn run<'a>(
         .map(registry::Registry::entries)
         .transpose()?
         .unwrap_or_default();
+    // Only installed ports are looked up, so only their records are parsed.
+    let names: Vec<&str> = entries.iter().map(|entry| entry.name.as_str()).collect();
     let mut load_index = Some(load_index);
     let mut cached_index = None;
     let selected: Vec<_> = registry::expression::select(
@@ -35,8 +37,8 @@ pub(super) fn run<'a>(
         registry::expression::Missing::Empty,
         registry.as_ref(),
         || {
-            let index = load_index.take().expect("index loader used once")()?;
-            cached_index = Some(index);
+            let index =
+                cached_index.insert(load_index.take().expect("index loader used once")(&names)?);
             Ok(registry::expression::obsolete_names(&entries, index))
         },
     )?
@@ -59,7 +61,7 @@ pub(super) fn run<'a>(
     }
     let index = match cached_index {
         Some(index) => index,
-        None => load_index.take().expect("index loader used once")()?,
+        None => load_index.take().expect("index loader used once")(&names)?,
     };
     let mut lines = Vec::new();
     let mut platform = None;

@@ -545,8 +545,8 @@ impl Session {
         let stdout = io::stdout();
         let mut out = io::BufWriter::new(stdout.lock());
         if let Command::Outdated(args) = command {
-            outdated::run(&mut out, registry_file, args, quiet, verbose, || {
-                self.index(index_file, quiet)
+            outdated::run(&mut out, registry_file, args, quiet, verbose, |names| {
+                crate::source::load_subset(index_file, quiet, names)
             })?;
         } else if let Command::Dependents(args) = command {
             dependents::run(&mut out, registry_file, args, None, quiet, verbose)?;
@@ -568,8 +568,8 @@ impl Session {
         } else if let Command::Contents(args) = command {
             contents::run(&mut out, registry_file, args, quiet)?;
         } else if let Command::Installed(args) = command {
-            installed::run(&mut out, registry_file, args, quiet, verbose, || {
-                self.index(index_file, quiet)
+            installed::run(&mut out, registry_file, args, quiet, verbose, |names| {
+                crate::source::load_subset(index_file, quiet, names)
             })?;
         } else if matches!(command, Command::Version | Command::Platform) {
             match command {

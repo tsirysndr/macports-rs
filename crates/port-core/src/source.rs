@@ -149,11 +149,24 @@ pub fn detect_platform() -> Result<Platform> {
 
 /// Explicit paths and a project-local index remain offline and are never silently replaced.
 pub fn load(explicit: Option<&Path>, quiet: bool) -> Result<Index> {
+    load_with(explicit, quiet, Index::read)
+}
+
+/// Like `load`, parsing only the records of `names`.
+pub fn load_subset(explicit: Option<&Path>, quiet: bool, names: &[&str]) -> Result<Index> {
+    load_with(explicit, quiet, |path| Index::read_subset(path, names))
+}
+
+fn load_with(
+    explicit: Option<&Path>,
+    quiet: bool,
+    read: impl Fn(&Path) -> Result<Index>,
+) -> Result<Index> {
     if let Some(path) = explicit {
-        return Index::read(path);
+        return read(path);
     }
     if Path::new("PortIndex").try_exists()? {
-        return Index::read(Path::new("PortIndex"));
+        return read(Path::new("PortIndex"));
     }
     let platform = detect_platform()?;
     let home = std::env::var_os("HOME")
@@ -161,7 +174,7 @@ pub fn load(explicit: Option<&Path>, quiet: bool) -> Result<Index> {
         .context("HOME is unset; use --index-file")?;
     let destination = platform.cache_path(Path::new(&home));
     if destination.try_exists()? {
-        return Index::read(&destination);
+        return read(&destination);
     }
     let progress = Progress::new(quiet);
     progress.phase(&format!("Initializing {}", platform.directory()));
