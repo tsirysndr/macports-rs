@@ -198,7 +198,10 @@ fn rejects_unresolved_plans_before_mutation_and_retains_registered_image_on_acti
         .install(&mut archive(), &item(&port), &target(), record())
         .err()
         .unwrap();
-    assert!(format!("{error:#}").contains("retained for retry"));
+    assert!(
+        format!("{error:#}").contains("retained for retry"),
+        "{error:#}"
+    );
     assert_eq!(
         fs::read(root.path().join("opt/local/app")).unwrap(),
         b"existing"

@@ -114,7 +114,7 @@ impl Plan<'_> {
                 "invalid activation metadata"
             );
         }
-        let root = Root::open(&plan.root)?;
+        let root = Root::open_shared(&plan.root)?;
         let mut published = PublishedImage {
             mappings,
             files: Vec::new(),

@@ -36,6 +36,22 @@ pub async fn run_trusted(
     run_inner(&requests, directory, jobs, progress, Some(proxies)).await
 }
 
+/// Like `run_trusted`, keeping each port's own result: one failed download
+/// does not discard the others.
+pub async fn run_trusted_each(
+    requests: &[TrustedRequest],
+    directory: &Path,
+    jobs: usize,
+    progress: &Progress,
+    proxies: &super::proxy::Resolved,
+) -> Result<Vec<Result<VerifiedArchive>>> {
+    let requests = requests
+        .iter()
+        .map(|entry| (&entry.request, entry.keys.as_slice()))
+        .collect::<Vec<_>>();
+    run_each(&requests, directory, jobs, progress, Some(proxies)).await
+}
+
 /// Fetch in input order with bounded concurrency. Any failure drops all staged
 /// results, after draining the remaining transfers. Nothing is published.
 pub async fn run(
@@ -83,6 +99,19 @@ async fn run_inner(
     progress: &Progress,
     proxies: Option<&super::proxy::Resolved>,
 ) -> Result<Vec<VerifiedArchive>> {
+    run_each(requests, directory, jobs, progress, proxies)
+        .await?
+        .into_iter()
+        .collect()
+}
+
+async fn run_each(
+    requests: &[(&Request, &[TrustedKey])],
+    directory: &Path,
+    jobs: usize,
+    progress: &Progress,
+    proxies: Option<&super::proxy::Resolved>,
+) -> Result<Vec<Result<VerifiedArchive>>> {
     ensure!((1..=128).contains(&jobs), "jobs must be between 1 and 128");
     // Validate the entire batch before any network or filesystem work.
     let urls: Vec<Vec<Url>> = requests
@@ -147,7 +176,7 @@ async fn run_inner(
     // Free each finished slot immediately, even if an earlier transfer is slow.
     // Restore plan order only after all transfers finish, including on failure.
     results.sort_unstable_by_key(|(index, _)| *index);
-    results.into_iter().map(|(_, result)| result).collect()
+    Ok(results.into_iter().map(|(_, result)| result).collect())
 }
 
 async fn fetch(

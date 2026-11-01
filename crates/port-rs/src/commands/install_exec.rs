@@ -176,6 +176,20 @@ pub(super) fn run_specs(
         (super::ArchiveMode::Any, "never") => super::ArchiveMode::BinaryOnly,
         (mode, _) => mode,
     };
+    // Download every archive the plan needs at once, before installing in order.
+    let mut prefetched = if archive_mode == super::ArchiveMode::SourceOnly {
+        Default::default()
+    } else {
+        let wanted: Vec<&Item<'_>> = items
+            .iter()
+            .filter(|item| !options.nodeps || item.requested)
+            .filter(|item| {
+                item.action == Action::Install
+                    || (mode.rebuild && item.requested && item.action != Action::Resolve)
+            })
+            .collect();
+        super::archivefetch::prefetch(&host, &mut sessions, &wanted, &machine, staging.path())
+    };
     for item in &items {
         // -n: act on the requested ports only, not their dependencies.
         if options.nodeps && !item.requested {
@@ -253,8 +267,8 @@ pub(super) fn run_specs(
             .is_some_and(|value| matches!(value.as_str(), "yes" | "1" | "true" | "on"));
         let label = super::phase::prepare(session, &host, &worker, &item.port.name)?;
         // As upstream, a compatible signed archive replaces building from source.
-        let mut binary = None;
-        if archive_mode != super::ArchiveMode::SourceOnly {
+        let mut binary = prefetched.remove(&item.port.name);
+        if binary.is_none() && archive_mode != super::ArchiveMode::SourceOnly {
             match super::archivefetch::fetch_archive(&host, session, item, &machine, staging.path())
             {
                 Ok(archive) => binary = Some(archive),

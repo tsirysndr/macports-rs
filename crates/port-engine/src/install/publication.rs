@@ -25,7 +25,7 @@ pub struct Root {
     directory: File,
     /// Parent directories opened so far, shared by the receipts below them so
     /// large images need one descriptor per file rather than two.
-    parents: Mutex<HashMap<PathBuf, Arc<File>>>,
+    parents: Option<Mutex<HashMap<PathBuf, Arc<File>>>>,
 }
 impl Root {
     /// Read a physical regular file through held parent descriptors. O_NONBLOCK
@@ -59,7 +59,15 @@ impl Root {
             .open(path)?;
         Ok(Self {
             directory,
-            parents: Mutex::new(HashMap::new()),
+            parents: None,
+        })
+    }
+    /// Like `open`, sharing parent descriptors between receipts. Only for one
+    /// publication, during which no directory below the root is removed.
+    pub fn open_shared(path: &Path) -> Result<Self> {
+        Ok(Self {
+            parents: Some(Mutex::new(HashMap::new())),
+            ..Self::open(path)?
         })
     }
     /// Publish complete bytes and mode atomically without replacing an existing
@@ -333,11 +341,15 @@ impl Root {
         let mut components: Vec<_> = path.components().collect();
         let name = CString::new(components.pop().unwrap().as_os_str().as_bytes())?;
         let key: PathBuf = components.iter().collect();
-        let mut parents = self
-            .parents
-            .lock()
-            .map_err(|_| anyhow::anyhow!("publication parent cache is poisoned"))?;
-        if let Some(parent) = parents.get(&key) {
+        let mut parents = match &self.parents {
+            Some(parents) => Some(
+                parents
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("publication parent cache is poisoned"))?,
+            ),
+            None => None,
+        };
+        if let Some(parent) = parents.as_ref().and_then(|parents| parents.get(&key)) {
             return Ok((Arc::clone(parent), name));
         }
         let mut parent = self.directory.try_clone()?;
@@ -359,7 +371,9 @@ impl Root {
             parent = unsafe { File::from_raw_fd(fd) };
         }
         let parent = Arc::new(parent);
-        parents.insert(key, Arc::clone(&parent));
+        if let Some(parents) = &mut parents {
+            parents.insert(key, Arc::clone(&parent));
+        }
         Ok((parent, name))
     }
 }

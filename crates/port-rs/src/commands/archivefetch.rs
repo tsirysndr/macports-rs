@@ -106,6 +106,29 @@ fn fetch_signify(
     machine: &Platform,
     staging: &Path,
 ) -> Result<VerifiedArchive> {
+    let requests = [signify_request(host, session, item, machine)?];
+    host.progress
+        .phase(&format!("Fetching archive for {}", item.port.name));
+    let mut archives = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(fetch::run_trusted(
+            &requests,
+            staging,
+            1,
+            &host.progress,
+            &host.context.proxies,
+        ))?;
+    archives.pop().context("archive fetch returned nothing")
+}
+
+/// The Signify-signed archive request for an item, with its sites' keys.
+fn signify_request(
+    host: &Host,
+    session: &mut Session,
+    item: &Item<'_>,
+    machine: &Platform,
+) -> Result<fetch::TrustedRequest> {
     let selection = session
         .archive_selection()?
         .context("no archive sites are configured")?;
@@ -119,23 +142,86 @@ fn fetch_signify(
         "no trusted keys for {}",
         item.port.name
     );
-    host.progress
-        .phase(&format!("Fetching archive for {}", item.port.name));
-    let requests = [fetch::TrustedRequest {
+    Ok(fetch::TrustedRequest {
         request: prepared.request,
         keys: trust.keys,
-    }];
-    let mut archives = tokio::runtime::Builder::new_current_thread()
+    })
+}
+
+/// Download the archives of several items at once (`fetch_threads`
+/// concurrent transfers). Items without a Signify request or whose download
+/// fails are left out, to be fetched or built one by one later.
+pub(super) fn prefetch(
+    host: &Host,
+    sessions: &mut std::collections::BTreeMap<String, Session>,
+    items: &[&Item<'_>],
+    machine: &Platform,
+    staging: &Path,
+) -> std::collections::HashMap<String, VerifiedArchive> {
+    let mut names = Vec::new();
+    let mut requests = Vec::new();
+    for item in items {
+        let Some(session) = sessions.get_mut(&item.port.name) else {
+            continue;
+        };
+        match signify_request(host, session, item, machine) {
+            Ok(request) => {
+                names.push(item.port.name.clone());
+                requests.push(request);
+            }
+            Err(err) => host.progress.log(
+                "debug",
+                &format!("no signed archive request for {}: {err:#}", item.port.name),
+            ),
+        }
+    }
+    if requests.is_empty() {
+        return Default::default();
+    }
+    for name in &names {
+        host.progress.phase(&format!("Fetching archive for {name}"));
+    }
+    let jobs = host
+        .context
+        .variables
+        .get("fetch_threads")
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(4)
+        .clamp(1, 128)
+        .min(requests.len());
+    let results = tokio::runtime::Builder::new_current_thread()
         .enable_all()
-        .build()?
-        .block_on(fetch::run_trusted(
-            &requests,
-            staging,
-            1,
-            &host.progress,
-            &host.context.proxies,
-        ))?;
-    archives.pop().context("archive fetch returned nothing")
+        .build()
+        .map_err(anyhow::Error::from)
+        .and_then(|runtime| {
+            runtime.block_on(fetch::run_trusted_each(
+                &requests,
+                staging,
+                jobs,
+                &host.progress,
+                &host.context.proxies,
+            ))
+        });
+    let results = match results {
+        Ok(results) => results,
+        Err(err) => {
+            host.progress
+                .log("debug", &format!("archive prefetch failed: {err:#}"));
+            return Default::default();
+        }
+    };
+    names
+        .into_iter()
+        .zip(results)
+        .filter_map(|(name, result)| match result {
+            Ok(archive) => Some((name, archive)),
+            Err(err) => {
+                host.progress
+                    .log("debug", &format!("no archive for {name}: {err:#}"));
+                None
+            }
+        })
+        .collect()
 }
 
 /// Whether a binary archive exists for the evaluated port (upstream
