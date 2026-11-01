@@ -455,3 +455,33 @@ fn default_make_selection_builds_a_real_makefile() {
             .all(|line| line.starts_with("-> building app: "))
     );
 }
+
+#[test]
+fn command_execution_uses_renamed_environment_and_command_wrappers() {
+    let tree = tempfile::tempdir().unwrap();
+    let mut session = open(
+        r#"
+        option build.dir .
+        build.cmd printf
+        build.args {'%s\n'} {"$CARGO_BUILD_TARGET"}
+        rename parse_environment parse_environment_real
+        proc parse_environment {command} {
+            parse_environment_real $command
+            global ${command}.env_array
+            set ${command}.env_array(CARGO_BUILD_TARGET) x86_64-apple-darwin
+        }
+        rename command_string command_string_real
+        proc command_string {command} {
+            return "[command_string_real $command] wrapped"
+        }
+    "#,
+    );
+    let output = executor(&mut session, tree.path().into());
+    session.invoke("command_exec", &["build"]).unwrap();
+    let text = String::from_utf8(output.lock().unwrap().clone()).unwrap();
+    assert!(
+        text.contains("-> building app: x86_64-apple-darwin\n")
+            && text.contains("-> building app: wrapped\n"),
+        "{text}"
+    );
+}

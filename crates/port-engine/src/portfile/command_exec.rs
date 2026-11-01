@@ -163,8 +163,13 @@ fn execute(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
         .transpose()?
         .flatten();
     let array = format!("{prefix}.env_array");
+    // Through the interpreter, as upstream: PortGroups such as muniversal
+    // rename and wrap parse_environment and command_string.
     if !interp.array_exists(&array) {
-        parse_environment(interp, &prefix)?;
+        interp.eval_value(&Value::from(vec![
+            Value::from("parse_environment"),
+            Value::from(prefix.as_str()),
+        ]))?;
     }
     // These options come from initialized PortSystem configuration. Do not
     // silently invent compiler/SDK settings when the host has not supplied them.
@@ -212,7 +217,10 @@ fn execute(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     }
     let developer = interp.scalar("configure.developer_dir")?;
     interp.set_element(&array, "DEVELOPER_DIR", developer)?;
-    let script = string(interp, name)?;
+    let script = interp.eval_value(&Value::from(vec![
+        Value::from("command_string"),
+        Value::from(name),
+    ]))?;
     let before = argv.get(cursor + 1).map(Value::as_str).unwrap_or("");
     let after = argv.get(cursor + 2).map(Value::as_str).unwrap_or("");
     let saved = interp.array_get("env");
