@@ -176,7 +176,12 @@ fn option(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
         }
         return Ok(Value::empty());
     }
-    let mut values = if operation == "set" || !interp.var_exists(&Value::from(name)) {
+    let exists = interp.var_exists(&Value::from(name));
+    // Upstream deletes and replaces only within an option that is set.
+    if matches!(operation, "delete" | "replace") && !exists {
+        return Ok(Value::empty());
+    }
+    let mut values = if operation == "set" || !exists {
         Vec::new()
     } else {
         interp.scalar(name)?.as_list()?.to_vec()
