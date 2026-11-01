@@ -84,8 +84,16 @@ fn external_port(name: &str) -> Option<&'static Port> {
 
 #[derive(Debug)]
 pub struct Index {
-    ports: BTreeMap<String, Port>,
+    ports: OnceLock<BTreeMap<String, Port>>,
+    lazy: Option<Lazy>,
     folded_names: OnceLock<HashMap<String, String>>,
+}
+
+/// Unparsed records, each parsed on first lookup.
+#[derive(Debug)]
+struct Lazy {
+    text: String,
+    records: HashMap<String, (usize, usize, OnceLock<Option<Port>>)>,
 }
 /// Tcl 8.6 string length, which PortIndex headers use: UTF-16 code units.
 pub fn record_length(record: &str) -> usize {
@@ -175,31 +183,96 @@ fn record((name, body): &(String, &str)) -> Result<Port> {
 impl Index {
     /// Catalogs are immutable after parsing, keeping lazy lookup data consistent.
     pub fn ports(&self) -> &BTreeMap<String, Port> {
-        &self.ports
+        self.ports.get_or_init(|| {
+            let lazy = self.lazy.as_ref().expect("eager catalogs set ports");
+            let records: Vec<_> = lazy
+                .records
+                .iter()
+                .map(|(name, (start, end, _))| (name.clone(), &lazy.text[*start..*end]))
+                .collect();
+            parse_records(&records)
+                .into_iter()
+                .zip(&records)
+                .filter_map(|(port, (name, _))| match port {
+                    Ok(port) => Some((name.clone(), port)),
+                    Err(err) => {
+                        eprintln!("Warning: {err:#}");
+                        None
+                    }
+                })
+                .collect()
+        })
+    }
+
+    fn names(&self) -> Vec<&String> {
+        match (self.ports.get(), &self.lazy) {
+            (None, Some(lazy)) => {
+                let mut names: Vec<_> = lazy.records.keys().collect();
+                names.sort();
+                names
+            }
+            _ => self.ports().keys().collect(),
+        }
+    }
+
+    fn exact(&self, name: &str) -> Option<&Port> {
+        if let Some(ports) = self.ports.get() {
+            return ports.get(name);
+        }
+        let lazy = self.lazy.as_ref()?;
+        let (start, end, port) = lazy.records.get(name)?;
+        port.get_or_init(|| {
+            record(&(name.to_owned(), &lazy.text[*start..*end]))
+                .map_err(|err| eprintln!("Warning: {err:#}"))
+                .ok()
+        })
+        .as_ref()
     }
 
     /// Exact spelling takes priority. Fallback retains the original ASCII case
     /// comparison and deterministic first-name behavior for case collisions.
     pub fn lookup(&self, name: &str) -> Option<&Port> {
-        if let Some(port) = self.ports.get(name) {
+        if let Some(port) = self.exact(name) {
             return Some(port);
         }
         let names = self.folded_names.get_or_init(|| {
-            let mut names = HashMap::with_capacity(self.ports.len());
-            for name in self.ports.keys() {
-                names
+            let names = self.names();
+            let mut folded = HashMap::with_capacity(names.len());
+            for name in names {
+                folded
                     .entry(name.to_ascii_lowercase())
                     .or_insert_with(|| name.clone());
             }
-            names
+            folded
         });
         names
             .get(&name.to_ascii_lowercase())
-            .and_then(|canonical| self.ports.get(canonical))
+            .and_then(|canonical| self.exact(canonical))
             .or_else(|| external_port(name))
     }
 
+    /// Reads record boundaries now and each record's fields on first use.
     pub fn read(path: &Path) -> Result<Self> {
+        let text = read_index(path)?;
+        let base = text.as_ptr() as usize;
+        let mut records = HashMap::new();
+        for (name, body) in headers(&text)? {
+            let start = body.as_ptr() as usize - base;
+            ensure!(
+                records
+                    .insert(name.clone(), (start, start + body.len(), OnceLock::new()))
+                    .is_none(),
+                "duplicate port {name}"
+            );
+        }
+        Ok(Self {
+            ports: OnceLock::new(),
+            lazy: Some(Lazy { text, records }),
+            folded_names: OnceLock::new(),
+        })
+    }
+    /// Reads and validates every record.
+    pub fn read_checked(path: &Path) -> Result<Self> {
         Self::parse(&read_index(path)?)
     }
     /// Parses only the records whose names match `names` ignoring ASCII case.
@@ -208,49 +281,52 @@ impl Index {
     }
     pub fn parse_subset(input: &str, names: &[&str]) -> Result<Self> {
         let wanted: HashSet<String> = names.iter().map(|name| name.to_ascii_lowercase()).collect();
-        let records = headers(input)?
+        let records: Vec<_> = headers(input)?
             .into_iter()
             .filter(|(name, _)| wanted.contains(&name.to_ascii_lowercase()))
             .collect();
-        Self::from_records(records)
+        Self::from_records(&records)
     }
     pub fn parse(input: &str) -> Result<Self> {
-        Self::from_records(headers(input)?)
+        Self::from_records(&headers(input)?)
     }
-    fn from_records(records: Vec<(String, &str)>) -> Result<Self> {
-        // Field lists are independent; parse them on every core.
-        let threads = std::thread::available_parallelism()
-            .map(usize::from)
-            .unwrap_or(1)
-            .min(records.len().div_ceil(2048))
-            .max(1);
-        let chunk = records.len().div_ceil(threads).max(1);
-        let parsed: Vec<Result<Vec<Port>>> = std::thread::scope(|scope| {
-            let workers: Vec<_> = records
-                .chunks(chunk)
-                .map(|records| scope.spawn(move || records.iter().map(record).collect()))
-                .collect();
-            workers
-                .into_iter()
-                .map(|worker| worker.join().expect("PortIndex parser panicked"))
-                .collect()
-        });
+    fn from_records(records: &[(String, &str)]) -> Result<Self> {
         let mut ports = BTreeMap::new();
-        for chunk in parsed {
-            for port in chunk? {
-                ensure!(
-                    !ports.contains_key(&port.name),
-                    "duplicate port {}",
-                    port.name
-                );
-                ports.insert(port.name.clone(), port);
-            }
+        for port in parse_records(records) {
+            let port = port?;
+            ensure!(
+                !ports.contains_key(&port.name),
+                "duplicate port {}",
+                port.name
+            );
+            ports.insert(port.name.clone(), port);
         }
         Ok(Self {
-            ports,
+            ports: OnceLock::from(ports),
+            lazy: None,
             folded_names: OnceLock::new(),
         })
     }
+}
+
+/// Field lists are independent; parse them on every core.
+fn parse_records(records: &[(String, &str)]) -> Vec<Result<Port>> {
+    let threads = std::thread::available_parallelism()
+        .map(usize::from)
+        .unwrap_or(1)
+        .min(records.len().div_ceil(2048))
+        .max(1);
+    let chunk = records.len().div_ceil(threads).max(1);
+    std::thread::scope(|scope| {
+        let workers: Vec<_> = records
+            .chunks(chunk)
+            .map(|records| scope.spawn(move || records.iter().map(record).collect::<Vec<_>>()))
+            .collect();
+        workers
+            .into_iter()
+            .flat_map(|worker| worker.join().expect("PortIndex parser panicked"))
+            .collect()
+    })
 }
 
 #[cfg(test)]
@@ -267,10 +343,10 @@ mod tests {
         );
         let index = Index::parse(&s).unwrap();
         assert_eq!(
-            index.ports["hello"].get("description"),
+            index.ports()["hello"].get("description"),
             "café 😀\nsecond line"
         );
-        assert_eq!(index.ports["hello"].version(), "1.0_0");
+        assert_eq!(index.ports()["hello"].version(), "1.0_0");
     }
     #[test]
     fn subset_parses_only_requested_records() {

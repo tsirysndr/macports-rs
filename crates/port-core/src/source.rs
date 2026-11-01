@@ -235,7 +235,7 @@ pub async fn initialize(destination: &Path, url: &str, progress: &Progress) -> R
     file.sync_all().await?;
     drop(file);
     bar.message("validating index");
-    let index = Index::read(temporary.path()).context("downloaded index is invalid")?;
+    let index = Index::read_checked(temporary.path()).context("downloaded index is invalid")?;
     ensure!(
         !index.ports().is_empty(),
         "downloaded index contains no ports"
