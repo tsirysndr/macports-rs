@@ -28,7 +28,7 @@ pub(super) fn run(
     let host = root
         .map(|root| super::local::Host::new(root, None, true))
         .transpose()?;
-    let width = usize::from(console::Term::stdout().size().1).max(40);
+    let width = crate::output::terminal_width();
     let rendered = specs
         .iter()
         .map(|spec| {
@@ -50,7 +50,11 @@ pub(super) fn run(
 
 fn render(port: &Port, spec: &PortSpec, quiet: bool, width: usize) -> Result<String> {
     let mut text = String::new();
-    let Some(variants) = port.fields.get("variants") else {
+    let Some(variants) = port
+        .fields
+        .get("variants")
+        .filter(|variants| !variants.trim().is_empty())
+    else {
         if !quiet {
             writeln!(text, "{} has no variants", port.name)?;
         }
@@ -92,7 +96,11 @@ fn render(port: &Port, spec: &PortSpec, quiet: bool, width: usize) -> Result<Str
         if let Some(details) = details {
             for (field, label) in [("conflicts", "conflicts with"), ("requires", "requires")] {
                 if let Some(value) = details.get(field) {
-                    writeln!(text, "     * {label} {}", value.trim())?;
+                    // As upstream, listed in `lsort` order.
+                    let mut names = crate::tcl_list::parse(value)
+                        .unwrap_or_else(|_| vec![value.trim().to_string()]);
+                    names.sort();
+                    writeln!(text, "     * {label} {}", names.join(" "))?;
                 }
             }
         }

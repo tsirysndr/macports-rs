@@ -53,6 +53,7 @@ pub(super) fn declare(interp: &mut Interp, id: ContextID, argv: &[Value]) -> Mol
     }
     if !state.variants.contains_key(name) {
         state.order.push(name.into());
+        state.declared_variants = true;
     }
     if state.selected.get(name) == Some(&true) {
         for requirement in &variant.requires {

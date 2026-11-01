@@ -65,7 +65,7 @@ pub(super) fn run(
     let output = crate::dependencies::OutputOptions {
         quiet,
         verbose,
-        width: usize::from(console::Term::stdout().size().1).max(40),
+        width: crate::output::terminal_width(),
     };
     if let Some(full) = full {
         let graphs = ports

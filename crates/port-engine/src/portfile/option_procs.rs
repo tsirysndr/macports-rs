@@ -12,6 +12,38 @@ pub(super) fn install(interp: &mut Interp, id: ContextID) -> MoltResult {
     interp.add_context_command("options_export", options_export, id);
     interp.add_context_command("options::export", export, id);
     interp.add_context_command("trace", trace, id);
+    interp.add_context_command("portconfigure::set_configure_type", configure_type, id);
+    interp.add_context_command("portfetch::set_fetch_type", fetch_type, id);
+    interp.eval(HANDLE_PLATFORMS)?;
+    interp
+        .context::<State>(id)
+        .option_procs
+        .entry("platforms".into())
+        .or_default()
+        .push("_handle_platforms".into());
+    interp
+        .context::<State>(id)
+        .option_procs
+        .entry("fetch.type".into())
+        .or_default()
+        .push("portfetch::set_fetch_type".into());
+    for option in [
+        "use_xmkmf",
+        "use_autoreconf",
+        "use_autoconf",
+        "use_automake",
+        "xmkmf.cmd",
+        "autoreconf.cmd",
+        "autoconf.cmd",
+        "automake.cmd",
+    ] {
+        interp
+            .context::<State>(id)
+            .option_procs
+            .entry(option.into())
+            .or_default()
+            .push("portconfigure::set_configure_type".into());
+    }
     interp.context::<State>(id).option_procs.extend(
         EXPORTED
             .iter()
@@ -200,6 +232,144 @@ fn export(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
             }
             "delete" => interp.unset_element("PortInfo", option),
             _ => {}
+        }
+        Ok(Value::empty())
+    })
+}
+
+/// Upstream portutil's `_handle_platforms`: a platform range that excludes
+/// the running OS version marks the port as known to fail.
+const HANDLE_PLATFORMS: &str = r#"proc _handle_platforms {option action args} {
+    global os.platform os.subplatform os.version
+    if {$action ne "set" || ![info exists os.version]} {
+        return
+    }
+    set compatible 1
+    foreach p [lindex $args 0] {
+        if {[llength $p] < 3} {
+            continue
+        }
+        set osname [lindex $p 0]
+        if {${os.platform} eq $osname || ${os.subplatform} eq $osname} {
+            if {[lindex $p 1] ne "any"} {
+                set startindex 1
+            } else {
+                set startindex 2
+            }
+            foreach {op vers} [lrange $p $startindex end] {
+                if {$op eq "=="} {
+                    if {[string match $vers ${os.version}]} {
+                        continue
+                    }
+                    set compatible 0
+                    break
+                } elseif {$op eq "!="} {
+                    if {![string match $vers ${os.version}]} {
+                        continue
+                    }
+                    set compatible 0
+                    break
+                } elseif {![vercmp ${os.version} $op $vers]} {
+                    set compatible 0
+                    break
+                }
+            }
+        }
+        if {!$compatible} {
+            break
+        }
+    }
+    if {!$compatible} {
+        default known_fail yes
+    }
+}"#;
+
+/// Upstream `portconfigure::set_configure_type`: the configure helpers a
+/// Portfile enables become build dependencies, unless it names its own tool.
+fn configure_type(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(1, argv, 3, 0, "option action ?value?")?;
+    if argv[2].as_str() != "set" {
+        return Ok(Value::empty());
+    }
+    const AUTOCONF: [&str; 3] = ["port:autoconf", "port:automake", "port:libtool"];
+    let option = argv[1].as_str();
+    let enabled = argv
+        .get(3)
+        .is_some_and(|value| value.as_bool().unwrap_or(false));
+    let run = |interp: &mut Interp, command: &str, ports: &[&str]| -> MoltResult {
+        let mut words = vec![Value::from(command)];
+        words.extend(ports.iter().map(|port| Value::from(*port)));
+        interp.eval_value(&Value::from(words))
+    };
+    interp.with_global_scope(|interp| {
+        match option {
+            "autoreconf.cmd" | "automake.cmd" | "autoconf.cmd" => {
+                run(interp, "depends_build-delete", &AUTOCONF)?;
+            }
+            "xmkmf.cmd" => {
+                run(interp, "depends_build-delete", &["port:imake"])?;
+            }
+            "use_xmkmf" if enabled => {
+                run(interp, "depends_build-append", &["port:imake"])?;
+            }
+            "use_autoreconf" | "use_automake" | "use_autoconf" if enabled => {
+                // add_build_dep: only while the tool is the default command.
+                let kind = &option[4..];
+                let command = format!("{kind}.cmd");
+                let default = !interp.var_exists(&Value::from(command.as_str()))
+                    || interp.scalar(&command)?.as_str() == kind;
+                if default {
+                    run(interp, "depends_build-delete", &AUTOCONF)?;
+                    run(interp, "depends_build-append", &AUTOCONF)?;
+                }
+            }
+            _ => {}
+        }
+        Ok(Value::empty())
+    })
+}
+
+fn legacy_darwin(interp: &mut Interp) -> Result<bool, Exception> {
+    interp.with_global_scope(|interp| {
+        let darwin = interp
+            .scalar("os.platform")
+            .is_ok_and(|platform| platform.as_str() == "darwin");
+        let major = interp
+            .scalar("os.major")
+            .ok()
+            .and_then(|major| major.as_int().ok())
+            .unwrap_or(i64::MAX);
+        Ok(darwin && major < 14)
+    })
+}
+
+/// Upstream `portfetch::set_fetch_type`: version-control fetches have no
+/// distfiles and need their client.
+fn fetch_type(interp: &mut Interp, _: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(1, argv, 3, 0, "option action ?value?")?;
+    if argv[2].as_str() != "set" {
+        return Ok(Value::empty());
+    }
+    let kind = argv.get(3).map(Value::to_string).unwrap_or_default();
+    let dependency = match kind.as_str() {
+        "bzr" => Some("bin:bzr:bzr"),
+        "cvs" => Some("bin:cvs:cvs"),
+        "svn" => Some("path:bin/svn:subversion"),
+        // Oldest macOS whose git can validate GitHub's certificate.
+        "git" if !legacy_darwin(interp)? => Some("bin:git:git"),
+        "git" => Some("path:bin/git:git"),
+        "hg" => Some("bin:hg:mercurial"),
+        _ => None,
+    };
+    interp.with_global_scope(|interp| {
+        if kind != "standard" {
+            interp.eval("distfiles")?;
+        }
+        if let Some(dependency) = dependency {
+            interp.eval_value(&Value::from(vec![
+                "depends_fetch-append".into(),
+                dependency.into(),
+            ]))?;
         }
         Ok(Value::empty())
     })

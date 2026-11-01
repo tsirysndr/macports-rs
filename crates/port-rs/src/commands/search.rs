@@ -76,7 +76,18 @@ pub(super) fn run(out: &mut impl Write, index: &Index, s: Search, quiet: bool) -
                 if !categories.is_empty() {
                     write!(out, " ({categories})")?;
                 }
-                writeln!(out, "\n    {}", port.get("description"))?;
+                // Indented and wrapped only on a terminal, as upstream.
+                let description = port.get("description");
+                let width = crate::output::terminal_width();
+                if width == usize::MAX {
+                    writeln!(out, "\n{description}")?;
+                } else {
+                    writeln!(
+                        out,
+                        "\n{}",
+                        crate::output::wrap(description, "    ", 4, width)
+                    )?;
+                }
             }
         }
         if !quiet {

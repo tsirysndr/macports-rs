@@ -123,7 +123,7 @@ fn record(fields: &BTreeMap<String, String>, keep: &[&str], subports: bool) -> S
     let mut pairs = Vec::new();
     for (key, value) in fields {
         let kept = keep.contains(&key.as_str()) || (subports && key == "subports");
-        if kept && !value.is_empty() {
+        if kept {
             pairs.push(molt::Value::from(key.as_str()));
             pairs.push(molt::Value::from(value.as_str()));
         }

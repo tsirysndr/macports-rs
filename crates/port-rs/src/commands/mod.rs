@@ -807,6 +807,17 @@ impl Session {
                 Command::Uninstall(args) => lifecycle::uninstall(&path, args, &hooks, &progress)?,
                 _ => unreachable!(),
             }
+        } else if let Command::Info(args) = command {
+            // Without a local ports tree, info answers from the index alone.
+            let root = local::root(index_file, false, "info").ok().flatten();
+            info::run(
+                &mut out,
+                self.index(index_file, quiet)?,
+                args,
+                quiet,
+                verbose,
+                root.as_deref(),
+            )?;
         } else if let Command::Variants(args) = command {
             let root = local::root(index_file, args.index, "variants")?;
             variants::run(
@@ -901,7 +912,6 @@ impl Session {
                 }
                 Command::Echo(args) => inspect::run(&mut out, index, &args.ports, quiet, "echo")?,
                 Command::Search(args) => search::run(&mut out, index, args, quiet)?,
-                Command::Info(args) => info::run(&mut out, index, args, quiet, verbose)?,
                 Command::Outdated(_)
                 | Command::Dependents(_)
                 | Command::Rdependents(_)
@@ -968,6 +978,7 @@ impl Session {
                 | Command::Deps(_)
                 | Command::Rdeps(_)
                 | Command::Variants(_)
+                | Command::Info(_)
                 | Command::Unsupported(_) => unreachable!(),
             }
         }

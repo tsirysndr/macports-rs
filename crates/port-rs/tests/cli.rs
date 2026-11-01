@@ -122,7 +122,7 @@ fn search_human_output_includes_revision_categories_and_summary() {
     let fixture = Fixture::new();
     assert_eq!(
         stdout(&fixture.run(&["search", "curl"])),
-        "curl @8.0_1 (net, www)\n    Transfer data with URLs\n\ncurlish @1.0 (net)\n    A curl helper\n\nFound 2 ports.\n"
+        "curl @8.0_1 (net, www)\nTransfer data with URLs\n\ncurlish @1.0 (net)\nA curl helper\n\nFound 2 ports.\n"
     );
     assert_eq!(
         stdout(&fixture.run(&["search", "missing"])),
@@ -158,7 +158,13 @@ fn selectors_are_deduplicated_and_unknown_names_fail() {
     );
     assert!(!fixture.run(&["list", "missing"]).status.success());
     // Nothing is installed, so the pseudo-portname selects nothing.
-    let installed = fixture.run(&["list", "installed"]);
+    let registry = fixture.directory.path().join("registry.db");
+    let installed = fixture.run(&[
+        "--registry-file",
+        registry.to_str().unwrap(),
+        "list",
+        "installed",
+    ]);
     assert!(installed.status.success() && installed.stdout.is_empty());
 }
 #[test]

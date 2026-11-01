@@ -178,19 +178,17 @@ pub fn list_to_string(list: &[Value]) -> String {
             Mode::AsIs => {
                 if hash {
                     vec.push(brace_item(&item));
-                    hash = false;
                 } else {
                     vec.push(item)
                 }
             }
-            Mode::Brace => {
-                vec.push(brace_item(&item));
-            }
-            Mode::Escape => {
-                vec.push(escape_item(hash, &item));
-                hash = false;
-            }
+            Mode::Brace => vec.push(brace_item(&item)),
+            Mode::Escape => vec.push(escape_item(hash, &item, true)),
+            // A leading "#" is braced rather than escaped, as Tcl 8.6 does.
+            Mode::Mask if hash => vec.push(brace_item(&item)),
+            Mode::Mask => vec.push(escape_item(hash, &item, false)),
         }
+        hash = false;
     }
 
     vec.join(" ")
@@ -204,11 +202,12 @@ fn brace_item(item: &str) -> String {
     word
 }
 
-fn escape_item(hash: bool, item: &str) -> String {
+/// Tcl's `TclConvertElement` escape forms: `Escape` also escapes braces,
+/// `Mask` leaves them as they are.
+fn escape_item(hash: bool, item: &str, braces: bool) -> String {
     let mut word = String::new();
 
     // If hash, the first character is a "#" that must be escaped.
-    // Just push the backslash on the front.
     if hash {
         word.push('\\');
     }
@@ -227,19 +226,12 @@ fn escape_item(hash: bool, item: &str) -> String {
             word.push(letter);
             continue;
         }
-        if ch.is_whitespace() {
-            word.push('\\');
-            word.push(ch);
-            continue;
-        }
-
         match ch {
-            '{' | '}' | '"' | ';' | '$' | '[' | ']' | '\\' => {
-                word.push('\\');
-                word.push(ch);
-            }
-            _ => word.push(ch),
+            ']' | '[' | '$' | ';' | ' ' | '\\' | '"' => word.push('\\'),
+            '{' | '}' if braces => word.push('\\'),
+            _ => {}
         }
+        word.push(ch);
     }
 
     word
@@ -250,55 +242,75 @@ enum Mode {
     AsIs,
     Brace,
     Escape,
+    Mask,
 }
 
+/// Tcl 8.6's `TclScanElement` (with its compatibility rules): how an element
+/// must be quoted to read back as itself.
 fn get_mode(word: &str) -> Mode {
-    // FIRST, if it's the empty string, just brace it.
     if word.is_empty() {
         return Mode::Brace;
     }
-
-    // NEXT, inspect the content. A leading brace or quote would be read as
-    // quoting, so such words need quoting themselves.
-    let mut mode = if word.starts_with(['{', '"']) {
+    let bytes = word.as_bytes();
+    let mut forbid_none = false;
+    let mut require_escape = false;
+    let mut prefer_escape = false;
+    let mut prefer_brace = false;
+    let mut nesting = 0i64;
+    if bytes[0] == b'{' || bytes[0] == b'"' {
+        forbid_none = true;
+        prefer_brace = true;
+    }
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'{' => nesting += 1,
+            b'}' => {
+                nesting -= 1;
+                if nesting < 0 {
+                    require_escape = true;
+                }
+            }
+            b']' | b'"' => {
+                forbid_none = true;
+                prefer_escape = true;
+            }
+            b'[' | b'$' | b';' => {
+                forbid_none = true;
+                prefer_brace = true;
+            }
+            b'\\' => {
+                match bytes.get(i + 1) {
+                    None => require_escape = true,
+                    Some(b'\n') => {
+                        require_escape = true;
+                        i += 1;
+                    }
+                    Some(b'{' | b'}' | b'\\') => i += 1,
+                    Some(_) => {}
+                }
+                forbid_none = true;
+                prefer_brace = true;
+            }
+            b' ' | b'\t' | b'\n' | b'\x0b' | b'\x0c' | b'\r' => {
+                forbid_none = true;
+                prefer_brace = true;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    if nesting != 0 {
+        require_escape = true;
+    }
+    if require_escape {
+        Mode::Escape
+    } else if prefer_escape && !prefer_brace {
+        Mode::Mask
+    } else if forbid_none {
         Mode::Brace
     } else {
         Mode::AsIs
-    };
-    let mut brace_count = 0;
-    let mut unbalanced = false;
-
-    let mut iter = word.chars().peekable();
-
-    while let Some(ch) = iter.next() {
-        if ch.is_whitespace() {
-            mode = Mode::Brace;
-            continue;
-        }
-        match ch {
-            ';' | '$' | '[' | ']' => {
-                mode = Mode::Brace;
-            }
-            '{' => brace_count += 1,
-            '}' => {
-                brace_count -= 1;
-                unbalanced |= brace_count < 0;
-            }
-            '\\' => {
-                if iter.peek() == Some(&'\n') {
-                    return Mode::Escape;
-                } else {
-                    mode = Mode::Brace;
-                }
-            }
-            _ => (),
-        }
-    }
-
-    if brace_count != 0 || unbalanced {
-        Mode::Escape
-    } else {
-        mode
     }
 }
 
@@ -335,7 +347,23 @@ mod tests {
         assert_eq!(list_to_string(&[Value::from("a;b")]), "{a;b}");
         assert_eq!(list_to_string(&[Value::from("a$b")]), "{a$b}");
         assert_eq!(list_to_string(&[Value::from("a[b")]), "{a[b}");
-        assert_eq!(list_to_string(&[Value::from("a]b")]), "{a]b}");
+        assert_eq!(list_to_string(&[Value::from("a]b")]), "a\\]b");
+        // Results of Tcl 8.6 `list` for the same elements.
+        let tcl = |items: &[&str]| {
+            list_to_string(
+                &items
+                    .iter()
+                    .map(|item| Value::from(*item))
+                    .collect::<Vec<_>>(),
+            )
+        };
+        assert_eq!(tcl(&["a]{b}", "x"]), "a\\]{b} x");
+        assert_eq!(tcl(&["#a]", "x"]), "{#a]} x");
+        assert_eq!(
+            tcl(&["port\"", "\"Mac", "a\"b c", "a]b"]),
+            "port\\\" {\"Mac} {a\"b c} a\\]b"
+        );
+        assert_eq!(tcl(&["a\\{b", "x\\"]), "{a\\{b} x\\\\");
         assert_eq!(list_to_string(&[Value::from("a\\nb")]), "{a\\nb}");
         assert_eq!(
             list_to_string(&[Value::from("{ "), Value::from("abc")]),

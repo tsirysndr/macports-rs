@@ -1,6 +1,19 @@
 use port_rs::{index::Index, query::Matcher};
 use std::{hint::black_box, time::Instant};
 fn main() {
+    if let Some(path) = std::env::var_os("PORT_RS_INDEX") {
+        let text = std::fs::read_to_string(&path).unwrap();
+        let start = Instant::now();
+        for _ in 0..5 {
+            black_box(Index::parse(black_box(&text)).unwrap());
+        }
+        println!(
+            "Parse {} ({:.1} MiB): {:.2?}/iteration",
+            std::path::Path::new(&path).display(),
+            text.len() as f64 / 1_048_576.0,
+            start.elapsed() / 5
+        );
+    }
     let mut data = String::new();
     for i in 0..50_000 {
         let name = format!("package{i:05}");

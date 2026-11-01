@@ -166,6 +166,8 @@ struct State {
     overrides: BTreeSet<String>,
     variants: BTreeMap<String, Variant>,
     order: Vec<String>,
+    /// A variant was declared, even if later deleted (`PortInfo(variants)`).
+    declared_variants: bool,
     /// Variants whose Portfile declaration carried its own description.
     described_variants: BTreeSet<String>,
     selected: BTreeMap<String, bool>,
@@ -355,7 +357,6 @@ fn open(
         ("subport", requested.name.as_str()),
         ("revision", "0"),
         ("epoch", "0"),
-        ("platforms", "darwin"),
     ] {
         interp.set_scalar(name, value.into()).map_err(failure)?;
     }
@@ -506,7 +507,9 @@ fn open(
         .cloned()
         .unwrap_or_else(|| requested.name.clone());
     fields.insert("name".into(), name);
-    fields.insert("variants".into(), list(state.order.clone()).to_string());
+    if state.declared_variants {
+        fields.insert("variants".into(), list(state.order.clone()).to_string());
+    }
     if !state.subports.is_empty() {
         fields.insert("subports".into(), list(state.subports.clone()).to_string());
     }

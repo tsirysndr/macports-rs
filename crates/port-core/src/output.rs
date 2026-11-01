@@ -1,5 +1,20 @@
 //! Shared terminal text layout helpers.
+/// The width to wrap output to: the terminal's, or unlimited when stdout is
+/// not a terminal, as upstream's `term_get_size`.
+pub fn terminal_width() -> usize {
+    let term = console::Term::stdout();
+    if term.is_term() {
+        usize::from(term.size().1).max(40)
+    } else {
+        usize::MAX
+    }
+}
+
 pub fn wrap(text: &str, prefix: &str, indent: usize, width: usize) -> String {
+    // Off a terminal upstream prints the text as is, without wrapping.
+    if width == usize::MAX {
+        return format!("{prefix}{text}");
+    }
     let continuation = " ".repeat(indent);
     let mut lines = Vec::new();
     let mut current = prefix.to_owned();

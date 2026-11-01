@@ -16,7 +16,73 @@ pub fn dictionary(raw: &str) -> Result<BTreeMap<String, String>> {
         .collect())
 }
 
+/// Plain and braced words are copied as slices; the first word needing
+/// substitution hands the rest of the input to the general parser.
 pub fn parse(input: &str) -> Result<Vec<String>> {
+    let bytes = input.as_bytes();
+    let mut words = Vec::new();
+    let mut i = 0;
+    loop {
+        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        if i == bytes.len() {
+            return Ok(words);
+        }
+        let (word, end) = match bytes[i] {
+            b'{' => {
+                let mut depth = 1;
+                let mut j = i + 1;
+                let mut simple = true;
+                while j < bytes.len() {
+                    match bytes[j] {
+                        b'\\' => {
+                            if bytes.get(j + 1).is_none_or(|next| *next == b'\n') {
+                                simple = false;
+                                break;
+                            }
+                            j += 1;
+                        }
+                        b'{' => depth += 1,
+                        b'}' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                    j += 1;
+                }
+                if !simple || depth != 0 {
+                    break;
+                }
+                (&input[i + 1..j], j + 1)
+            }
+            b'"' => break,
+            _ => {
+                let mut j = i;
+                while j < bytes.len() && !bytes[j].is_ascii_whitespace() && bytes[j] != b'\\' {
+                    j += 1;
+                }
+                if j < bytes.len() && bytes[j] == b'\\' {
+                    break;
+                }
+                (&input[i..j], j)
+            }
+        };
+        ensure!(
+            end == bytes.len() || bytes[end].is_ascii_whitespace(),
+            "characters after closing brace"
+        );
+        words.push(word.to_owned());
+        i = end;
+    }
+    words.extend(parse_general(&input[i..])?);
+    Ok(words)
+}
+
+fn parse_general(input: &str) -> Result<Vec<String>> {
     let mut chars = input.chars().peekable();
     let mut words = Vec::new();
     while chars.peek().is_some() {
@@ -160,5 +226,29 @@ mod tests {
     #[test]
     fn continuation() {
         assert_eq!(parse("{hello\\\n  world}").unwrap(), ["hello world"]);
+    }
+}
+#[cfg(test)]
+mod fast_path {
+    #[test]
+    fn matches_the_general_parser() {
+        for input in [
+            "a b {c d} {e {f g}} h",
+            "name x description {café 😀\nsecond}",
+            "{a\\}b} c",
+            "{a\\\n   b} c",
+            "a\\ b c",
+            "\"quoted word\" plain",
+            "{unclosed",
+            "{a}b",
+            "  lead  trail  ",
+            "x {} {{}} y",
+        ] {
+            assert_eq!(
+                super::parse(input).ok(),
+                super::parse_general(input).ok(),
+                "{input:?}"
+            );
+        }
     }
 }

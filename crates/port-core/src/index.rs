@@ -94,6 +94,10 @@ pub fn record_length(record: &str) -> usize {
 
 /// The byte offset in `body` after a record `length` UTF-16 units long.
 pub fn record_end(body: &str, length: usize) -> Option<usize> {
+    // ASCII records (nearly all) have one unit per byte.
+    if body.len() >= length && body.as_bytes()[..length].is_ascii() {
+        return Some(length);
+    }
     let mut units = 0;
     for (offset, character) in body.char_indices() {
         if units == length {
@@ -102,6 +106,25 @@ pub fn record_end(body: &str, length: usize) -> Option<usize> {
         units += character.len_utf16();
     }
     (units == length).then_some(body.len())
+}
+
+/// One record's fields, checked against the name in its header.
+fn record((name, body): &(String, &str)) -> Result<Port> {
+    let values = tcl_list::parse(body).with_context(|| format!("invalid fields for {name}"))?;
+    ensure!(values.len() % 2 == 0, "odd field count for {name}");
+    let mut values = values.into_iter();
+    let mut fields = BTreeMap::new();
+    while let (Some(key), Some(value)) = (values.next(), values.next()) {
+        fields.insert(key, value);
+    }
+    ensure!(
+        fields.get("name") == Some(name),
+        "record name mismatch for {name}"
+    );
+    Ok(Port {
+        name: name.clone(),
+        fields,
+    })
 }
 
 impl Index {
@@ -141,7 +164,7 @@ impl Index {
     }
     pub fn parse(input: &str) -> Result<Self> {
         let mut rest = input;
-        let mut ports = BTreeMap::new();
+        let mut records = Vec::new();
         while !rest.is_empty() {
             let (header, body) = rest
                 .split_once('\n')
@@ -155,24 +178,37 @@ impl Index {
             let end = record_end(body, length)
                 .filter(|end| body[..*end].ends_with('\n'))
                 .with_context(|| format!("truncated or invalid record for {}", header[0]))?;
-            let values = tcl_list::parse(&body[..end - 1])
-                .with_context(|| format!("invalid fields for {}", header[0]))?;
-            ensure!(values.len() % 2 == 0, "odd field count for {}", header[0]);
-            let fields: BTreeMap<_, _> = values
-                .as_chunks::<2>()
-                .0
-                .iter()
-                .map(|p| (p[0].clone(), p[1].clone()))
-                .collect();
-            ensure!(
-                fields.get("name") == Some(&header[0]),
-                "record name mismatch for {}",
-                header[0]
-            );
-            let name = header[0].clone();
-            ensure!(!ports.contains_key(&name), "duplicate port {name}");
-            ports.insert(name.clone(), Port { name, fields });
+            let [name, _] = <[String; 2]>::try_from(header).unwrap();
+            records.push((name, &body[..end - 1]));
             rest = &body[end..];
+        }
+        // Field lists are independent; parse them on every core.
+        let threads = std::thread::available_parallelism()
+            .map(usize::from)
+            .unwrap_or(1)
+            .min(records.len().div_ceil(2048))
+            .max(1);
+        let chunk = records.len().div_ceil(threads).max(1);
+        let parsed: Vec<Result<Vec<Port>>> = std::thread::scope(|scope| {
+            let workers: Vec<_> = records
+                .chunks(chunk)
+                .map(|records| scope.spawn(move || records.iter().map(record).collect()))
+                .collect();
+            workers
+                .into_iter()
+                .map(|worker| worker.join().expect("PortIndex parser panicked"))
+                .collect()
+        });
+        let mut ports = BTreeMap::new();
+        for chunk in parsed {
+            for port in chunk? {
+                ensure!(
+                    !ports.contains_key(&port.name),
+                    "duplicate port {}",
+                    port.name
+                );
+                ports.insert(port.name.clone(), port);
+            }
         }
         Ok(Self {
             ports,

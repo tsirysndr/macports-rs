@@ -52,6 +52,7 @@ pub(super) fn install(interp: &mut Interp, id: ContextID) -> MoltResult {
             "[list --append-http-header {Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8}]",
         ),
         ("license", "unknown"),
+        ("platforms", "darwin"),
         ("global_mirror_site", "macports_distfiles"),
         ("fetch.type", "standard"),
         ("fetch.user", ""),

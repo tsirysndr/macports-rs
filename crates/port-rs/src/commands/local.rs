@@ -119,11 +119,14 @@ impl Host {
         port: &crate::index::Port,
         spec: &crate::spec::PortSpec,
     ) -> Result<crate::portfile::Session> {
+        // Evaluate under the indexed spelling, as upstream resolves names.
+        let mut spec = spec.clone();
+        spec.name = port.name.clone();
         let mut session = crate::portfile::open_from_tree_with_registry(
             root,
             port,
             &self.context.variables,
-            spec,
+            &spec,
             &self.context.environment,
             self.archives.clone(),
             Some(&self.registry_path),
