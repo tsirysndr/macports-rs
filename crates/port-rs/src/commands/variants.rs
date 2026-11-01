@@ -50,11 +50,7 @@ pub(super) fn run(
 
 fn render(port: &Port, spec: &PortSpec, quiet: bool, width: usize) -> Result<String> {
     let mut text = String::new();
-    let Some(variants) = port
-        .fields
-        .get("variants")
-        .filter(|variants| !variants.trim().is_empty())
-    else {
+    let Some(variants) = port.fields.get("variants") else {
         if !quiet {
             writeln!(text, "{} has no variants", port.name)?;
         }
