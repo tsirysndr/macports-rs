@@ -292,12 +292,17 @@ pub(super) fn available(host: &Host, session: &mut Session, machine: &Platform) 
                     let request = client.head(url);
                     async move {
                         request.send().await.is_ok_and(|response| {
-                            response.status().is_success()
-                                && response.content_length() != Some(0)
-                                && !response
+                            // A HEAD body is empty; the size is in the header.
+                            let header = |name| {
+                                response
                                     .headers()
-                                    .get(reqwest::header::CONTENT_TYPE)
+                                    .get(name)
                                     .and_then(|value| value.to_str().ok())
+                                    .map(str::to_owned)
+                            };
+                            response.status().is_success()
+                                && header(reqwest::header::CONTENT_LENGTH).as_deref() != Some("0")
+                                && !header(reqwest::header::CONTENT_TYPE)
                                     .is_some_and(|value| value.starts_with("text/html"))
                         })
                     }
