@@ -93,3 +93,91 @@ fn startup_binding_is_available_to_groups_and_sees_a_later_created_registry() {
     tx.commit().unwrap();
     assert_eq!(s.invoke("registry_exists", &["app", "1"]).unwrap(), "1");
 }
+
+#[test]
+fn dependency_ports_and_active_entries_follow_upstream() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("registry.db");
+    let mut writer = Writer::create(&path).unwrap();
+    let mut tx = writer.transaction().unwrap();
+    let id = tx
+        .register(&NewImage {
+            name: "zstd".into(),
+            version: "1.5".into(),
+            revision: 2,
+            variants: "+universal".into(),
+            location: "/tmp/zstd".into(),
+            archs: "arm64".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    tx.activate(id, &[]).unwrap();
+    tx.commit().unwrap();
+    let mut s = session();
+    s.set_registry_lookup(Some(&path));
+    assert_eq!(s.invoke("_get_dep_port", &["port:zstd"]).unwrap(), "zstd");
+    s.invoke("set", &["prefix", tmp.path().to_str().unwrap()])
+        .unwrap();
+    s.invoke("set", &["frameworks_dir", "/nonexistent"])
+        .unwrap();
+    s.invoke("set", &["os.platform", "darwin"]).unwrap();
+    assert_eq!(
+        s.invoke("_get_dep_port", &["path:lib/libnothing.dylib:nothing"])
+            .unwrap(),
+        "nothing"
+    );
+    assert_eq!(
+        s.invoke("registry_active", &["ZSTD"]).unwrap(),
+        "{zstd 1.5 2 +universal 1 0}"
+    );
+    assert_eq!(
+        s.invoke("registry_active", &["missing"])
+            .unwrap_err()
+            .to_string(),
+        "Portfile evaluation: Registry error: missing not registered as installed & active."
+    );
+}
+
+#[test]
+fn hooks_deactivate_replaced_ports_as_upstream() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("registry.db");
+    let mut writer = Writer::create(&path).unwrap();
+    let mut tx = writer.transaction().unwrap();
+    let id = tx
+        .register(&NewImage {
+            name: "old".into(),
+            version: "1".into(),
+            location: "/tmp/old".into(),
+            archs: "arm64".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    tx.activate(id, &[]).unwrap();
+    tx.commit().unwrap();
+    drop(writer);
+    let mut s = session();
+    s.set_registry_lookup(Some(&path));
+    assert!(
+        s.invoke("registry_deactivate_composite", &["old", "2"])
+            .unwrap_err()
+            .to_string()
+            .ends_with("Active version of old is not 2 but 1_0.")
+    );
+    s.invoke(
+        "registry_deactivate_composite",
+        &["old", "", "ports_nodepcheck 1"],
+    )
+    .unwrap();
+    assert!(s.invoke("registry_active", &["old"]).is_err());
+    assert_eq!(
+        s.invoke("registry_deactivate_composite", &["old"]).unwrap(),
+        ""
+    );
+    assert!(
+        s.invoke("registry_deactivate_composite", &["missing"])
+            .unwrap_err()
+            .to_string()
+            .ends_with("Image error: port missing is not active.")
+    );
+}

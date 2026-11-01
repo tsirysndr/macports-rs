@@ -1159,3 +1159,26 @@ fn global_options_pseudo_portnames_paths_and_command_files() {
     tree.ok(&["uninstall", "inactive"]);
     assert_eq!(echo("inactive"), "");
 }
+
+#[test]
+fn activation_hooks_resolve_dependencies_and_deactivate_replaced_ports() {
+    let tree = Tree::new();
+    tree.ok(&["install", "lib"]);
+    tree.port(
+        "new",
+        "1",
+        r#"pre-activate {
+    if {[_get_dep_port port:lib] ne "lib"} { error "lib not resolved" }
+    if {![catch {set installed [lindex [registry_active lib] 0]}]} {
+        registry_deactivate_composite lib "" [list ports_nodepcheck 1]
+    }
+}"#,
+    );
+    tree.ok(&["install", "new"]);
+    let list = tree.ok(&["installed"]);
+    assert!(
+        list.contains("new @1_0 (active)") && list.contains("lib @1_0\n"),
+        "{list}"
+    );
+    assert!(!tree.file("share/lib/version").exists());
+}
