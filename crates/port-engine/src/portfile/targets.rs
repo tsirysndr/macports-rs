@@ -219,7 +219,7 @@ fn target(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
         ]);
         interp.eval_value(&Value::from(vec![
             "proc".into(),
-            format!("do-{}", binding.phase).into(),
+            format!("::do-{}", binding.phase).into(),
             Value::empty(),
             body,
         ]))?;
@@ -264,9 +264,10 @@ fn wrapper(interp: &mut Interp, name: &str, body: &str) -> MoltResult {
     let script = Value::from(vec![Value::from(user)]);
     let argument = Value::from(vec![script]);
     let body = format!("if {{[catch {argument} result]}} {{return -code error $result}}; return 0");
+    // Global, as upstream, even when registered from a namespaced callback.
     interp.eval_value(&Value::from(vec![
         "proc".into(),
-        name.into(),
+        format!("::{name}").into(),
         "name".into(),
         body.into(),
     ]))

@@ -90,7 +90,7 @@ pub(super) fn userproc(interp: &mut Interp, name: &str, body: &str) -> MoltResul
     let body = format!("global {{*}}[info globals]\n{body}");
     interp.eval_value(&Value::from(vec![
         "proc".into(),
-        name.into(),
+        format!("::{}", name.trim_start_matches("::")).into(),
         Value::empty(),
         body.into(),
     ]))
