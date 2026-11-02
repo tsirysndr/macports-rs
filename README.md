@@ -12,6 +12,8 @@ installs, upgrades, snapshots, sync, lint and installer packages, with the
 Test it against a separate prefix (see `PORTSRC` in the guide) before using it
 on an existing MacPorts installation.
 
+![sudo port install neovim](.github/assets/preview.png)
+
 ## Install
 
 On macOS (Apple Silicon or Intel), install the latest release with:
