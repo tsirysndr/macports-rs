@@ -68,7 +68,7 @@ enum Source {
     Generated(plist::Generated),
 }
 struct Item {
-    source: Source,
+    source: Option<Source>,
     unique: String,
     plist: String,
     location: String,
@@ -86,7 +86,7 @@ fn attribute(interp: &mut Interp, attrs: &Attributes, key: &str) -> Result<Optio
 fn attr_text(interp: &mut Interp, attrs: &Attributes, key: &str, default: &str) -> Result<String> {
     Ok(attribute(interp, attrs, key)?.map_or_else(|| default.into(), |value| value.to_string()))
 }
-fn plan(interp: &mut Interp) -> Result<Vec<Item>> {
+fn plan(interp: &mut Interp, staging: bool) -> Result<Vec<Item>> {
     let raw = text(interp, "startupitems", "")?;
     let groups = if raw.is_empty() {
         vec![Attributes::new()]
@@ -122,13 +122,13 @@ fn plan(interp: &mut Interp) -> Result<Vec<Item>> {
     };
     let mut items = Vec::new();
     for attrs in groups {
-        if let Some(item) = plan_item(interp, &attrs)? {
+        if let Some(item) = plan_item(interp, &attrs, staging)? {
             items.push(item);
         }
     }
     Ok(items)
 }
-fn plan_item(interp: &mut Interp, attrs: &Attributes) -> Result<Option<Item>> {
+fn plan_item(interp: &mut Interp, attrs: &Attributes, staging: bool) -> Result<Option<Item>> {
     let enabled = attribute(interp, attrs, "create")?
         .map(|v| v.as_bool().map_err(failure))
         .transpose()?
@@ -181,7 +181,10 @@ fn plan_item(interp: &mut Interp, attrs: &Attributes) -> Result<Option<Item>> {
         matches!(location.as_str(), "LaunchAgents" | "LaunchDaemons"),
         "unsupported launchd location {location}"
     );
-    let source = if custom.is_empty() {
+    // Loading installed services must not require build files or regenerate plists.
+    let source = if !staging {
+        None
+    } else if custom.is_empty() {
         let generated = plist::generate(interp, attrs, &name, &unique, &location)?;
         if let Some((filename, _)) = &generated.wrapper {
             ensure!(
@@ -189,7 +192,7 @@ fn plan_item(interp: &mut Interp, attrs: &Attributes) -> Result<Option<Item>> {
                 "startup wrapper and plist filenames must differ"
             );
         }
-        Source::Generated(generated)
+        Some(Source::Generated(generated))
     } else {
         let source = PathBuf::from(custom);
         ensure!(
@@ -198,7 +201,7 @@ fn plan_item(interp: &mut Interp, attrs: &Attributes) -> Result<Option<Item>> {
                 .is_file(),
             "custom plist must be a regular file"
         );
-        Source::Custom(source)
+        Some(Source::Custom(source))
     };
     let flag = |interp: &mut Interp, key: &str, default: &str| -> Result<bool> {
         Value::from(attr_text(interp, attrs, key, default)?)
@@ -228,7 +231,7 @@ fn eval_targets(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResul
         return commands::unsupported(interp, id, argv);
     }
     interp.with_global_scope(|interp| {
-        let items = plan(interp).map_err(|e| error(e.to_string()))?;
+        let items = plan(interp, false).map_err(|e| error(e.to_string()))?;
         let autostart_only = interp
             .scalar("portstartupitem::autostart_only")
             .ok()
@@ -281,7 +284,7 @@ fn eval_targets(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResul
 }
 
 pub(super) fn preflight(interp: &mut Interp, _id: ContextID) -> MoltResult {
-    plan(interp)
+    plan(interp, true)
         .map(|_| Value::empty())
         .map_err(|e| error(e.to_string()))
 }
@@ -291,7 +294,7 @@ fn create(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
     }
     interp.with_global_scope(|interp| {
         let result = (|| -> Result<()> {
-            let items = plan(interp)?;
+            let items = plan(interp, true)?;
             if items.is_empty() {
                 return Ok(());
             }
@@ -302,13 +305,16 @@ fn create(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
             );
             let prefix = interp.scalar("prefix").map_err(failure)?.to_string();
             for item in items {
+                let source = item
+                    .source
+                    .context("startup item staging source is missing")?;
                 let relative = format!("{prefix}/etc/{}/{}", item.location, item.unique);
                 let directory = destroot_mtree::stage_path(&root, &relative)?;
                 let destination = directory.join(&item.plist);
                 // file copy without -force must not overwrite existing entries.
                 match fs::symlink_metadata(&destination) {
                     Ok(metadata)
-                        if matches!(item.source, Source::Generated(_)) && metadata.is_file() => {}
+                        if matches!(source, Source::Generated(_)) && metadata.is_file() => {}
                     Ok(_) => bail!(
                         "custom plist destination already exists: {}",
                         destination.display()
@@ -321,7 +327,7 @@ fn create(interp: &mut Interp, id: ContextID, argv: &[Value]) -> MoltResult {
                     .creation_mask
                     .context("creation mask is not initialized")?;
                 crate::build::directories::create_all(&directory, Some(mask))?;
-                match &item.source {
+                match &source {
                     Source::Custom(source) => copy(source, &destination)?,
                     Source::Generated(generated) => {
                         if let Some((filename, script)) = &generated.wrapper {

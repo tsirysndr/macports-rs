@@ -107,3 +107,83 @@ fn unwritable_prefix_rejects_activation_start() {
             .contains("MacPorts requires root privileges for this action")
     );
 }
+
+#[test]
+fn installed_services_do_not_require_build_time_sources() {
+    for generated in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("etc/LaunchAgents");
+        std::fs::create_dir_all(&directory).unwrap();
+        let installed = directory.join("org.macports.app.plist");
+        std::fs::write(&installed, "installed plist").unwrap();
+        let mut s = session(
+            r#"
+            name app; version 1; notes ready
+            startupitem.type launchd
+            startupitem.location LaunchAgents
+            startupitem.install no
+            startupitem.autostart yes
+            set startupitem_autostart yes
+            "#,
+        );
+        s.invoke(
+            "proc",
+            &[
+                "system",
+                "command",
+                "global launched; set launched $command",
+            ],
+        )
+        .unwrap();
+        s.invoke("set", &["prefix", root.path().to_str().unwrap()])
+            .unwrap();
+        if generated {
+            s.invoke("startupitem.create", &["yes"]).unwrap();
+            // A load must not revalidate generation-only inputs either.
+            s.invoke("startupitem.pidfile", &["invalid-style"]).unwrap();
+        } else {
+            s.invoke(
+                "startupitem.custom_file",
+                &[root
+                    .path()
+                    .join("missing-work/source.plist")
+                    .to_str()
+                    .unwrap()],
+            )
+            .unwrap();
+        }
+        s.invoke("portactivate::activate_finish", &[]).unwrap();
+        assert_eq!(
+            s.scalar("launched").unwrap(),
+            format!("/bin/launchctl load -w {}", installed.display())
+        );
+        assert_eq!(s.take_notifications(), vec![("app".into(), "ready".into())]);
+        std::fs::remove_file(&installed).unwrap();
+        s.invoke("eval_targets", &["unload"]).unwrap();
+        assert_eq!(
+            s.scalar("launched").unwrap(),
+            format!("/bin/launchctl unload -w {}", installed.display())
+        );
+        assert!(
+            s.invoke("eval_targets", &["load"])
+                .unwrap_err()
+                .to_string()
+                .contains("was not found")
+        );
+    }
+}
+
+#[test]
+fn autostart_skips_non_autostart_service_with_missing_source() {
+    let mut s = session(
+        r#"
+        name app; version 1
+        startupitem.type launchd
+        startupitem.custom_file /missing-work/source.plist
+        startupitem.autostart no
+        set startupitem_autostart yes
+        "#,
+    );
+    s.invoke("set", &["prefix", "/unused"]).unwrap();
+    s.invoke("portactivate::activate_finish", &[]).unwrap();
+}
