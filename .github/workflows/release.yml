@@ -17,9 +17,16 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Checkout FluentCI tooling
+        uses: actions/checkout@v4
         with:
-          targets: ${{ matrix.target }}
+          ref: ${{ github.workflow_sha }}
+          path: .ci-tooling
+      - uses: fluentci-io/setup-fluentci@next
+      - uses: ./.ci-tooling/.github/actions/fluentci-toolchain
+      - name: Set up rust
+        run: fluentci run setup-rust setup --toolchain stable --targets '${{ matrix.target }}' | node "$GITHUB_WORKSPACE/.ci-tooling/.fluentci/github-env.mjs"
+        shell: bash
       - run: cargo build --locked --release --target ${{ matrix.target }} --bin port
       - name: Package
         run: |
@@ -31,10 +38,20 @@ jobs:
         with:
           name: port-${{ matrix.target }}
           path: dist/*
+    defaults:
+      run:
+        shell: bash
   release:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout FluentCI tooling
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .ci-tooling
+      - uses: fluentci-io/setup-fluentci@next
+      - uses: ./.ci-tooling/.github/actions/fluentci-toolchain
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -43,3 +60,6 @@ jobs:
         with:
           files: dist/*
           generate_release_notes: true
+    defaults:
+      run:
+        shell: bash
